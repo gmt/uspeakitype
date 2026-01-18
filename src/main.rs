@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use clap::Parser;
 
-use audio::AudioCapture;
+use audio::{AudioCapture, CaptureConfig, CaptureControl};
 
 #[derive(Parser)]
 #[command(name = "barbara")]
@@ -18,27 +18,68 @@ struct Args {
 
     #[arg(long)]
     demo: bool,
+
+    #[arg(long)]
+    auto_gain: bool,
+
+    #[arg(long)]
+    list_sources: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    if args.list_sources {
+        println!("Available audio sources:");
+        match audio::list_audio_sources() {
+            Ok(sources) => {
+                for source in sources {
+                    println!("  [{}] {} - {}", source.id, source.name, source.description);
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to list sources: {}", e);
+            }
+        }
+        return Ok(());
+    }
 
     println!("barbara v{}", env!("CARGO_PKG_VERSION"));
 
     let running = Arc::new(AtomicBool::new(true));
     let audio_state = ui::new_shared_state();
 
-    if args.demo {
+    let capture_control: Option<Arc<CaptureControl>> = if args.demo {
         run_demo_audio(audio_state.clone());
+        None
     } else {
+        let config = CaptureConfig {
+            auto_gain_enabled: args.auto_gain,
+            target_headroom: 0.8,
+        };
+
         let state = audio_state.clone();
-        let _capture = AudioCapture::new(Box::new(move |samples| {
-            state.write().update_samples(samples);
-        }))?;
-    }
+        let capture = AudioCapture::new(
+            Box::new(move |samples| {
+                state.write().update_samples(samples);
+            }),
+            config,
+        )?;
+
+        let control = capture.control().clone();
+
+        if args.auto_gain {
+            audio_state.write().auto_gain_enabled = true;
+        }
+
+        std::mem::forget(capture);
+        Some(control)
+    };
 
     if args.headless {
         println!("Headless mode - press Ctrl+C to exit");
+        println!("Commands: [p]ause, [g]ain toggle, [q]uit");
+
         while running.load(Ordering::Relaxed) {
             std::thread::sleep(std::time::Duration::from_millis(100));
             let state = audio_state.read();
@@ -47,7 +88,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
     } else {
-        ui::run(audio_state, running);
+        ui::run(audio_state, running, capture_control);
     }
 
     Ok(())
