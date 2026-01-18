@@ -1,5 +1,5 @@
 //! Audio capture and VAD
-//! 
+//!
 //! Responsibilities:
 //! - Capture audio from microphone (portaudio)
 //! - Run Silero VAD to detect speech/silence

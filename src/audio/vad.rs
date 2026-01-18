@@ -1,7 +1,7 @@
 //! Silero VAD - Voice Activity Detection
 //!
 //! TODO: Port from sonori/src/silero_audio_processor.rs
-//! 
+//!
 //! Key insight: In barbara, VAD is for COMMIT DETECTION, not batching.
 //! - We transcribe continuously as audio arrives
 //! - VAD tells us when speaker paused → commit the partial

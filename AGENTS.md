@@ -2,150 +2,200 @@
 
 **Named for:** Greek "barbaros" - one who babbles unintelligibly ("bar bar bar"). Our job: make the babbling intelligible.
 
-## What This Is
+## Quick Reference
 
-A streaming speech-to-text system that shows words as you speak and *revises* earlier guesses as more context arrives. Unlike batch ASR (wait for silence → transcribe → show), streaming ASR updates continuously.
-
-```
-Batch (Whisper/Sonori):     Streaming (Barbara):
-[speak 3 seconds]           "The"
-[silence detected]          "The qui"
-[500ms processing]          "The quick br"
-"The quick brown fox"       "The quick brown fox"
+```bash
+cargo check              # Type check without building
+cargo build              # Debug build
+cargo build --release    # Release build
+cargo run                # Run debug binary
+cargo run -- --headless  # Terminal-only mode (future)
+cargo clippy             # Lint (no config - uses defaults)
+cargo fmt                # Format (no config - uses defaults)
+cargo test               # Run all tests
+cargo test test_name     # Run single test
+cargo test -- --nocapture  # Show println! output
 ```
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      INFERENCE (Rust)                           │
-│  ┌──────────┐   ┌───────────┐   ┌─────────┐   ┌─────────────┐  │
-│  │  Audio   │ → │ Streaming │ → │  WGPU   │ → │  Clipboard  │  │
-│  │ Capture  │   │ Moonshine │   │ Overlay │   │  / Paste    │  │
-│  └──────────┘   └───────────┘   └─────────┘   └─────────────┘  │
-│                      │                              │           │
-│                      ▼                              ▼           │
-│              ┌──────────────────────────────────────────┐       │
-│              │  Corrections Store (future)              │       │
-│              └──────────────────────────────────────────┘       │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼ (one-way, overnight)
-┌─────────────────────────────────────────────────────────────────┐
-│                    TRAINING (Python, future)                    │
-│              Fine-tune on corrections → export ONNX             │
-└─────────────────────────────────────────────────────────────────┘
+src/
+├── main.rs           # CLI entry (clap), orchestrates modules
+├── audio/
+│   ├── mod.rs        # Re-exports AudioCapture, SileroVad
+│   ├── capture.rs    # PortAudio 16kHz mono capture
+│   └── vad.rs        # Silero VAD for commit detection
+├── backend/
+│   ├── mod.rs        # Re-exports MoonshineStreamer
+│   └── moonshine.rs  # ONNX streaming inference
+└── ui/
+    ├── mod.rs        # TranscriptState + re-exports
+    ├── app.rs        # winit + Wayland layer shell
+    └── renderer.rs   # WGPU + glyphon text rendering
 ```
 
-## Key Insight: VAD Role Change
+## Core Concept: Streaming vs Batch ASR
 
-In Sonori (batch): VAD gates WHEN to transcribe (silence → send segment → transcribe)  
-In Barbara (streaming): VAD triggers COMMIT (transcribe continuously, silence → finalize phrase)
+Batch (Whisper): Wait for silence → transcribe → show all at once
+Streaming (Barbara): Show words as spoken → revise earlier guesses → commit on silence
+
+VAD role: **Commit detection**, not batching. We transcribe continuously; VAD signals when to finalize.
+
+## Code Style
+
+### Formatting
+- **No rustfmt.toml** - use `cargo fmt` defaults
+- **No clippy.toml** - use `cargo clippy` defaults
+- 4 spaces, no tabs
+- Max line length ~100 (soft limit)
+
+### Naming
+- `snake_case` for functions, methods, variables, modules
+- `PascalCase` for types, traits, enums
+- `SCREAMING_SNAKE` for constants
+- Descriptive names; avoid abbreviations except common ones (vad, asr, ui)
+
+### Imports
+```rust
+// Order: std, external crates, crate internals
+use std::path::Path;
+
+use anyhow::Result;
+use clap::Parser;
+
+use crate::audio::AudioCapture;
+```
+
+### Module Organization
+- One `mod.rs` per directory with `pub mod` declarations
+- `pub use` for convenient re-exports from `mod.rs`
+- Module doc comments with `//!` at top of file
 
 ```rust
-loop {
-    audio_chunk = recv_audio();
-    buffer.extend(audio_chunk);
-    
-    partial_text = moonshine.transcribe(&buffer);  // ~30ms for 1s audio
-    ui.show_partial(partial_text);
-    
-    if vad.is_silence() {
-        ui.commit(partial_text);
-        clipboard.copy(&partial_text);
-        buffer.clear();
-    }
+//! Silero VAD - Voice Activity Detection
+//!
+//! Key insight: VAD is for COMMIT DETECTION, not batching.
+```
+
+### Error Handling
+- Use `anyhow::Result<T>` for fallible functions
+- Use `?` for propagation
+- Provide context with `.context("what failed")`
+
+```rust
+pub fn new(model_path: &Path) -> anyhow::Result<Self> {
+    let session = Session::builder()
+        .commit_from_file(model_path)
+        .context("loading moonshine model")?;
+    Ok(Self { session })
 }
 ```
 
-## Why Moonshine
+### Structs and Enums
+```rust
+pub struct MoonshineStreamer {
+    // TODO: encoder, decoder, tokenizer
+}
 
-| Model | Params | Speed on CPU | Streaming |
-|-------|--------|--------------|-----------|
-| Whisper Base | 74M | 4.8x realtime | No |
-| Moonshine Base | 62M | 27x realtime | Yes |
-
-Moonshine is fast enough on CPU that CUDA isn't necessary. Designed for edge devices.
-
-## Stealing from Sonori
-
-**Keep:**
-- WGPU overlay + Wayland layer shell (forked winit)
-- Portal integration (global shortcuts)
-- Audio capture (portaudio)
-- Silero VAD model
-- wl-copy clipboard
-
-**Remove:**
-- 29s chunking logic
-- VAD-gated batching
-- Prompt conditioning for chunk continuity
-- Manual vs realtime mode distinction
-- Multi-backend abstraction (Moonshine only)
-
-## Phased Plan
-
-### Phase 1: MVP Streaming (current)
-- [x] Project skeleton with module structure
-- [ ] Port audio capture from sonori
-- [ ] Port Moonshine inference (use existing ONNX backend)
-- [ ] Port minimal UI (layer shell + text)
-- [ ] Wire streaming loop
-- [ ] Partial vs committed text rendering
-
-### Phase 2: Correction Infrastructure
-- [ ] Store (audio, transcript, correction) tuples
-- [ ] Implicit: user edits before paste = correction
-- [ ] Explicit: approve/reject buttons (optional)
-
-### Phase 3: Fine-tuning Pipeline  
-- [ ] Python script reads corrections
-- [ ] LoRA fine-tune Moonshine
-- [ ] Export ONNX, inference side hot-reloads
-
-### Phase 4: Wayland Input Device
-- [ ] Investigate KDE/fcitx/ibus situation
-- [ ] Currently blocked by upstream issues
-- [ ] For now: clipboard hacks (wl-copy)
-
-## Reference: Moonshine Demo
-
-The official Moonshine `live_captions.py` demo shows the streaming pattern:
-https://github.com/moonshine-ai/moonshine/tree/main/demo
-
-## Current State
-
-```
-~/src/barbara/
-├── Cargo.toml          # Dependencies locked, compiles
-└── src/
-    ├── main.rs         # CLI entry point
-    ├── audio/
-    │   ├── capture.rs  # TODO: port from sonori
-    │   └── vad.rs      # TODO: port from sonori
-    ├── backend/
-    │   └── moonshine.rs # TODO: port inference
-    └── ui/
-        ├── mod.rs      # TranscriptState (partial/committed)
-        ├── app.rs      # TODO: port layer shell
-        └── renderer.rs # TODO: port WGPU/glyphon
+pub enum StreamEvent {
+    /// Partial transcription (may be revised)
+    Partial(String),
+    /// Committed transcription (final for this phrase)
+    Commit(String),
+}
 ```
 
-## Sonori Reference Locations
+### Documentation
+- Doc comments on public items: `///` for items, `//!` for modules
+- Keep it brief; focus on *why*, not *what*
+- Use `TODO:` comments for unimplemented parts
 
-When porting, look at:
-- `sonori/src/src/audio_capture.rs` - PortAudio setup
-- `sonori/src/src/silero_audio_processor.rs` - Silero VAD
-- `sonori/src/src/backend/moonshine/` - Moonshine inference
-- `sonori/src/src/ui/app.rs` - Layer shell setup
-- `sonori/src/src/ui/text_renderer.rs` - Glyphon text
-- `sonori/src/src/ui/window.rs` - WGPU setup
+### Unimplemented Code
+- Use `todo!("Port from sonori")` with context
+- Keep skeleton structs/functions for architecture clarity
 
-## Commands
+## Key Dependencies
+
+| Crate | Purpose |
+|-------|---------|
+| `ort` | ONNX Runtime for ML inference (Moonshine, Silero) |
+| `pipewire` | PipeWire audio capture (16kHz mono) |
+| `wgpu` | GPU rendering for overlay |
+| `glyphon` | Text rendering on WGPU |
+| `winit` | Windowing (forked for Wayland layer shell) |
+| `anyhow` | Error handling |
+| `clap` | CLI argument parsing |
+| `tokio` | Async runtime |
+
+## Porting from Sonori
+
+When implementing TODOs, reference sonori source:
+- `sonori/src/audio_capture.rs` → `src/audio/capture.rs`
+- `sonori/src/silero_audio_processor.rs` → `src/audio/vad.rs`
+- `sonori/src/backend/moonshine/` → `src/backend/moonshine.rs`
+- `sonori/src/ui/app.rs` → `src/ui/app.rs`
+- `sonori/src/ui/text_renderer.rs` + `window.rs` → `src/ui/renderer.rs`
+
+**Key simplifications from sonori:**
+- No 29s chunking logic
+- No multi-backend abstraction (Moonshine only)
+- No buttons, scrollbar
+- Simpler UI state: just `partial` and `committed` text
+- Spectrogram included (simplified bar visualization)
+
+## Testing
 
 ```bash
-cd ~/src/barbara
-cargo check    # Verify compiles
-cargo run      # Run (just prints stub messages for now)
-cargo run -- --headless  # Future: terminal-only mode
+cargo test                        # All tests
+cargo test moonshine              # Tests matching "moonshine"
+cargo test --lib                  # Library tests only
+cargo test --doc                  # Doc tests only
 ```
+
+No tests exist yet. When adding:
+- Unit tests in same file with `#[cfg(test)]` module
+- Integration tests in `tests/` directory
+- Use `#[test]` attribute
+
+## Common Patterns
+
+### Result handling with anyhow
+```rust
+fn main() -> anyhow::Result<()> {
+    let args = Args::parse();
+    do_something()?;
+    Ok(())
+}
+```
+
+### State struct pattern
+```rust
+pub struct TranscriptState {
+    pub committed: String,
+    pub partial: String,
+}
+
+impl TranscriptState {
+    pub fn new() -> Self { ... }
+    pub fn set_partial(&mut self, text: String) { ... }
+    pub fn commit(&mut self) { ... }
+}
+```
+
+### Re-export pattern in mod.rs
+```rust
+pub mod capture;
+pub mod vad;
+
+pub use capture::AudioCapture;
+pub use vad::SileroVad;
+```
+
+## Phase 1 TODO (Current)
+
+- [x] Port audio capture (PipeWire, 16kHz mono)
+- [ ] Port Moonshine inference
+- [x] Port minimal UI (layer shell + spectrogram + text)
+- [ ] Wire streaming loop
+- [x] Partial vs committed text rendering (two-tone)

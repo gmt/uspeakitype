@@ -1,28 +1,286 @@
-//! WGPU rendering
-//!
-//! TODO: Port from sonori/src/ui/
-//! - window.rs (WGPU setup)
-//! - text_renderer.rs (glyphon)
-//! - rounded_rect.wgsl (background)
-//!
-//! Simplifications from sonori:
-//! - No spectrogram
-//! - No button system  
-//! - No scrollbar (for now)
-//! - Just: rounded rect background + text with partial/committed distinction
+//! WGPU rendering - window state and render loop
+
+use std::sync::Arc;
+
+use wgpu::util::DeviceExt;
+use winit::dpi::PhysicalSize;
+use winit::window::Window;
+
+use super::spectrogram::Spectrogram;
+use super::text_renderer::TextRenderer;
+use super::SharedAudioState;
+
+const WINDOW_WIDTH: u32 = 400;
+const WINDOW_HEIGHT: u32 = 160;
+const TEXT_HEIGHT: u32 = 80;
+const SPECTROGRAM_HEIGHT: u32 = 70;
+const GAP: u32 = 10;
+const PADDING: f32 = 12.0;
 
 pub struct Renderer {
-    // TODO: WGPU device, queue, text renderer
+    pub window: Arc<dyn Window>,
+    surface: wgpu::Surface<'static>,
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
+    config: wgpu::SurfaceConfiguration,
+    bg_pipeline: wgpu::RenderPipeline,
+    bg_vertices: wgpu::Buffer,
+    text_renderer: TextRenderer,
+    spectrogram: Spectrogram,
+    audio_state: SharedAudioState,
 }
 
 impl Renderer {
-    pub fn new() -> anyhow::Result<Self> {
-        todo!()
+    pub fn new(window: Box<dyn Window>, audio_state: SharedAudioState) -> Self {
+        let window: Arc<dyn Window> = Arc::from(window);
+
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+
+        let surface = instance
+            .create_surface(window.clone())
+            .expect("Failed to create surface");
+
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: Some(&surface),
+            force_fallback_adapter: false,
+        }))
+        .expect("Failed to find GPU adapter");
+
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: None,
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+            memory_hints: wgpu::MemoryHints::default(),
+            trace: wgpu::Trace::Off,
+        }))
+        .expect("Failed to create device");
+
+        let device = Arc::new(device);
+        let queue = Arc::new(queue);
+
+        let surface_caps = surface.get_capabilities(&adapter);
+        let surface_format = surface_caps
+            .formats
+            .iter()
+            .copied()
+            .find(|f| f.is_srgb())
+            .unwrap_or(surface_caps.formats[0]);
+
+        let alpha_mode = if surface_caps
+            .alpha_modes
+            .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
+        {
+            wgpu::CompositeAlphaMode::PreMultiplied
+        } else if surface_caps
+            .alpha_modes
+            .contains(&wgpu::CompositeAlphaMode::PostMultiplied)
+        {
+            wgpu::CompositeAlphaMode::PostMultiplied
+        } else {
+            surface_caps.alpha_modes[0]
+        };
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            width: WINDOW_WIDTH,
+            height: WINDOW_HEIGHT,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode,
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+
+        surface.configure(&device, &config);
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Background Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/rounded_rect.wgsl").into()),
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Background Pipeline Layout"),
+            bind_group_layouts: &[],
+            push_constant_ranges: &[],
+        });
+
+        let bg_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Background Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: 8,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x2],
+                }],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        #[repr(C)]
+        #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+        struct Vertex {
+            position: [f32; 2],
+        }
+
+        let vertices = [
+            Vertex {
+                position: [-1.0, -1.0],
+            },
+            Vertex {
+                position: [1.0, -1.0],
+            },
+            Vertex {
+                position: [-1.0, 1.0],
+            },
+            Vertex {
+                position: [1.0, 1.0],
+            },
+        ];
+
+        let bg_vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Background Vertices"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let text_renderer = TextRenderer::new(
+            device.clone(),
+            queue.clone(),
+            PhysicalSize::new(WINDOW_WIDTH, TEXT_HEIGHT),
+            surface_format,
+        );
+
+        let spectrogram = Spectrogram::new(
+            device.clone(),
+            queue.clone(),
+            PhysicalSize::new(WINDOW_WIDTH, SPECTROGRAM_HEIGHT),
+            surface_format,
+        );
+
+        Self {
+            window,
+            surface,
+            device,
+            queue,
+            config,
+            bg_pipeline,
+            bg_vertices,
+            text_renderer,
+            spectrogram,
+            audio_state,
+        }
     }
 
-    pub fn render(&mut self, committed: &str, partial: &str) -> anyhow::Result<()> {
-        // committed: normal color
-        // partial: dimmed or italic
-        todo!()
+    pub fn resize(&mut self, width: u32, height: u32) {
+        if width > 0 && height > 0 {
+            self.config.width = width;
+            self.config.height = height;
+            self.surface.configure(&self.device, &self.config);
+            self.text_renderer
+                .resize(PhysicalSize::new(width, TEXT_HEIGHT));
+            self.spectrogram
+                .resize(PhysicalSize::new(width, SPECTROGRAM_HEIGHT));
+        }
+    }
+
+    pub fn draw(&mut self) {
+        let output = match self.surface.get_current_texture() {
+            Ok(t) => t,
+            Err(_) => {
+                self.surface.configure(&self.device, &self.config);
+                return;
+            }
+        };
+
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Clear Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: 0.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            render_pass.set_pipeline(&self.bg_pipeline);
+            render_pass.set_vertex_buffer(0, self.bg_vertices.slice(..));
+            render_pass.draw(0..4, 0..1);
+        }
+
+        let (committed, partial, samples) = {
+            let state = self.audio_state.read();
+            (
+                state.committed.clone(),
+                state.partial.clone(),
+                state.samples.clone(),
+            )
+        };
+
+        self.spectrogram.update(&samples);
+        self.spectrogram.render(&mut encoder, &view);
+
+        self.text_renderer.render(
+            &view,
+            &mut encoder,
+            &committed,
+            &partial,
+            0.0,
+            (SPECTROGRAM_HEIGHT + GAP) as f32,
+            1.0,
+            self.config.width,
+            TEXT_HEIGHT,
+            PADDING,
+        );
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
+
+        self.window.request_redraw();
     }
 }

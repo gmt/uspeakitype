@@ -1,42 +1,52 @@
 //! WGPU overlay UI with Wayland layer shell
-//!
-//! TODO: Port from sonori/src/ui/
-//! 
-//! Key pieces to bring over:
-//! - app.rs: winit event loop with layer shell
-//! - window.rs: WGPU setup, render pipeline
-//! - text_renderer.rs: glyphon text rendering
-//!
-//! Key changes from sonori:
-//! - Simpler state: just partial_text and committed_text
-//! - Partial text rendered differently (dimmed/italic)
-//! - No spectrogram, buttons, etc (for now)
 
 pub mod app;
 pub mod renderer;
+pub mod spectrogram;
+pub mod text_renderer;
 
-/// Text state for the overlay
-pub struct TranscriptState {
-    /// Committed text (finalized, won't change)
-    pub committed: String,
-    /// Partial text (may be revised with next inference)
-    pub partial: String,
+use parking_lot::RwLock;
+use std::sync::Arc;
+
+pub use app::run;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessingState {
+    Idle,
+    Listening,
+    Transcribing,
 }
 
-impl TranscriptState {
-    pub fn new() -> Self {
+#[derive(Debug)]
+pub struct AudioState {
+    pub samples: Vec<f32>,
+    pub is_speaking: bool,
+    pub committed: String,
+    pub partial: String,
+    pub processing_state: ProcessingState,
+}
+
+impl Default for AudioState {
+    fn default() -> Self {
         Self {
+            samples: Vec::with_capacity(4096),
+            is_speaking: false,
             committed: String::new(),
             partial: String::new(),
+            processing_state: ProcessingState::Idle,
         }
     }
+}
 
-    /// Update partial (replaces previous partial)
+impl AudioState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     pub fn set_partial(&mut self, text: String) {
         self.partial = text;
     }
 
-    /// Commit current partial
     pub fn commit(&mut self) {
         if !self.partial.is_empty() {
             if !self.committed.is_empty() {
@@ -47,7 +57,11 @@ impl TranscriptState {
         }
     }
 
-    /// Full display text
+    pub fn update_samples(&mut self, new_samples: &[f32]) {
+        self.samples.clear();
+        self.samples.extend_from_slice(new_samples);
+    }
+
     pub fn display(&self) -> String {
         if self.partial.is_empty() {
             self.committed.clone()
@@ -58,9 +72,15 @@ impl TranscriptState {
         }
     }
 
-    /// Clear everything
     pub fn clear(&mut self) {
+        self.samples.clear();
         self.committed.clear();
         self.partial.clear();
     }
+}
+
+pub type SharedAudioState = Arc<RwLock<AudioState>>;
+
+pub fn new_shared_state() -> SharedAudioState {
+    Arc::new(RwLock::new(AudioState::new()))
 }
