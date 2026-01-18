@@ -24,17 +24,36 @@ pub struct AudioSource {
     pub description: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CaptureConfig {
     pub auto_gain_enabled: bool,
-    pub target_headroom: f32,
+    pub agc: AgcConfig,
+}
+
+#[derive(Debug, Clone)]
+pub struct AgcConfig {
+    pub desired_rms: f32,
+    pub smoothing_factor: f32,
+    pub max_gain: f32,
+    pub min_gain: f32,
+}
+
+impl Default for AgcConfig {
+    fn default() -> Self {
+        Self {
+            desired_rms: 0.1,
+            smoothing_factor: 0.0001,
+            max_gain: 10.0,
+            min_gain: 0.1,
+        }
+    }
 }
 
 impl Default for CaptureConfig {
     fn default() -> Self {
         Self {
             auto_gain_enabled: false,
-            target_headroom: 0.8,
+            agc: AgcConfig::default(),
         }
     }
 }
@@ -158,64 +177,63 @@ struct UserData {
     format: AudioInfoRaw,
     callback: AudioCallback,
     control: Arc<CaptureControl>,
-    peak_tracker: PeakTracker,
-    target_headroom: f32,
+    agc: SpeechAgc,
 }
 
-struct PeakTracker {
-    recent_peaks: [f32; 32],
-    index: usize,
+struct SpeechAgc {
+    config: AgcConfig,
+    gain: f32,
+    frozen: bool,
 }
 
-impl PeakTracker {
-    fn new() -> Self {
+impl SpeechAgc {
+    fn new(config: AgcConfig) -> Self {
         Self {
-            recent_peaks: [0.0; 32],
-            index: 0,
+            config,
+            gain: 1.0,
+            frozen: false,
         }
     }
 
-    fn update(&mut self, samples: &[f32]) -> f32 {
-        let peak = samples
-            .iter()
-            .map(|s| s.abs())
-            .fold(0.0f32, |a, b| a.max(b));
-        self.recent_peaks[self.index] = peak;
-        self.index = (self.index + 1) % self.recent_peaks.len();
-        self.recent_peaks
-            .iter()
-            .cloned()
-            .fold(0.0f32, |a, b| a.max(b))
+    fn set_frozen(&mut self, frozen: bool) {
+        self.frozen = frozen;
+    }
+
+    fn gain(&self) -> f32 {
+        self.gain
+    }
+
+    fn process(&mut self, samples: &mut [f32]) {
+        let desired_rms_squared = self.config.desired_rms * self.config.desired_rms;
+
+        for sample in samples.iter_mut() {
+            *sample *= self.gain;
+
+            if !self.frozen {
+                let sample_power = sample.powi(2);
+                if sample_power > 1e-10 {
+                    let ratio = sample_power / desired_rms_squared;
+                    let adjustment = 1.0 + self.config.smoothing_factor * (1.0 - ratio);
+                    self.gain *= adjustment;
+                    self.gain = self.gain.clamp(self.config.min_gain, self.config.max_gain);
+                }
+            }
+
+            *sample = sample.clamp(-1.0, 1.0);
+        }
     }
 }
 
-fn apply_auto_gain(
-    samples: &mut [f32],
-    control: &CaptureControl,
-    peak_tracker: &mut PeakTracker,
-    target_headroom: f32,
-) {
+fn apply_auto_gain(samples: &mut [f32], control: &CaptureControl, agc: &mut SpeechAgc) {
     if !control.is_auto_gain_enabled() {
         return;
     }
 
-    let recent_peak = peak_tracker.update(samples);
-    if recent_peak < 0.001 {
-        return;
-    }
+    let rms = (samples.iter().map(|s| s.powi(2)).sum::<f32>() / samples.len() as f32).sqrt();
+    agc.set_frozen(rms < 0.01);
 
-    let target_peak = target_headroom;
-    let desired_gain = target_peak / recent_peak;
-    let current_gain = control.get_current_gain();
-    let new_gain = current_gain + (desired_gain - current_gain) * 0.1;
-    let clamped_gain = new_gain.clamp(0.1, 10.0);
-
-    control.set_current_gain(clamped_gain);
-
-    for sample in samples.iter_mut() {
-        *sample *= clamped_gain;
-        *sample = sample.clamp(-1.0, 1.0);
-    }
+    agc.process(samples);
+    control.set_current_gain(agc.gain());
 }
 
 fn run_capture_loop(
@@ -247,8 +265,7 @@ fn run_capture_loop(
         format: AudioInfoRaw::new(),
         callback,
         control: control.clone(),
-        peak_tracker: PeakTracker::new(),
-        target_headroom: config.target_headroom,
+        agc: SpeechAgc::new(config.agc),
     };
 
     let _listener = stream
@@ -305,12 +322,7 @@ fn run_capture_loop(
                     }
                 }
 
-                apply_auto_gain(
-                    &mut samples,
-                    &user_data.control,
-                    &mut user_data.peak_tracker,
-                    user_data.target_headroom,
-                );
+                apply_auto_gain(&mut samples, &user_data.control, &mut user_data.agc);
 
                 (user_data.callback)(&samples);
             }
@@ -496,23 +508,305 @@ mod tests {
     }
 
     #[test]
-    fn peak_tracker_tracks_maximum() {
-        let mut tracker = PeakTracker::new();
+    fn speech_agc_increases_gain_for_quiet_signal() {
+        let config = AgcConfig {
+            desired_rms: 0.1,
+            smoothing_factor: 0.01,
+            max_gain: 10.0,
+            min_gain: 0.1,
+        };
+        let mut agc = SpeechAgc::new(config);
 
-        let peak1 = tracker.update(&[0.1, 0.2, 0.3]);
-        assert!((peak1 - 0.3).abs() < 0.001);
+        let mut samples = vec![0.01; 1000];
+        agc.process(&mut samples);
 
-        let peak2 = tracker.update(&[0.5, 0.1, 0.1]);
-        assert!((peak2 - 0.5).abs() < 0.001);
+        assert!(agc.gain() > 1.0, "gain should increase for quiet signal");
+    }
 
-        let peak3 = tracker.update(&[0.1, 0.1, 0.1]);
-        assert!((peak3 - 0.5).abs() < 0.001);
+    #[test]
+    fn speech_agc_decreases_gain_for_loud_signal() {
+        let config = AgcConfig {
+            desired_rms: 0.1,
+            smoothing_factor: 0.01,
+            max_gain: 10.0,
+            min_gain: 0.1,
+        };
+        let mut agc = SpeechAgc::new(config);
+
+        let mut samples = vec![0.5; 1000];
+        agc.process(&mut samples);
+
+        assert!(agc.gain() < 1.0, "gain should decrease for loud signal");
+    }
+
+    #[test]
+    fn speech_agc_frozen_preserves_gain() {
+        let config = AgcConfig::default();
+        let mut agc = SpeechAgc::new(config);
+        agc.set_frozen(true);
+
+        let initial_gain = agc.gain();
+        let mut samples = vec![0.5; 1000];
+        agc.process(&mut samples);
+
+        assert!(
+            (agc.gain() - initial_gain).abs() < 0.001,
+            "gain should not change when frozen"
+        );
+    }
+
+    #[test]
+    fn speech_agc_respects_gain_limits() {
+        let config = AgcConfig {
+            desired_rms: 0.1,
+            smoothing_factor: 0.1,
+            max_gain: 2.0,
+            min_gain: 0.5,
+        };
+        let mut agc = SpeechAgc::new(config);
+
+        let mut quiet_samples = vec![0.001; 10000];
+        agc.process(&mut quiet_samples);
+        assert!(agc.gain() <= 2.0, "gain should not exceed max_gain");
+
+        let mut agc2 = SpeechAgc::new(AgcConfig {
+            desired_rms: 0.1,
+            smoothing_factor: 0.1,
+            max_gain: 2.0,
+            min_gain: 0.5,
+        });
+        let mut loud_samples = vec![0.9; 10000];
+        agc2.process(&mut loud_samples);
+        assert!(agc2.gain() >= 0.5, "gain should not go below min_gain");
     }
 
     #[test]
     fn capture_config_defaults() {
         let config = CaptureConfig::default();
         assert!(!config.auto_gain_enabled);
-        assert!((config.target_headroom - 0.8).abs() < 0.001);
+        assert!((config.agc.desired_rms - 0.1).abs() < 0.001);
+        assert!((config.agc.smoothing_factor - 0.0001).abs() < 0.00001);
+    }
+
+    fn generate_sine(
+        freq_hz: f32,
+        sample_rate: f32,
+        duration_samples: usize,
+        amplitude: f32,
+    ) -> Vec<f32> {
+        (0..duration_samples)
+            .map(|i| {
+                amplitude * (2.0 * std::f32::consts::PI * freq_hz * i as f32 / sample_rate).sin()
+            })
+            .collect()
+    }
+
+    fn rms(samples: &[f32]) -> f32 {
+        (samples.iter().map(|s| s.powi(2)).sum::<f32>() / samples.len() as f32).sqrt()
+    }
+
+    #[test]
+    fn agc_silence_does_not_explode_gain() {
+        let mut agc = SpeechAgc::new(AgcConfig::default());
+        let mut silence = vec![0.0; 16000];
+        agc.process(&mut silence);
+        assert!(
+            agc.gain() <= AgcConfig::default().max_gain,
+            "gain should stay bounded even with silence"
+        );
+    }
+
+    #[test]
+    fn agc_near_silence_freezes_appropriately() {
+        let config = AgcConfig {
+            desired_rms: 0.1,
+            smoothing_factor: 0.01,
+            ..Default::default()
+        };
+        let mut agc = SpeechAgc::new(config);
+
+        let mut noise_floor = vec![0.0001; 1000];
+        let initial_gain = agc.gain();
+        agc.set_frozen(true);
+        agc.process(&mut noise_floor);
+
+        assert!(
+            (agc.gain() - initial_gain).abs() < 0.01,
+            "frozen AGC should not adjust gain for noise floor"
+        );
+    }
+
+    #[test]
+    fn agc_sudden_loud_burst_after_quiet() {
+        let config = AgcConfig {
+            desired_rms: 0.1,
+            smoothing_factor: 0.001,
+            ..Default::default()
+        };
+        let mut agc = SpeechAgc::new(config);
+
+        let mut quiet = vec![0.01; 8000];
+        agc.process(&mut quiet);
+        let gain_after_quiet = agc.gain();
+        assert!(
+            gain_after_quiet > 1.0,
+            "gain should increase for quiet input"
+        );
+
+        let mut loud_burst = vec![0.8; 1000];
+        agc.process(&mut loud_burst);
+
+        assert!(
+            loud_burst.iter().all(|&s| s.abs() <= 1.0),
+            "output should not clip even with sudden loud burst"
+        );
+    }
+
+    #[test]
+    fn agc_simulated_speech_pattern() {
+        let config = AgcConfig {
+            desired_rms: 0.15,
+            smoothing_factor: 0.0001,
+            ..Default::default()
+        };
+        let mut agc = SpeechAgc::new(config);
+
+        for _ in 0..10 {
+            let mut speech = generate_sine(200.0, 16000.0, 4000, 0.3);
+            agc.process(&mut speech);
+
+            agc.set_frozen(true);
+            let mut pause = vec![0.001; 2000];
+            agc.process(&mut pause);
+            agc.set_frozen(false);
+        }
+
+        let gain = agc.gain();
+        assert!(
+            gain > 0.3 && gain < 3.0,
+            "gain should stabilize around 1.0 for speech at ~0.3 amplitude targeting 0.15 RMS, got {}",
+            gain
+        );
+    }
+
+    #[test]
+    fn agc_sine_wave_converges_to_target() {
+        let config = AgcConfig {
+            desired_rms: 0.1,
+            smoothing_factor: 0.001,
+            ..Default::default()
+        };
+        let mut agc = SpeechAgc::new(config);
+
+        for _ in 0..20 {
+            let mut chunk = generate_sine(440.0, 16000.0, 1600, 0.05);
+            agc.process(&mut chunk);
+        }
+
+        let mut final_chunk = generate_sine(440.0, 16000.0, 1600, 0.05);
+        agc.process(&mut final_chunk);
+        let output_rms = rms(&final_chunk);
+
+        assert!(
+            (output_rms - 0.1).abs() < 0.05,
+            "output RMS should converge near target 0.1, got {}",
+            output_rms
+        );
+    }
+
+    #[test]
+    fn agc_gradual_fade_in() {
+        let config = AgcConfig {
+            desired_rms: 0.1,
+            smoothing_factor: 0.0005,
+            ..Default::default()
+        };
+        let mut agc = SpeechAgc::new(config);
+
+        for i in 1..=10 {
+            let amplitude = 0.02 * i as f32;
+            let mut chunk = generate_sine(300.0, 16000.0, 1600, amplitude);
+            agc.process(&mut chunk);
+        }
+
+        let gain = agc.gain();
+        assert!(
+            gain > 0.1 && gain < 10.0,
+            "gain should be reasonable after fade-in, got {}",
+            gain
+        );
+    }
+
+    #[test]
+    fn agc_output_never_clips() {
+        let config = AgcConfig {
+            desired_rms: 0.2,
+            smoothing_factor: 0.01,
+            max_gain: 10.0,
+            min_gain: 0.1,
+        };
+        let mut agc = SpeechAgc::new(config);
+
+        let mut quiet = vec![0.01; 5000];
+        agc.process(&mut quiet);
+
+        let mut medium = generate_sine(440.0, 16000.0, 2000, 0.5);
+        agc.process(&mut medium);
+
+        assert!(
+            medium.iter().all(|&s| s >= -1.0 && s <= 1.0),
+            "output samples must stay within [-1, 1]"
+        );
+    }
+
+    #[test]
+    fn agc_handles_dc_offset() {
+        let config = AgcConfig {
+            desired_rms: 0.1,
+            smoothing_factor: 0.001,
+            ..Default::default()
+        };
+        let mut agc = SpeechAgc::new(config);
+
+        let mut dc_with_signal: Vec<f32> = generate_sine(200.0, 16000.0, 4000, 0.1)
+            .into_iter()
+            .map(|s| s + 0.1)
+            .collect();
+
+        agc.process(&mut dc_with_signal);
+
+        assert!(
+            dc_with_signal.iter().all(|&s| s.is_finite()),
+            "AGC should handle DC offset without producing NaN/Inf"
+        );
+    }
+
+    #[test]
+    fn agc_alternating_volume_stability() {
+        let config = AgcConfig {
+            desired_rms: 0.1,
+            smoothing_factor: 0.0001,
+            ..Default::default()
+        };
+        let mut agc = SpeechAgc::new(config);
+
+        let mut gains = Vec::new();
+        for i in 0..20 {
+            let amplitude = if i % 2 == 0 { 0.05 } else { 0.2 };
+            let mut chunk = generate_sine(300.0, 16000.0, 1600, amplitude);
+            agc.process(&mut chunk);
+            gains.push(agc.gain());
+        }
+
+        let gain_variance: f32 = {
+            let mean = gains.iter().sum::<f32>() / gains.len() as f32;
+            gains.iter().map(|g| (g - mean).powi(2)).sum::<f32>() / gains.len() as f32
+        };
+
+        assert!(
+            gain_variance < 1.0,
+            "gain should not oscillate wildly with alternating volumes, variance: {}",
+            gain_variance
+        );
     }
 }

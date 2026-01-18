@@ -55,7 +55,7 @@ fn main() -> anyhow::Result<()> {
     } else {
         let config = CaptureConfig {
             auto_gain_enabled: args.auto_gain,
-            target_headroom: 0.8,
+            agc: Default::default(),
         };
 
         let state = audio_state.clone();
