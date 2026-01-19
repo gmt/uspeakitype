@@ -65,6 +65,8 @@ pub struct CaptureControl {
     pub auto_gain_enabled: AtomicBool,
     pub current_gain: std::sync::atomic::AtomicU32,
     running: AtomicBool,
+    sample_rate: AtomicU32,
+    channels: AtomicU32,
 }
 
 impl CaptureControl {
@@ -74,6 +76,8 @@ impl CaptureControl {
             auto_gain_enabled: AtomicBool::new(false),
             current_gain: AtomicU32::new(f32::to_bits(1.0)),
             running: AtomicBool::new(true),
+            sample_rate: AtomicU32::new(0),
+            channels: AtomicU32::new(0),
         }
     }
 
@@ -116,6 +120,19 @@ impl CaptureControl {
 
     pub fn is_running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
+    }
+
+    pub fn set_format(&self, sample_rate: u32, channels: u32) {
+        self.sample_rate.store(sample_rate, Ordering::Relaxed);
+        self.channels.store(channels, Ordering::Relaxed);
+    }
+
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate.load(Ordering::Relaxed)
+    }
+
+    pub fn channels(&self) -> u32 {
+        self.channels.load(Ordering::Relaxed)
     }
 }
 
@@ -307,11 +324,9 @@ fn run_capture_loop(
             }
 
             if user_data.format.parse(param).is_ok() {
-                eprintln!(
-                    "Audio format: {}Hz {}ch",
-                    user_data.format.rate(),
-                    user_data.format.channels()
-                );
+                let rate = user_data.format.rate();
+                let channels = user_data.format.channels();
+                user_data.control.set_format(rate, channels);
             }
         })
         .process(|stream, user_data| {

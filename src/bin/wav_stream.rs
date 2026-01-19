@@ -49,7 +49,7 @@ fn main() -> Result<()> {
     let args = Args::parse();
     let samples = read_wav(&args.input)?;
 
-    let mut streamer = MoonshineStreamer::new(&args.model_dir)?;
+    let streamer = MoonshineStreamer::new(&args.model_dir)?;
 
     let frame_size = (args.sample_rate as u64 * args.frame_ms / 1000) as usize;
     let mut buffer = Vec::with_capacity(frame_size * 10);

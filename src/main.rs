@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::{Parser, ValueEnum};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::terminal;
 use supports_unicode::Stream;
 use terminal_size::{terminal_size, Height, Width};
 
@@ -124,7 +126,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     if args.headless || args.ansi {
-        run_terminal_loop(audio_state, running, &args)?;
+        run_terminal_loop(audio_state, running, &args, capture_control.as_ref())?;
     } else {
         ui::run(audio_state, running, capture_control);
     }
@@ -214,6 +216,7 @@ fn run_terminal_loop(
     audio_state: ui::SharedAudioState,
     running: Arc<AtomicBool>,
     args: &Args,
+    capture_control: Option<&Arc<CaptureControl>>,
 ) -> anyhow::Result<()> {
     if !args.ansi {
         return run_headless_text(audio_state, running);
@@ -225,14 +228,14 @@ fn run_terminal_loop(
 
     let width = args
         .ansi_width
-        .unwrap_or(((term_width as f32) * 0.8).round() as usize)
+        .unwrap_or(((term_width as f32) * 0.6).round() as usize)
         .max(1)
-        .min(term_width);
+        .min(term_width.saturating_sub(2));
     let height = args
         .ansi_height
-        .unwrap_or(term_height.min(8))
+        .unwrap_or(6)
         .max(1)
-        .min(term_height);
+        .min(term_height.saturating_sub(4));
 
     let use_unicode = match args.ansi_charset.to_lowercase().as_str() {
         "ascii" => false,
@@ -251,6 +254,8 @@ fn run_terminal_loop(
         mode,
         use_color: !args.no_color,
         use_unicode,
+        term_width,
+        term_height,
     };
 
     let mut visualizer = TerminalVisualizer::new(config);
@@ -262,26 +267,53 @@ fn run_terminal_loop(
     };
     visualizer.set_color_scheme(get_color_scheme(color_name));
 
+    terminal::enable_raw_mode()?;
     TerminalVisualizer::init_terminal()?;
 
-    while running.load(Ordering::Relaxed) {
-        std::thread::sleep(Duration::from_millis(16));
+    let result = (|| -> anyhow::Result<()> {
+        while running.load(Ordering::Relaxed) {
+            if event::poll(Duration::from_millis(16))? {
+                if let Event::Key(key) = event::read()? {
+                    if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
+                        break;
+                    }
+                }
+            }
 
-        let samples = {
-            let state = audio_state.read();
-            state.samples.clone()
-        };
+            let samples = {
+                let state = audio_state.read();
+                state.samples.clone()
+            };
 
-        if samples.is_empty() {
-            continue;
+            if samples.is_empty() {
+                continue;
+            }
+
+            let status = match capture_control {
+                Some(ctrl) => {
+                    let rate = ctrl.sample_rate();
+                    let ch = ctrl.channels();
+                    if rate > 0 {
+                        let ch_str = if ch == 1 { "mono" } else { "stereo" };
+                        format!("{}Hz {} | Press 'q' to quit", rate, ch_str)
+                    } else {
+                        "Press 'q' to quit".to_string()
+                    }
+                }
+                None => "Press 'q' to quit".to_string(),
+            };
+            visualizer.set_status_line(status);
+
+            visualizer.push_samples(&samples);
+            visualizer.process_and_render()?;
         }
-
-        visualizer.push_samples(&samples);
-        visualizer.process_and_render()?;
-    }
+        Ok(())
+    })();
 
     TerminalVisualizer::cleanup_terminal()?;
-    Ok(())
+    terminal::disable_raw_mode()?;
+
+    result
 }
 
 fn run_headless_text(
