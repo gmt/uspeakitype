@@ -297,3 +297,40 @@ fn create_instances(bar_data: &[f32], _size: PhysicalSize<u32>) -> Vec<BarInstan
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_instances_matches_bar_count() {
+        let bar_data = vec![0.5; 100];
+        let size = PhysicalSize::new(100, 80);
+        let instances = create_instances(&bar_data, size);
+        assert_eq!(instances.len(), bar_data.len());
+    }
+
+    #[test]
+    fn create_instances_different_sizes() {
+        for width in [50, 100, 200, 400, 640] {
+            let bar_data = vec![MIN_AMPLITUDE; width];
+            let size = PhysicalSize::new(width as u32, 80);
+            let instances = create_instances(&bar_data, size);
+            assert_eq!(
+                instances.len(),
+                width,
+                "instance count must match bar count for width {}",
+                width
+            );
+        }
+    }
+
+    #[test]
+    fn bar_instance_size_is_32_bytes() {
+        assert_eq!(
+            std::mem::size_of::<BarInstance>(),
+            32,
+            "BarInstance must be 32 bytes for GPU buffer layout"
+        );
+    }
+}
