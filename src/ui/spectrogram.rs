@@ -164,13 +164,25 @@ impl Spectrogram {
     }
 
     pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
-        if self.size.width != new_size.width {
+        let width_changed = self.size.width != new_size.width;
+        self.size = new_size;
+
+        if width_changed {
             let new_bars = new_size.width as usize;
             self.bar_data.resize(new_bars, MIN_AMPLITUDE);
             self.target_bar_data.resize(new_bars, MIN_AMPLITUDE);
+
+            let instances = create_instances(&self.bar_data, new_size);
+            self.instance_buffer =
+                self.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Spectrogram Instances"),
+                        contents: bytemuck::cast_slice(&instances),
+                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                    });
+        } else {
+            self.update_instance_buffer();
         }
-        self.size = new_size;
-        self.update_instance_buffer();
     }
 
     pub fn update(&mut self, samples: &[f32]) {
