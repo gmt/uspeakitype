@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
-use ndarray::{Array1, Array2, ArrayD, Axis};
+use ndarray::{Array1, Array2, ArrayD, Axis, IxDyn};
 use ort::session::{builder::GraphOptimizationLevel, Session, SessionInputValue, SessionInputs};
 use ort::value::Tensor;
 use parking_lot::Mutex;
@@ -24,6 +24,10 @@ pub struct MoonshineStreamer {
     decoder: Mutex<Session>,
     tokenizer: MoonshineTokenizer,
     config: MoonshineConfig,
+
+    past_cache: Option<Vec<ort::value::Tensor<f32>>>,
+    cache_seq_len: usize,
+    last_tokens: Vec<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -156,6 +160,9 @@ impl MoonshineStreamer {
             decoder: Mutex::new(decoder),
             tokenizer,
             config,
+            past_cache: None,
+            cache_seq_len: 0,
+            last_tokens: Vec::new(),
         })
     }
 
@@ -170,7 +177,31 @@ impl MoonshineStreamer {
         self.tokenizer.decode(&token_ids)
     }
 
-    pub fn reset(&mut self) {}
+    pub fn transcribe_incremental(&mut self, samples: &[f32]) -> Result<String> {
+        if samples.is_empty() {
+            return Ok(String::new());
+        }
+
+        let input = self.preprocess(samples);
+        let encoder_states = self.encode(&input)?;
+
+        let token_ids = if self.past_cache.is_none() {
+            self.last_tokens.clear();
+            self.cache_seq_len = 0;
+            self.greedy_decode_cached(&encoder_states)?
+        } else {
+            self.greedy_decode_cached(&encoder_states)?
+        };
+
+        self.last_tokens = token_ids.clone();
+        self.tokenizer.decode(&token_ids)
+    }
+
+    pub fn reset(&mut self) {
+        self.past_cache = None;
+        self.cache_seq_len = 0;
+        self.last_tokens.clear();
+    }
 
     fn preprocess(&self, samples: &[f32]) -> Array2<f32> {
         let mut input = samples.to_vec();
@@ -274,6 +305,176 @@ impl MoonshineStreamer {
 
         Ok(tokens)
     }
+
+    fn greedy_decode_cached(&mut self, encoder_states: &ArrayD<f32>) -> Result<Vec<u32>> {
+        let encoder_tensor = Tensor::from_array(encoder_states.clone())?;
+
+        let mut decoder = self.decoder.lock();
+
+        let input_ids_name = find_input_name(decoder.inputs(), &["input_ids", "decoder_input_ids"])
+            .unwrap_or_else(|| "input_ids".to_string());
+
+        let encoder_name = find_input_name(
+            decoder.inputs(),
+            &["encoder_hidden_states", "encoder_outputs"],
+        )
+        .unwrap_or_else(|| "encoder_hidden_states".to_string());
+
+        let logits_name = find_output_name(decoder.outputs(), &["logits", "output"])
+            .unwrap_or_else(|| "logits".to_string());
+
+        let use_cache_name = find_input_name(decoder.inputs(), &["use_cache_branch", "use_cache"]);
+
+        let past_names: Vec<String> = decoder
+            .inputs()
+            .iter()
+            .map(|i| i.name())
+            .filter(|name| name.contains("past_key_values"))
+            .map(|s| s.to_string())
+            .collect();
+
+        let present_names: Vec<String> = decoder
+            .outputs()
+            .iter()
+            .map(|o| o.name())
+            .filter(|name| name.contains("present_key_values") || name.contains("present"))
+            .map(|s| s.to_string())
+            .collect();
+
+        if !past_names.is_empty() && past_names.len() != present_names.len() {
+            return Err(anyhow::anyhow!(
+                "decoder KV-cache past/present mismatch ({} vs {})",
+                past_names.len(),
+                present_names.len()
+            ));
+        }
+
+        let max_tokens = estimate_max_tokens(encoder_states.shape());
+
+        let mut tokens = self.last_tokens.clone();
+        if tokens.is_empty() {
+            tokens.push(self.tokenizer.bos_token_id);
+        }
+
+        let start_step = self.cache_seq_len.min(tokens.len());
+        let mut cache = self.past_cache.clone();
+
+        for _ in start_step..max_tokens {
+            let last_token = tokens
+                .last()
+                .copied()
+                .unwrap_or(self.tokenizer.bos_token_id);
+
+            let input_ids_array = Array2::from_shape_vec((1, 1), vec![last_token as i64])?;
+            let input_ids_tensor = Tensor::from_array(input_ids_array)?;
+
+            if !past_names.is_empty() && cache.is_none() {
+                cache = Some(init_cache_tensors(&decoder, &past_names)?);
+            }
+
+            let mut inputs: Vec<(String, SessionInputValue)> = vec![
+                (input_ids_name.clone(), input_ids_tensor.into()),
+                (encoder_name.clone(), (&encoder_tensor).into()),
+            ];
+
+            if let Some(ref cache_name) = use_cache_name {
+                let cache_value = Array1::from(vec![true]);
+                let cache_tensor = Tensor::from_array(cache_value)?;
+                inputs.push((cache_name.clone(), cache_tensor.into()));
+            }
+
+            if let Some(ref cache_values) = cache {
+                for (name, value) in past_names.iter().zip(cache_values.iter()) {
+                    inputs.push((name.clone(), value.view().into()));
+                }
+            }
+
+            let outputs = decoder
+                .run(SessionInputs::from(inputs))
+                .context("decoder inference (cached)")?;
+
+            let logits = outputs
+                .get(logits_name.as_str())
+                .ok_or_else(|| anyhow::anyhow!("missing decoder logits"))?
+                .try_extract_array::<f32>()
+                .map_err(|e| anyhow::anyhow!("logits error: {}", e))?;
+
+            let next_token = select_next_token(logits.to_owned())?;
+
+            if !present_names.is_empty() {
+                let mut new_cache = Vec::with_capacity(present_names.len());
+                for name in &present_names {
+                    let dyn_value = outputs.get(name.as_str()).ok_or_else(|| {
+                        anyhow::anyhow!("missing cached decoder output: {}", name)
+                    })?;
+                    let owned = dyn_value.view().try_upgrade().map_err(|_| {
+                        anyhow::anyhow!("failed to upgrade decoder output: {}", name)
+                    })?;
+                    let tensor: ort::value::Tensor<f32> = owned.downcast()?;
+                    new_cache.push(tensor);
+                }
+                cache = Some(new_cache);
+            }
+
+            tokens.push(next_token);
+            self.cache_seq_len = tokens.len();
+
+            if next_token == self.tokenizer.eos_token_id {
+                break;
+            }
+        }
+
+        self.past_cache = cache;
+        Ok(tokens)
+    }
+}
+
+fn init_cache_tensors(
+    decoder: &Session,
+    past_names: &[String],
+) -> Result<Vec<ort::value::Tensor<f32>>> {
+    let mut tensors = Vec::with_capacity(past_names.len());
+
+    for name in past_names {
+        let input = decoder
+            .inputs()
+            .iter()
+            .find(|i| i.name() == name)
+            .ok_or_else(|| anyhow::anyhow!("missing decoder cache input metadata: {}", name))?;
+
+        let dtype = input.dtype();
+        let shape = match dtype {
+            ort::value::ValueType::Tensor { shape, .. } => shape,
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "decoder cache input is not a tensor: {}",
+                    name
+                ))
+            }
+        };
+
+        let dims: Vec<usize> = shape
+            .iter()
+            .enumerate()
+            .map(|(idx, d)| {
+                if *d < 0 {
+                    if idx == 0 {
+                        1
+                    } else {
+                        0
+                    }
+                } else {
+                    *d as usize
+                }
+            })
+            .collect();
+
+        let array = ArrayD::<f32>::zeros(IxDyn(&dims));
+        let tensor = Tensor::from_array(array)?;
+        tensors.push(tensor);
+    }
+
+    Ok(tensors)
 }
 
 fn find_input_name(inputs: &[ort::value::Outlet], candidates: &[&str]) -> Option<String> {
@@ -385,5 +586,127 @@ mod tests {
 
         let token = select_next_token(logits).unwrap();
         assert_eq!(token, 3);
+    }
+
+    fn build_toy_decoder() -> Session {
+        use ort::editor::{Graph, Model, Node, Opset, ONNX_DOMAIN};
+        use ort::tensor::{Shape, SymbolicDimensions, TensorElementType};
+        use ort::value::{Outlet, ValueType};
+
+        let mut graph = Graph::new().unwrap();
+
+        graph
+            .set_inputs([
+                Outlet::new(
+                    "input_ids",
+                    ValueType::Tensor {
+                        ty: TensorElementType::Int64,
+                        shape: Shape::new([1, 1]),
+                        dimension_symbols: SymbolicDimensions::empty(2),
+                    },
+                ),
+                Outlet::new(
+                    "encoder_hidden_states",
+                    ValueType::Tensor {
+                        ty: TensorElementType::Float32,
+                        shape: Shape::new([1, 1, 1]),
+                        dimension_symbols: SymbolicDimensions::empty(3),
+                    },
+                ),
+                Outlet::new(
+                    "use_cache_branch",
+                    ValueType::Tensor {
+                        ty: TensorElementType::Bool,
+                        shape: Shape::new([1]),
+                        dimension_symbols: SymbolicDimensions::empty(1),
+                    },
+                ),
+            ])
+            .unwrap();
+
+        let allocator = ort::memory::Allocator::default();
+        let mut logits = Tensor::<f32>::new(&allocator, [1usize, 1, 3]).unwrap();
+        let (_, buf) = logits.extract_tensor_mut();
+        buf.copy_from_slice(&[1.0, 0.0, -1.0]);
+
+        graph
+            .add_initializer("logits_const", logits, false)
+            .unwrap();
+
+        let node = Node::new(
+            "Identity",
+            ONNX_DOMAIN,
+            "logits_out",
+            ["logits_const"],
+            ["logits"],
+            [],
+        )
+        .unwrap();
+        graph.add_node(node).unwrap();
+
+        graph
+            .set_outputs([Outlet::new(
+                "logits",
+                ValueType::Tensor {
+                    ty: TensorElementType::Float32,
+                    shape: Shape::new([1, 1, 3]),
+                    dimension_symbols: SymbolicDimensions::empty(3),
+                },
+            )])
+            .unwrap();
+
+        let mut model = Model::new([Opset::new(ONNX_DOMAIN, 19).unwrap()]).unwrap();
+        model.add_graph(graph).unwrap();
+        model.into_session(Session::builder().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn reset_clears_incremental_state() {
+        let decoder = build_toy_decoder();
+        let mut streamer = MoonshineStreamer {
+            encoder: Mutex::new(build_toy_decoder()),
+            decoder: Mutex::new(decoder),
+            tokenizer: MoonshineTokenizer {
+                tokenizer: Tokenizer::new(tokenizers::models::bpe::BPE::default()),
+                bos_token_id: 1,
+                eos_token_id: 2,
+            },
+            config: MoonshineConfig::default(),
+            past_cache: Some(vec![Tensor::from_array(ArrayD::<f32>::zeros(IxDyn(&[
+                1, 0,
+            ])))
+            .unwrap()]),
+            cache_seq_len: 42,
+            last_tokens: vec![1, 2, 3],
+        };
+
+        streamer.reset();
+
+        assert!(streamer.past_cache.is_none());
+        assert_eq!(streamer.cache_seq_len, 0);
+        assert!(streamer.last_tokens.is_empty());
+    }
+
+    #[test]
+    fn greedy_decode_cached_updates_cache_seq_len() {
+        let mut streamer = MoonshineStreamer {
+            encoder: Mutex::new(build_toy_decoder()),
+            decoder: Mutex::new(build_toy_decoder()),
+            tokenizer: MoonshineTokenizer {
+                tokenizer: Tokenizer::new(tokenizers::models::bpe::BPE::default()),
+                bos_token_id: 1,
+                eos_token_id: 0,
+            },
+            config: MoonshineConfig::default(),
+            past_cache: None,
+            cache_seq_len: 0,
+            last_tokens: vec![1],
+        };
+
+        let encoder_states = ArrayD::<f32>::zeros(IxDyn(&[1, 1, 1]));
+        let tokens = streamer.greedy_decode_cached(&encoder_states).unwrap();
+
+        assert_eq!(streamer.cache_seq_len, tokens.len());
+        assert!(streamer.cache_seq_len > 1);
     }
 }
