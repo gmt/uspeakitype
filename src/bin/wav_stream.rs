@@ -32,10 +32,7 @@ fn read_wav(path: &PathBuf) -> Result<Vec<f32>> {
     }
 
     let samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader
-            .samples::<f32>()
-            .map(|s| s.unwrap_or(0.0))
-            .collect(),
+        hound::SampleFormat::Float => reader.samples::<f32>().map(|s| s.unwrap_or(0.0)).collect(),
         hound::SampleFormat::Int => {
             let max = i16::MAX as f32;
             reader

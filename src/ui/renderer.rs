@@ -84,18 +84,19 @@ impl Renderer {
             surface_caps.alpha_modes[0]
         };
 
+        // Don't configure here - let the first SurfaceResized event do it.
+        // Configuring twice in quick succession causes race conditions on Wayland
+        // where the surface may become invalid between calls.
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            width: WINDOW_WIDTH,
-            height: WINDOW_HEIGHT,
+            width: 0, // Will be set by first resize
+            height: 0,
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
-
-        surface.configure(&device, &config);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Background Shader"),
@@ -197,15 +198,19 @@ impl Renderer {
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
-        if width > 0 && height > 0 {
-            self.config.width = width;
-            self.config.height = height;
-            self.surface.configure(&self.device, &self.config);
-            self.text_renderer
-                .resize(PhysicalSize::new(width, TEXT_HEIGHT));
-            self.spectrogram
-                .resize(PhysicalSize::new(width, SPECTROGRAM_HEIGHT));
+        if width == 0 || height == 0 {
+            return;
         }
+        if self.config.width == width && self.config.height == height {
+            return;
+        }
+        self.config.width = width;
+        self.config.height = height;
+        self.surface.configure(&self.device, &self.config);
+        self.text_renderer
+            .resize(PhysicalSize::new(width, TEXT_HEIGHT));
+        self.spectrogram
+            .resize(PhysicalSize::new(width, SPECTROGRAM_HEIGHT));
     }
 
     pub fn draw(&mut self) {
