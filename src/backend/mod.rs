@@ -9,4 +9,3 @@
 
 pub mod moonshine;
 
-pub use moonshine::MoonshineStreamer;

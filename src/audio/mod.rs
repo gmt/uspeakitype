@@ -4,6 +4,5 @@ pub mod capture;
 pub mod vad;
 
 pub use capture::{
-    list_audio_sources, AgcConfig, AudioCapture, AudioSource, CaptureConfig, CaptureControl,
+    list_audio_sources, AudioCapture, CaptureConfig, CaptureControl,
 };
-pub use vad::SileroVad;

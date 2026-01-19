@@ -19,11 +19,11 @@ pub enum VadEvent {
 }
 
 impl SileroVad {
-    pub fn new(model_path: &std::path::Path) -> anyhow::Result<Self> {
+    pub fn new(_model_path: &std::path::Path) -> anyhow::Result<Self> {
         todo!("Port from sonori")
     }
 
-    pub fn process(&mut self, samples: &[f32]) -> anyhow::Result<VadEvent> {
+    pub fn process(&mut self, _samples: &[f32]) -> anyhow::Result<VadEvent> {
         todo!()
     }
 }

@@ -256,7 +256,7 @@ impl Spectrogram {
     }
 }
 
-fn create_instances(bar_data: &[f32], size: PhysicalSize<u32>) -> Vec<BarInstance> {
+fn create_instances(bar_data: &[f32], _size: PhysicalSize<u32>) -> Vec<BarInstance> {
     let num_bars = bar_data.len();
     let bar_width = 2.0 / num_bars as f32;
     let spacing = bar_width * 0.1;
