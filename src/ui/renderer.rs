@@ -11,7 +11,6 @@ use super::text_renderer::TextRenderer;
 use super::SharedAudioState;
 
 const WINDOW_WIDTH: u32 = 400;
-const WINDOW_HEIGHT: u32 = 160;
 const TEXT_HEIGHT: u32 = 80;
 const SPECTROGRAM_HEIGHT: u32 = 70;
 const GAP: u32 = 10;
@@ -34,69 +33,53 @@ impl Renderer {
     pub fn new(window: Box<dyn Window>, audio_state: SharedAudioState) -> Self {
         let window: Arc<dyn Window> = Arc::from(window);
 
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
 
         let surface = instance
             .create_surface(window.clone())
             .expect("Failed to create surface");
 
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::LowPower,
             compatible_surface: Some(&surface),
-            force_fallback_adapter: false,
+            ..Default::default()
         }))
         .expect("Failed to find GPU adapter");
 
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: None,
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
-            memory_hints: wgpu::MemoryHints::default(),
-            trace: wgpu::Trace::Off,
-        }))
-        .expect("Failed to create device");
+        let (device, queue) = pollster::block_on(adapter.request_device(&Default::default()))
+            .expect("Failed to create device");
 
         let device = Arc::new(device);
         let queue = Arc::new(queue);
 
-        let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .copied()
-            .find(|f| f.is_srgb())
-            .unwrap_or(surface_caps.formats[0]);
+        let win_size = window.surface_size();
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
 
-        let alpha_mode = if surface_caps
+        let caps = surface.get_capabilities(&adapter);
+        let alpha_mode = if caps
             .alpha_modes
             .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
         {
             wgpu::CompositeAlphaMode::PreMultiplied
-        } else if surface_caps
+        } else if caps
             .alpha_modes
             .contains(&wgpu::CompositeAlphaMode::PostMultiplied)
         {
             wgpu::CompositeAlphaMode::PostMultiplied
         } else {
-            surface_caps.alpha_modes[0]
+            caps.alpha_modes[0]
         };
 
-        // Don't configure here - let the first SurfaceResized event do it.
-        // Configuring twice in quick succession causes race conditions on Wayland
-        // where the surface may become invalid between calls.
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width: 0, // Will be set by first resize
-            height: 0,
+            format,
+            width: win_size.width.max(1),
+            height: win_size.height.max(1),
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
+        surface.configure(&device, &config);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Background Shader"),
@@ -126,7 +109,7 @@ impl Renderer {
                 module: &shader,
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_format,
+                    format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -173,14 +156,14 @@ impl Renderer {
             device.clone(),
             queue.clone(),
             PhysicalSize::new(WINDOW_WIDTH, TEXT_HEIGHT),
-            surface_format,
+            format,
         );
 
         let spectrogram = Spectrogram::new(
             device.clone(),
             queue.clone(),
             PhysicalSize::new(WINDOW_WIDTH, SPECTROGRAM_HEIGHT),
-            surface_format,
+            format,
         );
 
         Self {
@@ -228,13 +211,11 @@ impl Renderer {
 
         let mut encoder = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
-            });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Clear Pass"),
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
@@ -248,14 +229,11 @@ impl Renderer {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
+                ..Default::default()
             });
-
-            render_pass.set_pipeline(&self.bg_pipeline);
-            render_pass.set_vertex_buffer(0, self.bg_vertices.slice(..));
-            render_pass.draw(0..4, 0..1);
+            pass.set_pipeline(&self.bg_pipeline);
+            pass.set_vertex_buffer(0, self.bg_vertices.slice(..));
+            pass.draw(0..4, 0..1);
         }
 
         let (committed, partial, samples) = {
@@ -283,9 +261,8 @@ impl Renderer {
             PADDING,
         );
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        self.queue.submit(Some(encoder.finish()));
         output.present();
-
         self.window.request_redraw();
     }
 }
