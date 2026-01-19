@@ -1,13 +1,10 @@
-mod audio;
-mod backend;
-mod ui;
-
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use clap::Parser;
 
-use audio::{AudioCapture, CaptureConfig, CaptureControl};
+use barbara::audio::{self, AudioCapture, CaptureConfig, CaptureControl};
+use barbara::ui;
 
 #[derive(Parser)]
 #[command(name = "barbara")]
