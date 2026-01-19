@@ -1,28 +1,38 @@
-//! Audio spectrogram visualization using instanced WGPU rendering
-
 use std::sync::Arc;
 use std::time::Instant;
 
 use wgpu::util::DeviceExt;
 use winit::dpi::PhysicalSize;
 
+use crate::spectrum::{
+    intensity_to_height, ColorScheme, FlameScheme, SpectrumAnalyzer, SpectrumConfig,
+    WaterfallHistory,
+};
+
 const ANIMATION_SPEED: f32 = 0.85;
 const MIN_AMPLITUDE: f32 = 0.025;
-const MAX_BAR_HEIGHT: f32 = 0.9;
 const MIN_OPACITY: f32 = 0.15;
-const SPEAKING_THRESHOLD: f32 = 0.2;
+
+pub enum SpectrogramMode {
+    BarMeter,
+    Waterfall,
+}
 
 pub struct Spectrogram {
-    device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     instance_buffer: wgpu::Buffer,
-    bar_data: Vec<f32>,
-    target_bar_data: Vec<f32>,
     size: PhysicalSize<u32>,
     last_update: Instant,
-    is_speaking: bool,
+
+    mode: SpectrogramMode,
+    analyzer: SpectrumAnalyzer,
+    history: WaterfallHistory,
+    color_scheme: Box<dyn ColorScheme>,
+
+    bar_data: Vec<f32>,
+    target_bar_data: Vec<f32>,
 }
 
 #[repr(C)]
@@ -45,6 +55,22 @@ impl Spectrogram {
         queue: Arc<wgpu::Queue>,
         size: PhysicalSize<u32>,
         surface_format: wgpu::TextureFormat,
+    ) -> Self {
+        Self::with_mode(
+            device,
+            queue,
+            size,
+            surface_format,
+            SpectrogramMode::BarMeter,
+        )
+    }
+
+    pub fn with_mode(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        size: PhysicalSize<u32>,
+        surface_format: wgpu::TextureFormat,
+        mode: SpectrogramMode,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Spectrogram Shader"),
@@ -138,11 +164,25 @@ impl Spectrogram {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let num_bars = size.width as usize;
-        let bar_data = vec![MIN_AMPLITUDE; num_bars];
-        let target_bar_data = vec![MIN_AMPLITUDE; num_bars];
+        let num_bands = match mode {
+            SpectrogramMode::BarMeter => 64,
+            SpectrogramMode::Waterfall => (size.height as usize).max(16),
+        };
 
-        let instances = create_instances(&bar_data, size);
+        let spectrum_config = SpectrumConfig {
+            num_bands,
+            smoothing: 0.2,
+            ..Default::default()
+        };
+
+        let analyzer = SpectrumAnalyzer::new(spectrum_config);
+        let history = WaterfallHistory::new(size.width as usize, num_bands);
+        let color_scheme: Box<dyn ColorScheme> = Box::new(FlameScheme);
+
+        let bar_data = vec![MIN_AMPLITUDE; num_bands];
+        let target_bar_data = vec![MIN_AMPLITUDE; num_bands];
+
+        let instances = Self::create_bar_instances(&bar_data, size, color_scheme.as_ref());
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Spectrogram Instances"),
             contents: bytemuck::cast_slice(&instances),
@@ -150,64 +190,56 @@ impl Spectrogram {
         });
 
         Self {
-            device,
             queue,
             pipeline,
             vertex_buffer,
             instance_buffer,
-            bar_data,
-            target_bar_data,
             size,
             last_update: Instant::now(),
-            is_speaking: false,
+            mode,
+            analyzer,
+            history,
+            color_scheme,
+            bar_data,
+            target_bar_data,
         }
     }
 
+    pub fn set_color_scheme(&mut self, scheme: Box<dyn ColorScheme>) {
+        self.color_scheme = scheme;
+    }
+
     pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
-        let width_changed = self.size.width != new_size.width;
+        let size_changed = self.size.width != new_size.width || self.size.height != new_size.height;
         self.size = new_size;
 
-        if width_changed {
-            let new_bars = new_size.width as usize;
-            self.bar_data.resize(new_bars, MIN_AMPLITUDE);
-            self.target_bar_data.resize(new_bars, MIN_AMPLITUDE);
-
-            let instances = create_instances(&self.bar_data, new_size);
-            self.instance_buffer =
-                self.device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Spectrogram Instances"),
-                        contents: bytemuck::cast_slice(&instances),
-                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    });
-        } else {
+        if size_changed {
+            if matches!(self.mode, SpectrogramMode::Waterfall) {
+                self.history = WaterfallHistory::new(
+                    new_size.width as usize,
+                    self.analyzer.config().num_bands,
+                );
+            }
             self.update_instance_buffer();
         }
     }
 
     pub fn update(&mut self, samples: &[f32]) {
-        let num_bars = self.bar_data.len();
-
         if samples.is_empty() || samples.iter().all(|&x| x == 0.0) {
-            self.is_speaking = false;
             self.target_bar_data.fill(0.0);
             self.animate();
             return;
         }
 
-        let energy: f32 = samples.iter().take(100).map(|x| x.abs()).sum::<f32>() / 100.0;
-        self.is_speaking = energy > SPEAKING_THRESHOLD;
+        self.analyzer.push_samples(samples);
+        if self.analyzer.process() {
+            let bands = self.analyzer.data().bands.clone();
+            self.history.push(&bands);
 
-        let samples_per_bar = samples.len().max(1) / num_bars.max(1);
-
-        for i in 0..num_bars {
-            let start = i * samples_per_bar;
-            let end = ((i + 1) * samples_per_bar).min(samples.len());
-
-            if start < samples.len() {
-                let sum: f32 = samples[start..end].iter().map(|x| x.abs()).sum();
-                let avg = sum / (end - start).max(1) as f32;
-                self.target_bar_data[i] = (avg.sqrt() * 1.5).min(MAX_BAR_HEIGHT);
+            for (i, &band) in bands.iter().enumerate() {
+                if i < self.target_bar_data.len() {
+                    self.target_bar_data[i] = band;
+                }
             }
         }
 
@@ -219,7 +251,8 @@ impl Spectrogram {
         let dt = now.duration_since(self.last_update).as_secs_f32().min(0.1);
         self.last_update = now;
 
-        let (rise_speed, fall_speed) = if self.is_speaking {
+        let is_active = self.analyzer.data().is_active;
+        let (rise_speed, fall_speed) = if is_active {
             (ANIMATION_SPEED * 4.0, ANIMATION_SPEED * 2.0)
         } else {
             (ANIMATION_SPEED * 2.0, ANIMATION_SPEED * 3.0)
@@ -236,12 +269,110 @@ impl Spectrogram {
     }
 
     fn update_instance_buffer(&self) {
-        let instances = create_instances(&self.bar_data, self.size);
+        let instances = match self.mode {
+            SpectrogramMode::BarMeter => {
+                Self::create_bar_instances(&self.bar_data, self.size, self.color_scheme.as_ref())
+            }
+            SpectrogramMode::Waterfall => Self::create_waterfall_instances(
+                &self.history,
+                self.size,
+                self.color_scheme.as_ref(),
+            ),
+        };
         self.queue
             .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));
     }
 
+    fn create_bar_instances(
+        bar_data: &[f32],
+        size: PhysicalSize<u32>,
+        color_scheme: &dyn ColorScheme,
+    ) -> Vec<BarInstance> {
+        let num_bars = bar_data.len();
+        let bar_width = 2.0 / num_bars as f32;
+        let spacing = bar_width * 0.1;
+        let actual_width = bar_width - spacing;
+        let max_height = 2.0 * (size.height as f32 / size.height.max(1) as f32).min(1.0);
+
+        bar_data
+            .iter()
+            .enumerate()
+            .map(|(i, &intensity)| {
+                let x = -1.0 + i as f32 * bar_width;
+                let height = intensity_to_height(intensity, max_height);
+                let y = -1.0;
+
+                let edge_factor = {
+                    let pos = i as f32 / (num_bars - 1).max(1) as f32;
+                    0.85 + 0.15 * (std::f32::consts::PI * (pos - 0.5)).cos()
+                };
+
+                let color = color_scheme.color_for_intensity(intensity);
+                let alpha = (intensity * edge_factor).max(MIN_OPACITY);
+
+                BarInstance {
+                    position: [x, y],
+                    size: [actual_width, height * edge_factor],
+                    color: [color.r, color.g, color.b, alpha],
+                }
+            })
+            .collect()
+    }
+
+    fn create_waterfall_instances(
+        history: &WaterfallHistory,
+        size: PhysicalSize<u32>,
+        color_scheme: &dyn ColorScheme,
+    ) -> Vec<BarInstance> {
+        let width = size.width as usize;
+        let num_bands = history.num_bands();
+        let history_len = history.len();
+
+        let cell_width = 2.0 / width as f32;
+        let cell_height = 2.0 / num_bands as f32;
+
+        let mut instances = Vec::with_capacity(width * num_bands);
+
+        for col in 0..width {
+            let hist_idx = if history_len >= width {
+                col
+            } else if col >= width - history_len {
+                col - (width - history_len)
+            } else {
+                continue;
+            };
+
+            for band in 0..num_bands {
+                let intensity = history.get_intensity(hist_idx, band);
+                if intensity < 0.01 {
+                    continue;
+                }
+
+                let x = -1.0 + col as f32 * cell_width;
+                let y = -1.0 + band as f32 * cell_height;
+                let color = color_scheme.color_for_intensity(intensity);
+
+                instances.push(BarInstance {
+                    position: [x, y],
+                    size: [cell_width, cell_height],
+                    color: [color.r, color.g, color.b, intensity.max(0.3)],
+                });
+            }
+        }
+
+        instances
+    }
+
     pub fn render(&self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
+        let instance_count = match self.mode {
+            SpectrogramMode::BarMeter => self.bar_data.len(),
+            SpectrogramMode::Waterfall => self.history.len() * self.history.num_bands(),
+        };
+
+        if instance_count == 0 {
+            return;
+        }
+
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Spectrogram Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -260,70 +391,17 @@ impl Spectrogram {
         pass.set_pipeline(&self.pipeline);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-        pass.draw(0..4, 0..self.bar_data.len() as u32);
+        pass.draw(0..4, 0..instance_count as u32);
     }
 
     pub fn is_speaking(&self) -> bool {
-        self.is_speaking
+        self.analyzer.data().is_active
     }
-}
-
-fn create_instances(bar_data: &[f32], _size: PhysicalSize<u32>) -> Vec<BarInstance> {
-    let num_bars = bar_data.len();
-    let bar_width = 2.0 / num_bars as f32;
-    let spacing = bar_width * 0.1;
-    let actual_width = bar_width - spacing;
-
-    bar_data
-        .iter()
-        .enumerate()
-        .map(|(i, &amplitude)| {
-            let x = -1.0 + i as f32 * bar_width;
-            let height = amplitude * 2.0;
-            let y = -1.0;
-
-            let edge_factor = {
-                let pos = i as f32 / (num_bars - 1).max(1) as f32;
-                0.75 + 0.25 * (std::f32::consts::PI * (pos - 0.5)).cos()
-            };
-
-            let adjusted = amplitude * edge_factor;
-
-            BarInstance {
-                position: [x, y],
-                size: [actual_width, height * edge_factor],
-                color: [1.0, 1.0, 1.0, adjusted.max(MIN_OPACITY)],
-            }
-        })
-        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn create_instances_matches_bar_count() {
-        let bar_data = vec![0.5; 100];
-        let size = PhysicalSize::new(100, 80);
-        let instances = create_instances(&bar_data, size);
-        assert_eq!(instances.len(), bar_data.len());
-    }
-
-    #[test]
-    fn create_instances_different_sizes() {
-        for width in [50, 100, 200, 400, 640] {
-            let bar_data = vec![MIN_AMPLITUDE; width];
-            let size = PhysicalSize::new(width as u32, 80);
-            let instances = create_instances(&bar_data, size);
-            assert_eq!(
-                instances.len(),
-                width,
-                "instance count must match bar count for width {}",
-                width
-            );
-        }
-    }
 
     #[test]
     fn bar_instance_size_is_32_bytes() {

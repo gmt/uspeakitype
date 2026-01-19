@@ -28,6 +28,7 @@ pub struct AudioSource {
 pub struct CaptureConfig {
     pub auto_gain_enabled: bool,
     pub agc: AgcConfig,
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +55,7 @@ impl Default for CaptureConfig {
         Self {
             auto_gain_enabled: false,
             agc: AgcConfig::default(),
+            source: None,
         }
     }
 }
@@ -236,12 +238,31 @@ fn apply_auto_gain(samples: &mut [f32], control: &CaptureControl, agc: &mut Spee
     control.set_current_gain(agc.gain());
 }
 
+fn resolve_source(source: &str) -> Result<u32> {
+    if let Ok(id) = source.parse::<u32>() {
+        return Ok(id);
+    }
+
+    let sources = list_audio_sources()?;
+    sources
+        .iter()
+        .find(|s| s.name == source || s.description == source)
+        .map(|s| s.id)
+        .ok_or_else(|| anyhow::anyhow!("audio source not found: {}", source))
+}
+
 fn run_capture_loop(
     control: Arc<CaptureControl>,
     callback: AudioCallback,
     _sources: Arc<RwLock<Vec<AudioSource>>>,
     config: CaptureConfig,
 ) -> Result<()> {
+    let target_id = config
+        .source
+        .as_ref()
+        .map(|s| resolve_source(s))
+        .transpose()?;
+
     pw::init();
 
     let mainloop = pw::main_loop::MainLoopRc::new(None).context("creating PipeWire main loop")?;
@@ -309,17 +330,34 @@ fn run_capture_loop(
             }
 
             let data = &mut datas[0];
-            let n_samples = data.chunk().size() / (mem::size_of::<f32>() as u32);
+            let (offset, mut size) = {
+                let chunk = data.chunk();
+                (chunk.offset() as usize, chunk.size() as usize)
+            };
 
             if let Some(bytes) = data.data() {
-                let mut samples = Vec::with_capacity(n_samples as usize);
+                if offset >= bytes.len() {
+                    return;
+                }
+
+                if size == 0 {
+                    size = bytes.len().saturating_sub(offset);
+                }
+
+                let end = offset.saturating_add(size).min(bytes.len());
+                let payload = &bytes[offset..end];
+                let n_samples = payload.len() / mem::size_of::<f32>();
+
+                if n_samples == 0 {
+                    return;
+                }
+
+                let mut samples = Vec::with_capacity(n_samples);
                 for n in 0..n_samples {
-                    let start = n as usize * mem::size_of::<f32>();
+                    let start = n * mem::size_of::<f32>();
                     let end = start + mem::size_of::<f32>();
-                    if end <= bytes.len() {
-                        let sample_bytes: [u8; 4] = bytes[start..end].try_into().unwrap();
-                        samples.push(f32::from_le_bytes(sample_bytes));
-                    }
+                    let sample_bytes: [u8; 4] = payload[start..end].try_into().unwrap();
+                    samples.push(f32::from_le_bytes(sample_bytes));
                 }
 
                 apply_auto_gain(&mut samples, &user_data.control, &mut user_data.agc);
@@ -354,7 +392,7 @@ fn run_capture_loop(
     stream
         .connect(
             spa::utils::Direction::Input,
-            None,
+            target_id,
             pw::stream::StreamFlags::AUTOCONNECT
                 | pw::stream::StreamFlags::MAP_BUFFERS
                 | pw::stream::StreamFlags::RT_PROCESS,

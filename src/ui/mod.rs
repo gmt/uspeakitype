@@ -1,8 +1,7 @@
-//! WGPU overlay UI with Wayland layer shell
-
 pub mod app;
 pub mod renderer;
 pub mod spectrogram;
+pub mod terminal;
 pub mod text_renderer;
 
 use parking_lot::RwLock;
