@@ -8,8 +8,10 @@
 //! - Viz mode toggle
 //! - Color scheme picker
 
-use crate::ui::spectrogram::SpectrogramMode;
-use crate::ui::AudioSourceInfo;
+use crate::audio::CaptureControl;
+use crate::spectrum::{get_color_scheme, ColorScheme};
+use crate::ui::spectrogram::{Spectrogram, SpectrogramMode};
+use crate::ui::{AudioSourceInfo, AudioState};
 
 /// The 6 control panel controls
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +97,45 @@ impl ControlPanelState {
     pub fn update_device_list(&mut self, devices: Vec<AudioSourceInfo>) {
         self.device_list = devices;
     }
+
+    // ===== Apply methods to push state to app components =====
+
+    /// Apply gain change to AudioState
+    pub fn apply_gain(&self, audio_state: &mut AudioState) {
+        audio_state.current_gain = self.gain_value;
+    }
+
+    /// Apply AGC toggle to AudioState
+    pub fn apply_agc(&self, audio_state: &mut AudioState) {
+        audio_state.auto_gain_enabled = self.agc_enabled;
+    }
+
+    /// Apply pause toggle to CaptureControl
+    pub fn apply_pause(&self, capture_control: &CaptureControl) {
+        if self.is_paused {
+            capture_control.pause();
+        } else {
+            capture_control.resume();
+        }
+    }
+
+    /// Apply viz mode change to Spectrogram
+    pub fn apply_viz_mode(&self, spectrogram: &mut Spectrogram) {
+        spectrogram.set_mode(self.viz_mode);
+    }
+
+    /// Get the color scheme for the current selection
+    /// Returns a boxed ColorScheme that can be set on Spectrogram
+    pub fn get_color_scheme(&self) -> Box<dyn ColorScheme> {
+        get_color_scheme(self.color_scheme_name)
+    }
+
+    /// Apply device selection to AudioState
+    /// Note: Actual device switching requires audio system restart (out of scope)
+    /// This only updates the selected_source_id field in AudioState
+    pub fn apply_device(&self, audio_state: &mut AudioState) {
+        audio_state.selected_source_id = self.selected_device;
+    }
 }
 
 #[cfg(test)]
@@ -138,5 +179,69 @@ mod tests {
         assert!(matches!(state.viz_mode, SpectrogramMode::Waterfall));
         state.toggle_viz_mode();
         assert!(matches!(state.viz_mode, SpectrogramMode::BarMeter));
+    }
+
+    #[test]
+    fn apply_gain_updates_audio_state() {
+        let mut state = ControlPanelState::new();
+        state.set_gain(1.5);
+
+        let mut audio_state = AudioState::new();
+        state.apply_gain(&mut audio_state);
+
+        assert_eq!(audio_state.current_gain, 1.5);
+    }
+
+    #[test]
+    fn apply_agc_updates_audio_state() {
+        let mut state = ControlPanelState::new();
+        state.toggle_agc();
+
+        let mut audio_state = AudioState::new();
+        state.apply_agc(&mut audio_state);
+
+        assert!(audio_state.auto_gain_enabled);
+    }
+
+    #[test]
+    fn apply_pause_calls_capture_control() {
+        let state = ControlPanelState::new();
+        let control = CaptureControl::new();
+
+        assert!(!control.is_paused());
+
+        let mut paused_state = state.clone();
+        paused_state.toggle_pause();
+        paused_state.apply_pause(&control);
+
+        assert!(control.is_paused());
+
+        state.apply_pause(&control);
+        assert!(!control.is_paused());
+    }
+
+    #[test]
+    fn get_color_scheme_returns_correct_scheme() {
+        let mut state = ControlPanelState::new();
+
+        state.set_color_scheme("flame");
+        assert_eq!(state.get_color_scheme().name(), "flame");
+
+        state.set_color_scheme("ice");
+        assert_eq!(state.get_color_scheme().name(), "ice");
+
+        state.set_color_scheme("mono");
+        assert_eq!(state.get_color_scheme().name(), "mono");
+    }
+
+    #[test]
+    fn apply_device_updates_audio_state() {
+        let mut state = ControlPanelState::new();
+        state.set_device(Some(42));
+
+        let mut audio_state = AudioState::new();
+        state.apply_device(&mut audio_state);
+
+        assert_eq!(audio_state.selected_source_id, Some(42));
     }
 }
