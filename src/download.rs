@@ -14,15 +14,12 @@ use tokio::io::AsyncWriteExt;
 const SILERO_VAD_URL: &str =
     "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx";
 
-/// Base URL for Moonshine models on HuggingFace
+/// Base URL for Moonshine merged ONNX models on HuggingFace
 const MOONSHINE_BASE_URL: &str =
-    "https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/base";
+    "https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/float";
 
 /// Moonshine model files to download
-const MOONSHINE_FILES: [&str; 2] = [
-    "encode.onnx",
-    "cached_decode.onnx",
-];
+const MOONSHINE_FILES: [&str; 2] = ["encoder_model.onnx", "decoder_model_merged.onnx"];
 
 /// Paths to all required model files
 #[derive(Debug, Clone)]
@@ -130,15 +127,14 @@ pub fn ensure_models_exist(model_dir: &Path) -> Result<ModelPaths> {
     // Build all model paths
     let silero_vad_path = model_dir.join("silero_vad.onnx");
     let moonshine_dir = model_dir.join("moonshine-base");
-    let moonshine_encoder = moonshine_dir.join("encode.onnx");
-    let moonshine_decoder = moonshine_dir.join("cached_decode.onnx");
+    let moonshine_encoder = moonshine_dir.join("encoder_model.onnx");
+    let moonshine_decoder = moonshine_dir.join("decoder_model_merged.onnx");
     let moonshine_tokenizer = moonshine_dir.join("tokenizer.json");
     let moonshine_config = moonshine_dir.join("preprocessor_config.json");
 
     // Check if all files exist (tokenizer and config are optional - will use defaults)
-    let all_exist = silero_vad_path.exists()
-        && moonshine_encoder.exists()
-        && moonshine_decoder.exists();
+    let all_exist =
+        silero_vad_path.exists() && moonshine_encoder.exists() && moonshine_decoder.exists();
 
     if all_exist {
         println!("All models found at {:?}", model_dir);

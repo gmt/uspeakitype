@@ -49,10 +49,14 @@ fn main() -> Result<()> {
     let args = Args::parse();
     let samples = read_wav(&args.input)?;
 
-    let streamer = MoonshineStreamer::new(&args.model_dir)?;
+    let mut streamer = MoonshineStreamer::new(&args.model_dir)?;
 
     let frame_size = (args.sample_rate as u64 * args.frame_ms / 1000) as usize;
-    let mut buffer = Vec::with_capacity(frame_size * 10);
+    // Moonshine decoders expect a reasonable chunk of audio. We still "stream" by reading
+    // small frames, but we run inference on ~1s of audio at a time.
+    let inference_chunk = args.sample_rate as usize;
+
+    let mut buffer = Vec::with_capacity(inference_chunk);
     let mut start = 0;
 
     while start < samples.len() {
@@ -60,8 +64,9 @@ fn main() -> Result<()> {
         buffer.extend_from_slice(&samples[start..end]);
 
         let now = Instant::now();
-        if buffer.len() >= frame_size {
-            let text = streamer.transcribe(&buffer)?;
+        if buffer.len() >= inference_chunk {
+            streamer.reset();
+            let text = streamer.transcribe_incremental(&buffer)?;
             println!("{}", text);
             buffer.clear();
         }

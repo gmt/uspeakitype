@@ -6,7 +6,9 @@ use std::sync::OnceLock;
 use anyhow::{Context, Result};
 use ndarray::{Array1, Array2, ArrayD, Axis, IxDyn};
 use ort::session::{builder::GraphOptimizationLevel, Session, SessionInputValue, SessionInputs};
+use ort::tensor::TensorElementType;
 use ort::value::Tensor;
+use ort::value::ValueType;
 use parking_lot::Mutex;
 use serde::Deserialize;
 use tokenizers::Tokenizer;
@@ -20,7 +22,6 @@ fn init_ort() {
 }
 
 pub struct MoonshineStreamer {
-    preprocessor: Mutex<Session>,
     encoder: Mutex<Session>,
     decoder: Mutex<Session>,
     tokenizer: MoonshineTokenizer,
@@ -127,9 +128,18 @@ impl MoonshineStreamer {
 
         let model_dir = model_dir.as_ref();
 
-        let encoder_path = model_dir.join("encode.onnx");
-        let decoder_path = model_dir.join("cached_decode.onnx");
-        let preprocessor_path = model_dir.join("preprocess.onnx");
+        // Prefer the official merged ONNX naming, but keep compatibility with older downloads.
+        let encoder_path = if model_dir.join("encoder_model.onnx").exists() {
+            model_dir.join("encoder_model.onnx")
+        } else {
+            model_dir.join("encode.onnx")
+        };
+
+        let decoder_path = if model_dir.join("decoder_model_merged.onnx").exists() {
+            model_dir.join("decoder_model_merged.onnx")
+        } else {
+            model_dir.join("cached_decode.onnx")
+        };
         let config_path = model_dir.join("preprocessor_config.json");
 
         if !encoder_path.exists() {
@@ -144,18 +154,6 @@ impl MoonshineStreamer {
                 decoder_path.display()
             ));
         }
-        if !preprocessor_path.exists() {
-            return Err(anyhow::anyhow!(
-                "Missing preprocessor model: {}",
-                preprocessor_path.display()
-            ));
-        }
-
-        let preprocessor = Session::builder()?
-            .with_optimization_level(GraphOptimizationLevel::Level3)?
-            .with_intra_threads(4)?
-            .commit_from_file(&preprocessor_path)
-            .context("loading preprocessor")?;
 
         let encoder = Session::builder()?
             .with_optimization_level(GraphOptimizationLevel::Level3)?
@@ -183,7 +181,6 @@ impl MoonshineStreamer {
         };
 
         Ok(Self {
-            preprocessor: Mutex::new(preprocessor),
             encoder: Mutex::new(encoder),
             decoder: Mutex::new(decoder),
             tokenizer,
@@ -200,8 +197,7 @@ impl MoonshineStreamer {
         }
 
         let normalized = self.preprocess(samples);
-        let preprocessed = self.run_preprocessor(&normalized)?;
-        let encoder_states = self.encode(&preprocessed)?;
+        let encoder_states = self.encode(&normalized)?;
         let token_ids = self.greedy_decode(&encoder_states)?;
         self.tokenizer.decode(&token_ids)
     }
@@ -212,8 +208,7 @@ impl MoonshineStreamer {
         }
 
         let normalized = self.preprocess(samples);
-        let preprocessed = self.run_preprocessor(&normalized)?;
-        let encoder_states = self.encode(&preprocessed)?;
+        let encoder_states = self.encode(&normalized)?;
 
         let token_ids = if self.past_cache.is_none() {
             self.last_tokens.clear();
@@ -233,7 +228,7 @@ impl MoonshineStreamer {
         self.last_tokens.clear();
     }
 
-    fn preprocess(&self, samples: &[f32]) -> ArrayD<f32> {
+    fn preprocess(&self, samples: &[f32]) -> Array2<f32> {
         let mut input = samples.to_vec();
 
         if self.config.do_normalize && !input.is_empty() {
@@ -245,40 +240,39 @@ impl MoonshineStreamer {
             }
         }
 
-        // Encoder expects 3D input: (batch, 1, samples)
-        ArrayD::from_shape_vec(IxDyn(&[1, 1, input.len()]), input).expect("shape error")
+        Array2::from_shape_vec((1, input.len()), input).expect("shape error")
     }
 
-    /// Run the ONNX preprocessor to convert raw audio to features
-    fn run_preprocessor(&self, input: &ArrayD<f32>) -> Result<ArrayD<f32>> {
-        let input_tensor = Tensor::from_array(input.clone())?;
+    fn encode(&self, input: &Array2<f32>) -> Result<ArrayD<f32>> {
+        let mut encoder = self.encoder.lock();
 
-        let mut preprocessor = self.preprocessor.lock();
-
-        let input_name = preprocessor
+        let input_rank = encoder
             .inputs()
             .first()
-            .map(|i| i.name().to_string())
-            .unwrap_or_else(|| "args_0".to_string());
+            .and_then(|i| match i.dtype() {
+                ValueType::Tensor { shape, .. } => Some(shape.len()),
+                _ => None,
+            })
+            .unwrap_or(2);
 
-        let outputs = preprocessor
-            .run(ort::inputs! { input_name.as_str() => input_tensor })
-            .context("preprocessor inference")?;
-
-        let output = outputs
-            .values()
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("missing preprocessor output"))?;
-        output
-            .try_extract_array::<f32>()
-            .map(|a| a.to_owned())
-            .map_err(|e| anyhow::anyhow!("preprocessor output error: {}", e))
-    }
-
-    fn encode(&self, input: &ArrayD<f32>) -> Result<ArrayD<f32>> {
-        let input_tensor = Tensor::from_array(input.clone())?;
-
-        let mut encoder = self.encoder.lock();
+        let input_tensor = match input_rank {
+            2 => Tensor::from_array(input.clone())?,
+            // Some Moonshine encoder exports include a channel dimension.
+            3 => {
+                let samples = input
+                    .as_slice()
+                    .ok_or_else(|| anyhow::anyhow!("encoder input is not contiguous"))?;
+                let reshaped =
+                    ArrayD::from_shape_vec(IxDyn(&[1, 1, input.shape()[1]]), samples.to_vec())?;
+                Tensor::from_array(reshaped)?
+            }
+            other => {
+                return Err(anyhow::anyhow!(
+                    "unsupported encoder input rank: {} (expected 2 or 3)",
+                    other
+                ))
+            }
+        };
 
         let input_name = encoder
             .inputs()
@@ -286,21 +280,48 @@ impl MoonshineStreamer {
             .map(|i| i.name().to_string())
             .unwrap_or_else(|| "input_values".to_string());
 
-        let output_name = encoder
-            .outputs()
-            .first()
-            .map(|o| o.name().to_string())
-            .unwrap_or_else(|| "last_hidden_state".to_string());
+        let output_name = find_output_name(
+            encoder.outputs(),
+            &["last_hidden_state", "encoder_hidden_states", "output"],
+        )
+        .or_else(|| encoder.outputs().first().map(|o| o.name().to_string()))
+        .unwrap_or_else(|| "last_hidden_state".to_string());
 
         // Get sequence length for encoder (2nd input)
         let seq_len = input.shape()[1] as i32;
-        let seq_len_tensor = Tensor::from_array(Array1::from(vec![seq_len]))?;
 
-        let seq_len_name = encoder.inputs().get(1).map(|i| i.name().to_string());
+        let seq_len_input = encoder.inputs().get(1).and_then(|i| {
+            let name = i.name().to_string();
+            let (ty, rank) = match i.dtype() {
+                ValueType::Tensor { ty, shape, .. } => (*ty, shape.len()),
+                _ => return None,
+            };
 
-        let outputs = if let Some(ref seq_name) = seq_len_name {
+            // Some encoder exports include a scalar-ish sequence length input.
+            // Avoid guessing for other second inputs (e.g. attention_mask).
+            let name_lc = name.to_lowercase();
+            let looks_like_len = name_lc.contains("len") || name_lc.contains("length");
+            let is_int = ty == TensorElementType::Int64 || ty == TensorElementType::Int32;
+            let is_rank1 = rank == 1;
+
+            if looks_like_len && is_int && is_rank1 {
+                Some((name, ty))
+            } else {
+                None
+            }
+        });
+
+        let outputs = if let Some((ref seq_name, seq_ty)) = seq_len_input {
             let input_val: SessionInputValue = input_tensor.into();
-            let seq_val: SessionInputValue = seq_len_tensor.into();
+
+            let seq_val: SessionInputValue = if seq_ty == TensorElementType::Int64 {
+                let t = Tensor::from_array(Array1::from(vec![seq_len as i64]))?;
+                t.into()
+            } else {
+                let t = Tensor::from_array(Array1::from(vec![seq_len]))?;
+                t.into()
+            };
+
             encoder.run(SessionInputs::from(vec![
                 (input_name.clone(), input_val),
                 (seq_name.clone(), seq_val),
@@ -332,6 +353,21 @@ impl MoonshineStreamer {
         let max_tokens = estimate_max_tokens(encoder_states.shape());
         let mut tokens: Vec<u32> = vec![self.tokenizer.bos_token_id];
 
+        let input_ids_is_i64 = decoder
+            .inputs()
+            .iter()
+            .find(|i| i.name() == input_ids_name)
+            .map(|i| {
+                matches!(
+                    i.dtype(),
+                    ValueType::Tensor {
+                        ty: TensorElementType::Int64,
+                        ..
+                    }
+                )
+            })
+            .unwrap_or(false);
+
         // Initialize KV cache tensors (args_3 to args_34) with empty seq dimension
         // Shape: [batch=1, seq_len=0, heads=8, head_dim=52]
         let mut kv_cache: Vec<ArrayD<f32>> = (0..32)
@@ -351,14 +387,20 @@ impl MoonshineStreamer {
             } else {
                 vec![*tokens.last().unwrap() as i32]
             };
-            let input_ids_array = Array2::from_shape_vec((1, input_ids.len()), input_ids)?;
-            let input_ids_tensor = Tensor::from_array(input_ids_array)?;
+            let input_ids_tensor: SessionInputValue = if input_ids_is_i64 {
+                let ids: Vec<i64> = input_ids.into_iter().map(|v| v as i64).collect();
+                let input_ids_array = Array2::from_shape_vec((1, ids.len()), ids)?;
+                Tensor::from_array(input_ids_array)?.into()
+            } else {
+                let input_ids_array = Array2::from_shape_vec((1, input_ids.len()), input_ids)?;
+                Tensor::from_array(input_ids_array)?.into()
+            };
 
             let seq_len = encoder_states.shape()[1] as i32;
             let seq_len_tensor = Tensor::from_array(Array1::from(vec![seq_len]))?;
 
             let mut inputs: Vec<(String, SessionInputValue)> = vec![
-                (input_ids_name.clone(), input_ids_tensor.into()),
+                (input_ids_name.clone(), input_ids_tensor),
                 (encoder_name.clone(), (&encoder_tensor).into()),
                 (seq_len_name.clone(), seq_len_tensor.into()),
             ];
@@ -424,6 +466,21 @@ impl MoonshineStreamer {
         )
         .unwrap_or_else(|| "args_1".to_string());
 
+        let input_ids_is_i64 = decoder
+            .inputs()
+            .iter()
+            .find(|i| i.name() == input_ids_name)
+            .map(|i| {
+                matches!(
+                    i.dtype(),
+                    ValueType::Tensor {
+                        ty: TensorElementType::Int64,
+                        ..
+                    }
+                )
+            })
+            .unwrap_or(false);
+
         let logits_name = find_output_name(
             decoder.outputs(),
             &["logits", "output", "reversible_embedding"],
@@ -431,6 +488,11 @@ impl MoonshineStreamer {
         .unwrap_or_else(|| "reversible_embedding".to_string());
 
         let use_cache_name = find_input_name(decoder.inputs(), &["use_cache_branch", "use_cache"]);
+
+        let seq_len_name = find_input_name(
+            decoder.inputs(),
+            &["encoder_sequence_length", "seq_len", "args_2"],
+        );
 
         let past_names: Vec<String> = decoder
             .inputs()
@@ -456,6 +518,13 @@ impl MoonshineStreamer {
             ));
         }
 
+        // Disable decoder KV-cache by default.
+        //
+        // Several Moonshine ONNX exports gate internal cache logic behind an `If` node and a
+        // `use_cache*` boolean input. Running greedy decoding without the cache is slower but
+        // avoids shape mismatches across model variants.
+        let use_kv_cache = false;
+
         let max_tokens = estimate_max_tokens(encoder_states.shape());
 
         let mut tokens = self.last_tokens.clone();
@@ -467,38 +536,55 @@ impl MoonshineStreamer {
         let mut cache = self.past_cache.clone();
 
         for _ in start_step..max_tokens {
-            let last_token = tokens
-                .last()
-                .copied()
-                .unwrap_or(self.tokenizer.bos_token_id);
+            let input_ids_tensor: SessionInputValue = if use_kv_cache {
+                let last_token = tokens
+                    .last()
+                    .copied()
+                    .unwrap_or(self.tokenizer.bos_token_id);
 
-            let input_ids_array = Array2::from_shape_vec((1, 1), vec![last_token as i32])?;
-            let input_ids_tensor = Tensor::from_array(input_ids_array)?;
+                if input_ids_is_i64 {
+                    let input_ids_array = Array2::from_shape_vec((1, 1), vec![last_token as i64])?;
+                    Tensor::from_array(input_ids_array)?.into()
+                } else {
+                    let input_ids_array = Array2::from_shape_vec((1, 1), vec![last_token as i32])?;
+                    Tensor::from_array(input_ids_array)?.into()
+                }
+            } else if input_ids_is_i64 {
+                let ids: Vec<i64> = tokens.iter().map(|&t| t as i64).collect();
+                let input_ids_array = Array2::from_shape_vec((1, ids.len()), ids)?;
+                Tensor::from_array(input_ids_array)?.into()
+            } else {
+                let ids: Vec<i32> = tokens.iter().map(|&t| t as i32).collect();
+                let input_ids_array = Array2::from_shape_vec((1, ids.len()), ids)?;
+                Tensor::from_array(input_ids_array)?.into()
+            };
 
-            if !past_names.is_empty() && cache.is_none() {
+            if use_kv_cache && cache.is_none() {
                 cache = Some(init_cache_tensors(&decoder, &past_names)?);
             }
 
-            // Add seq_len input (args_2)
-            let seq_len = encoder_states.shape()[1] as i32;
-            let seq_len_tensor = Tensor::from_array(Array1::from(vec![seq_len]))?;
-            let seq_len_name = "args_2".to_string();
-
             let mut inputs: Vec<(String, SessionInputValue)> = vec![
-                (input_ids_name.clone(), input_ids_tensor.into()),
+                (input_ids_name.clone(), input_ids_tensor),
                 (encoder_name.clone(), (&encoder_tensor).into()),
-                (seq_len_name, seq_len_tensor.into()),
             ];
 
+            if let Some(ref name) = seq_len_name {
+                let seq_len = encoder_states.shape()[1] as i32;
+                let seq_len_tensor = Tensor::from_array(Array1::from(vec![seq_len]))?;
+                inputs.push((name.clone(), seq_len_tensor.into()));
+            }
+
             if let Some(ref cache_name) = use_cache_name {
-                let cache_value = Array1::from(vec![true]);
+                let cache_value = Array1::from(vec![use_kv_cache]);
                 let cache_tensor = Tensor::from_array(cache_value)?;
                 inputs.push((cache_name.clone(), cache_tensor.into()));
             }
 
-            if let Some(ref cache_values) = cache {
-                for (name, value) in past_names.iter().zip(cache_values.iter()) {
-                    inputs.push((name.clone(), value.view().into()));
+            if use_kv_cache {
+                if let Some(ref cache_values) = cache {
+                    for (name, value) in past_names.iter().zip(cache_values.iter()) {
+                        inputs.push((name.clone(), value.view().into()));
+                    }
                 }
             }
 
@@ -514,7 +600,7 @@ impl MoonshineStreamer {
 
             let next_token = select_next_token(logits.to_owned())?;
 
-            if !present_names.is_empty() {
+            if use_kv_cache && !present_names.is_empty() {
                 let mut new_cache = Vec::with_capacity(present_names.len());
                 for name in &present_names {
                     let dyn_value = outputs.get(name.as_str()).ok_or_else(|| {
@@ -772,7 +858,6 @@ mod tests {
     fn reset_clears_incremental_state() {
         let decoder = build_toy_decoder();
         let mut streamer = MoonshineStreamer {
-            preprocessor: Mutex::new(build_toy_decoder()),
             encoder: Mutex::new(build_toy_decoder()),
             decoder: Mutex::new(decoder),
             tokenizer: MoonshineTokenizer {
@@ -799,7 +884,6 @@ mod tests {
     #[test]
     fn greedy_decode_cached_updates_cache_seq_len() {
         let mut streamer = MoonshineStreamer {
-            preprocessor: Mutex::new(build_toy_decoder()),
             encoder: Mutex::new(build_toy_decoder()),
             decoder: Mutex::new(build_toy_decoder()),
             tokenizer: MoonshineTokenizer {
