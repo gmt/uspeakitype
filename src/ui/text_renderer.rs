@@ -9,16 +9,20 @@ use glyphon::{
 use wgpu::{Device, Queue, TextureView};
 use winit::dpi::PhysicalSize;
 
+use super::theme::{Theme, DEFAULT_THEME};
+
 pub struct TextRenderer {
     font_system: FontSystem,
     swash_cache: SwashCache,
     atlas: TextAtlas,
     renderer: GlyphonTextRenderer,
     buffer: Buffer,
+    buffer_partial: Buffer,
     device: Arc<Device>,
     queue: Arc<Queue>,
     size: PhysicalSize<u32>,
     viewport: Viewport,
+    theme: Theme,
 }
 
 impl TextRenderer {
@@ -46,22 +50,36 @@ impl TextRenderer {
             Some(size.height as f32),
         );
 
+        let mut buffer_partial = Buffer::new(&mut font_system, Metrics::new(16.0, 20.0));
+        buffer_partial.set_size(
+            &mut font_system,
+            Some(size.width as f32),
+            Some(size.height as f32),
+        );
+
         Self {
             font_system,
             swash_cache,
             atlas,
             renderer,
             buffer,
+            buffer_partial,
             device,
             queue,
             size,
             viewport,
+            theme: DEFAULT_THEME,
         }
     }
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
         self.size = size;
         self.buffer.set_size(
+            &mut self.font_system,
+            Some(size.width as f32),
+            Some(size.height as f32),
+        );
+        self.buffer_partial.set_size(
             &mut self.font_system,
             Some(size.width as f32),
             Some(size.height as f32),
@@ -88,44 +106,117 @@ impl TextRenderer {
         area_height: u32,
         padding: f32,
     ) {
-        let full_text = if partial.is_empty() {
-            committed.to_string()
-        } else if committed.is_empty() {
-            partial.to_string()
-        } else {
-            format!("{} {}", committed, partial)
-        };
-
-        if full_text.is_empty() {
+        if committed.is_empty() && partial.is_empty() {
             return;
         }
 
-        self.buffer.lines.clear();
+        let theme_wgpu = self.theme.to_wgpu();
+
+        let committed_color = Color::rgba(
+            (theme_wgpu.text_committed[0] * 255.0) as u8,
+            (theme_wgpu.text_committed[1] * 255.0) as u8,
+            (theme_wgpu.text_committed[2] * 255.0) as u8,
+            (theme_wgpu.text_committed[3] * 255.0) as u8,
+        );
+
+        let partial_color = Color::rgba(
+            (theme_wgpu.text_partial[0] * 255.0) as u8,
+            (theme_wgpu.text_partial[1] * 255.0) as u8,
+            (theme_wgpu.text_partial[2] * 255.0) as u8,
+            (theme_wgpu.text_partial[3] * 255.0) as u8,
+        );
 
         let font_size = 14.0 * scale;
         let metrics = Metrics::new(font_size, font_size * 1.3);
-        self.buffer.set_metrics(&mut self.font_system, metrics);
 
-        let text_color = if committed.is_empty() {
-            Color::rgba(180, 180, 180, 220)
-        } else {
-            Color::rgba(255, 255, 255, 255)
-        };
+        self.buffer.lines.clear();
+        self.buffer_partial.lines.clear();
+
+        self.buffer.set_metrics(&mut self.font_system, metrics);
+        self.buffer_partial
+            .set_metrics(&mut self.font_system, metrics);
 
         self.buffer.set_size(
             &mut self.font_system,
             Some(area_width as f32 - padding * 2.0),
             None,
         );
-
-        self.buffer.set_text(
+        self.buffer_partial.set_size(
             &mut self.font_system,
-            &full_text,
-            &Attrs::new().family(Family::SansSerif).color(text_color),
-            Shaping::Advanced,
+            Some(area_width as f32 - padding * 2.0),
+            None,
         );
 
-        self.buffer.shape_until_scroll(&mut self.font_system, true);
+        let mut text_areas = Vec::new();
+
+        if !committed.is_empty() {
+            self.buffer.set_text(
+                &mut self.font_system,
+                committed,
+                &Attrs::new()
+                    .family(Family::SansSerif)
+                    .color(committed_color),
+                Shaping::Advanced,
+            );
+            self.buffer.shape_until_scroll(&mut self.font_system, true);
+
+            text_areas.push(TextArea {
+                buffer: &self.buffer,
+                left: x + padding,
+                top: y + padding,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: 0,
+                    top: 0,
+                    right: area_width as i32,
+                    bottom: area_height as i32,
+                },
+                default_color: committed_color,
+                custom_glyphs: &[],
+            });
+        }
+
+        if !partial.is_empty() {
+            let committed_width = if committed.is_empty() {
+                0.0
+            } else {
+                self.buffer
+                    .layout_runs()
+                    .flat_map(|run| run.glyphs.iter())
+                    .map(|glyph| glyph.w)
+                    .sum::<f32>()
+            };
+
+            let offset = if committed.is_empty() {
+                0.0
+            } else {
+                committed_width + font_size * 0.3
+            };
+
+            self.buffer_partial.set_text(
+                &mut self.font_system,
+                partial,
+                &Attrs::new().family(Family::SansSerif).color(partial_color),
+                Shaping::Advanced,
+            );
+            self.buffer_partial
+                .shape_until_scroll(&mut self.font_system, true);
+
+            text_areas.push(TextArea {
+                buffer: &self.buffer_partial,
+                left: x + padding + offset,
+                top: y + padding,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: 0,
+                    top: 0,
+                    right: area_width as i32,
+                    bottom: area_height as i32,
+                },
+                default_color: partial_color,
+                custom_glyphs: &[],
+            });
+        }
 
         self.viewport.update(
             &self.queue,
@@ -134,21 +225,6 @@ impl TextRenderer {
                 height: self.size.height,
             },
         );
-
-        let text_area = TextArea {
-            buffer: &self.buffer,
-            left: x + padding,
-            top: y + padding,
-            scale: 1.0,
-            bounds: TextBounds {
-                left: 0,
-                top: 0,
-                right: area_width as i32,
-                bottom: area_height as i32,
-            },
-            default_color: text_color,
-            custom_glyphs: &[],
-        };
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -176,7 +252,7 @@ impl TextRenderer {
                     &mut self.font_system,
                     &mut self.atlas,
                     &self.viewport,
-                    [text_area],
+                    text_areas,
                     &mut self.swash_cache,
                 )
                 .is_ok()
