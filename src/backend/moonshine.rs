@@ -233,7 +233,7 @@ impl MoonshineStreamer {
         self.last_tokens.clear();
     }
 
-    fn preprocess(&self, samples: &[f32]) -> Array2<f32> {
+    fn preprocess(&self, samples: &[f32]) -> ArrayD<f32> {
         let mut input = samples.to_vec();
 
         if self.config.do_normalize && !input.is_empty() {
@@ -245,11 +245,12 @@ impl MoonshineStreamer {
             }
         }
 
-        Array2::from_shape_vec((1, input.len()), input).expect("shape error")
+        // Encoder expects 3D input: (batch, 1, samples)
+        ArrayD::from_shape_vec(IxDyn(&[1, 1, input.len()]), input).expect("shape error")
     }
 
     /// Run the ONNX preprocessor to convert raw audio to features
-    fn run_preprocessor(&self, input: &Array2<f32>) -> Result<ArrayD<f32>> {
+    fn run_preprocessor(&self, input: &ArrayD<f32>) -> Result<ArrayD<f32>> {
         let input_tensor = Tensor::from_array(input.clone())?;
 
         let mut preprocessor = self.preprocessor.lock();
