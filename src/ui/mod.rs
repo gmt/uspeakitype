@@ -1,4 +1,5 @@
 pub mod app;
+pub mod control_panel;
 pub mod renderer;
 pub mod spectrogram;
 pub mod terminal;
