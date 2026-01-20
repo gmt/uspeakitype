@@ -17,6 +17,7 @@ use winit::window::{WindowAttributes, WindowId};
 use crate::audio::CaptureControl;
 
 use super::renderer::Renderer;
+use super::spectrogram::SpectrogramMode;
 use super::SharedAudioState;
 
 const MARGIN: i32 = 24;
@@ -25,6 +26,7 @@ pub fn run(
     audio_state: SharedAudioState,
     running: Arc<AtomicBool>,
     capture_control: Option<Arc<CaptureControl>>,
+    mode: SpectrogramMode,
 ) {
     let event_loop = EventLoop::new().expect("Failed to create event loop");
 
@@ -34,6 +36,7 @@ pub fn run(
         running,
         capture_control,
         mouse_position: None,
+        mode,
     });
 
     event_loop
@@ -47,6 +50,7 @@ struct OverlayApp {
     running: Arc<AtomicBool>,
     capture_control: Option<Arc<CaptureControl>>,
     mouse_position: Option<(f64, f64)>,
+    mode: SpectrogramMode,
 }
 
 impl OverlayApp {
@@ -127,7 +131,7 @@ impl ApplicationHandler for OverlayApp {
             .create_window(window_attrs)
             .expect("Failed to create window");
 
-        let renderer = Renderer::new(window, self.audio_state.clone());
+        let renderer = Renderer::new(window, self.audio_state.clone(), self.mode);
         let window_id = renderer.window.id();
         self.renderers.insert(window_id, renderer);
     }

@@ -12,6 +12,7 @@ use terminal_size::{terminal_size, Height, Width};
 use barbara::audio::{self, AudioCapture, CaptureConfig, CaptureControl};
 use barbara::spectrum::get_color_scheme;
 use barbara::ui;
+use barbara::ui::spectrogram::SpectrogramMode;
 use barbara::ui::terminal::{TerminalConfig, TerminalMode, TerminalVisualizer};
 use barbara::{backend, download, streaming};
 
@@ -201,7 +202,11 @@ fn main() -> anyhow::Result<()> {
     if args.headless || args.ansi {
         run_terminal_loop(audio_state, running, &args, capture_control.as_ref())?;
     } else {
-        ui::run(audio_state, running, capture_control);
+        let mode = match args.style {
+            SpectrogramStyle::Bars => SpectrogramMode::BarMeter,
+            SpectrogramStyle::Waterfall => SpectrogramMode::Waterfall,
+        };
+        ui::run(audio_state, running, capture_control, mode);
     }
 
     Ok(())

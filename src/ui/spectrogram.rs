@@ -13,6 +13,7 @@ const ANIMATION_SPEED: f32 = 0.85;
 const MIN_AMPLITUDE: f32 = 0.025;
 const MIN_OPACITY: f32 = 0.15;
 
+#[derive(Debug, Clone, Copy)]
 pub enum SpectrogramMode {
     BarMeter,
     Waterfall,

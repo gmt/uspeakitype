@@ -6,7 +6,7 @@ use wgpu::util::DeviceExt;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
-use super::spectrogram::Spectrogram;
+use super::spectrogram::{Spectrogram, SpectrogramMode};
 use super::text_renderer::TextRenderer;
 use super::SharedAudioState;
 
@@ -30,7 +30,11 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(window: Box<dyn Window>, audio_state: SharedAudioState) -> Self {
+    pub fn new(
+        window: Box<dyn Window>,
+        audio_state: SharedAudioState,
+        mode: SpectrogramMode,
+    ) -> Self {
         let window: Arc<dyn Window> = Arc::from(window);
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
@@ -159,11 +163,12 @@ impl Renderer {
             format,
         );
 
-        let spectrogram = Spectrogram::new(
+        let spectrogram = Spectrogram::with_mode(
             device.clone(),
             queue.clone(),
             PhysicalSize::new(WINDOW_WIDTH, SPECTROGRAM_HEIGHT),
             format,
+            mode,
         );
 
         Self {
