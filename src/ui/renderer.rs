@@ -8,6 +8,7 @@ use winit::window::Window;
 
 use super::spectrogram::{Spectrogram, SpectrogramMode};
 use super::text_renderer::TextRenderer;
+use super::theme::{Theme, DEFAULT_THEME};
 use super::SharedAudioState;
 
 const WINDOW_WIDTH: u32 = 400;
@@ -24,6 +25,9 @@ pub struct Renderer {
     config: wgpu::SurfaceConfiguration,
     bg_pipeline: wgpu::RenderPipeline,
     bg_vertices: wgpu::Buffer,
+    bg_uniform_buffer: wgpu::Buffer,
+    bg_bind_group: wgpu::BindGroup,
+    theme: Theme,
     text_renderer: TextRenderer,
     spectrogram: Spectrogram,
     audio_state: SharedAudioState,
@@ -91,9 +95,43 @@ impl Renderer {
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/rounded_rect.wgsl").into()),
         });
 
+        // Create uniform buffer for theme colors
+        let theme_wgpu = DEFAULT_THEME.to_wgpu();
+        let bg_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Background Theme Uniform"),
+            contents: bytemuck::cast_slice(&[theme_wgpu.background, theme_wgpu.shadow]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Create bind group layout for theme uniform
+        let bg_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Background Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        // Create bind group
+        let bg_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Background Bind Group"),
+            layout: &bg_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: bg_uniform_buffer.as_entire_binding(),
+            }],
+        });
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Background Pipeline Layout"),
-            bind_group_layouts: &[],
+            bind_group_layouts: &[&bg_bind_group_layout],
             push_constant_ranges: &[],
         });
 
@@ -180,6 +218,9 @@ impl Renderer {
             config,
             bg_pipeline,
             bg_vertices,
+            bg_uniform_buffer,
+            bg_bind_group,
+            theme: DEFAULT_THEME,
             text_renderer,
             spectrogram,
             audio_state,
@@ -247,6 +288,7 @@ impl Renderer {
                 ..Default::default()
             });
             pass.set_pipeline(&self.bg_pipeline);
+            pass.set_bind_group(0, &self.bg_bind_group, &[]);
             pass.set_vertex_buffer(0, self.bg_vertices.slice(..));
             pass.draw(0..4, 0..1);
         }

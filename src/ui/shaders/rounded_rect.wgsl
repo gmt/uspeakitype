@@ -1,3 +1,11 @@
+struct ThemeColors {
+    background: vec4<f32>,
+    shadow: vec4<f32>,
+}
+
+@group(0) @binding(0)
+var<uniform> theme: ThemeColors;
+
 struct VertexInput {
     @location(0) position: vec2<f32>,
 };
@@ -30,7 +38,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let shadow_dist_to_edge = length(max(shadow_dist, vec2<f32>(0.0, 0.0))) - corner_radius;
 
     let shadow_alpha = 1.0 - clamp((shadow_dist_to_edge + shadow_blur) / shadow_blur, 0.0, 1.0);
-    let shadow_color = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha * 0.4);
+    let shadow_color = vec4<f32>(theme.shadow.rgb, shadow_alpha * 0.4);
 
     let dist = abs(in.uv - center) - half_size + corner_radius;
     let dist_to_edge = length(max(dist, vec2<f32>(0.0, 0.0))) - corner_radius;
@@ -38,7 +46,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let edge_width = 0.005;
     let main_alpha = 1.0 - clamp(dist_to_edge / edge_width + 0.5, 0.0, 1.0);
 
-    let main_color = vec4<f32>(0.1, 0.1, 0.1, main_alpha * 0.85);
+    let main_color = vec4<f32>(theme.background.rgb, main_alpha * 0.85);
 
     let result = mix(shadow_color, main_color, main_alpha);
 
