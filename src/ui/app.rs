@@ -177,6 +177,13 @@ impl ApplicationHandler for OverlayApp {
                             event_loop.exit();
                         }
                         Key::Named(NamedKey::Escape) => {
+                            // TODO: tray-icon - WGPU mode needs system tray icon for exit
+                            // Keybindings are not viable for WGPU overlay mode (designed for
+                            // no-keyboard environments). See AGENTS.md "Dual UX Requirement"
+                            // for architectural rationale. Tray icon should provide:
+                            // - Quit option
+                            // - Show/hide overlay toggle
+                            // - Settings access (when control panel implemented)
                             self.running.store(false, Ordering::Relaxed);
                             if let Some(ref control) = self.capture_control {
                                 control.stop();
