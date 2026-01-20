@@ -111,12 +111,7 @@ impl ApplicationHandler for OverlayApp {
     }
 
     fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
-        let Some((_, monitor)) = event_loop
-            .available_monitors()
-            .into_iter()
-            .enumerate()
-            .next()
-        else {
+        let Some((_, monitor)) = event_loop.available_monitors().enumerate().next() else {
             eprintln!("No monitors available");
             return;
         };

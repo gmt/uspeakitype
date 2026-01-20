@@ -97,15 +97,13 @@ impl MoonshineTokenizer {
         let bos_token_id = BOS_CANDIDATES
             .iter()
             .filter_map(|t| tokenizer.token_to_id(t))
-            .filter(|&id| id < MAX_VOCAB)
-            .next()
+            .find(|&id| id < MAX_VOCAB)
             .unwrap_or(1); // Fallback to 1 if not found or out of range
 
         let eos_token_id = EOS_CANDIDATES
             .iter()
             .filter_map(|t| tokenizer.token_to_id(t))
-            .filter(|&id| id < MAX_VOCAB)
-            .next()
+            .find(|&id| id < MAX_VOCAB)
             .unwrap_or(2); // Fallback to 2 if not found or out of range
 
         Ok(Self {
@@ -706,7 +704,7 @@ fn find_output_name(outputs: &[ort::value::Outlet], candidates: &[&str]) -> Opti
 
 fn estimate_max_tokens(encoder_shape: &[usize]) -> usize {
     let seq_len = encoder_shape.get(1).copied().unwrap_or(100);
-    (seq_len / 10).max(32).min(512)
+    (seq_len / 10).clamp(32, 512)
 }
 
 fn select_next_token(logits: ArrayD<f32>) -> Result<u32> {

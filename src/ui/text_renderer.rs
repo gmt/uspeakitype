@@ -93,6 +93,7 @@ impl TextRenderer {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         view: &TextureView,

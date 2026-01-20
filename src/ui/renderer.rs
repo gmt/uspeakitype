@@ -25,8 +25,10 @@ pub struct Renderer {
     config: wgpu::SurfaceConfiguration,
     bg_pipeline: wgpu::RenderPipeline,
     bg_vertices: wgpu::Buffer,
+    #[allow(dead_code)] // TODO: Will be used for control panel rendering
     bg_uniform_buffer: wgpu::Buffer,
     bg_bind_group: wgpu::BindGroup,
+    #[allow(dead_code)] // TODO: Will be used for control panel theming
     theme: Theme,
     text_renderer: TextRenderer,
     spectrogram: Spectrogram,

@@ -32,6 +32,12 @@ enum ColorSchemeName {
 #[derive(Parser)]
 #[command(name = "barbara")]
 #[command(about = "Streaming speech-to-text with live revision")]
+#[command(long_about = "Streaming speech-to-text with live revision\n\n\
+Keybindings:\n  \
+w - Toggle between bar meter and waterfall visualization\n  \
+q/Esc - Quit (GUI mode)\n  \
+q - Quit (TUI mode)\n\n\
+Note: Control panel ('c' key) is planned but not yet implemented.")]
 struct Args {
     #[arg(long)]
     headless: bool,

@@ -31,6 +31,17 @@ pub struct CaptureConfig {
     pub source: Option<String>,
 }
 
+#[allow(clippy::derivable_impls)]
+impl Default for CaptureConfig {
+    fn default() -> Self {
+        Self {
+            auto_gain_enabled: false,
+            agc: AgcConfig::default(),
+            source: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AgcConfig {
     pub desired_rms: f32,
@@ -46,16 +57,6 @@ impl Default for AgcConfig {
             smoothing_factor: 0.0001,
             max_gain: 10.0,
             min_gain: 0.1,
-        }
-    }
-}
-
-impl Default for CaptureConfig {
-    fn default() -> Self {
-        Self {
-            auto_gain_enabled: false,
-            agc: AgcConfig::default(),
-            source: None,
         }
     }
 }
