@@ -164,6 +164,11 @@ impl ApplicationHandler for OverlayApp {
                         Key::Character(ref c) if c == "g" || c == "G" => {
                             self.handle_auto_gain_toggle();
                         }
+                        Key::Character(ref c) if c == "w" || c == "W" => {
+                            if let Some(renderer) = self.renderers.get_mut(&window_id) {
+                                renderer.toggle_mode();
+                            }
+                        }
                         Key::Character(ref c) if c == "q" || c == "Q" => {
                             self.running.store(false, Ordering::Relaxed);
                             if let Some(ref control) = self.capture_control {

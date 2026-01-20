@@ -27,6 +27,7 @@ pub struct Renderer {
     text_renderer: TextRenderer,
     spectrogram: Spectrogram,
     audio_state: SharedAudioState,
+    mode: SpectrogramMode,
 }
 
 impl Renderer {
@@ -182,6 +183,7 @@ impl Renderer {
             text_renderer,
             spectrogram,
             audio_state,
+            mode,
         }
     }
 
@@ -199,6 +201,14 @@ impl Renderer {
             .resize(PhysicalSize::new(width, TEXT_HEIGHT));
         self.spectrogram
             .resize(PhysicalSize::new(width, SPECTROGRAM_HEIGHT));
+    }
+
+    pub fn toggle_mode(&mut self) {
+        self.mode = match self.mode {
+            SpectrogramMode::BarMeter => SpectrogramMode::Waterfall,
+            SpectrogramMode::Waterfall => SpectrogramMode::BarMeter,
+        };
+        self.spectrogram.set_mode(self.mode);
     }
 
     pub fn draw(&mut self) {
