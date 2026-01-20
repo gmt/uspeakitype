@@ -115,6 +115,16 @@ pub enum StreamEvent {
 - Use `todo!("Port from sonori")` with context
 - Keep skeleton structs/functions for architecture clarity
 
+## Anti-patterns (Forbidden)
+
+| Anti-pattern | Rationale | Reference |
+|--------------|-----------|-----------|
+| Multi-backend abstraction | Moonshine-only by design; no backend trait/plugin system | `src/backend/mod.rs:1-13` |
+| Single-surface frobs | Every control MUST work in both TUI and WGPU; if terminal can't represent it, reconsider | UI/Config Principles |
+| 29s chunking logic | Removed from sonori; continuous streaming model instead | Porting from Sonori |
+| Persistent AGC adjustments | Algorithm-driven gain changes don't save to config; only explicit user choices persist | UI/Config Principles |
+| AGC vs manual gain conflict | When AGC active, gain slider becomes disabled or "aggressiveness" control; no fighting user | UI/Config Principles |
+
 ## Key Dependencies
 
 | Crate | Purpose |
@@ -153,7 +163,23 @@ cargo test --lib                  # Library tests only
 cargo test --doc                  # Doc tests only
 ```
 
-No tests exist yet. When adding:
+### Test Patterns
+
+| Pattern | Purpose | Location |
+|---------|---------|----------|
+| Synthetic signal generation | AGC convergence tests | `src/audio/capture.rs:645-865` |
+| Toy ONNX models | Moonshine tests without full model | `src/backend/moonshine.rs:784` |
+| State machine tests | AudioState transitions (partial→commit→committed) | `src/ui/mod.rs:104-209` |
+| Thread safety tests | SharedAudioState concurrent access | `src/ui/mod.rs` |
+
+### Test Utilities
+
+- `generate_sine(freq, sample_rate, num_samples, amplitude)` - synthetic audio for AGC tests
+- `tempfile::TempDir` - temporary directories for download tests
+- Epsilon comparisons: `(value - expected).abs() < threshold` for float assertions
+- `rms(&samples)` - RMS calculation for audio verification
+
+When adding:
 - Unit tests in same file with `#[cfg(test)]` module
 - Integration tests in `tests/` directory
 - Use `#[test]` attribute
