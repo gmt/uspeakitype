@@ -78,6 +78,15 @@ const EOS_CANDIDATES: &[&str] = &[
 impl MoonshineTokenizer {
     fn from_dir(model_dir: &Path) -> Result<Self> {
         let tokenizer_path = model_dir.join("tokenizer.json");
+
+        if !tokenizer_path.exists() {
+            return Err(anyhow::anyhow!(
+                "Tokenizer not found at {:?}. The new Moonshine repository structure does not include tokenizer.json. \
+                This is a known limitation - see https://huggingface.co/UsefulSensors/moonshine for updates.",
+                tokenizer_path
+            ));
+        }
+
         let tokenizer = Tokenizer::from_file(&tokenizer_path)
             .map_err(|e| anyhow::anyhow!("loading tokenizer: {}", e))?;
 
@@ -113,8 +122,8 @@ impl MoonshineStreamer {
 
         let model_dir = model_dir.as_ref();
 
-        let encoder_path = model_dir.join("encoder_model.onnx");
-        let decoder_path = model_dir.join("decoder_model_merged.onnx");
+        let encoder_path = model_dir.join("encode.onnx");
+        let decoder_path = model_dir.join("cached_decode.onnx");
         let config_path = model_dir.join("preprocessor_config.json");
 
         if !encoder_path.exists() {
