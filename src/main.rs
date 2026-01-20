@@ -352,8 +352,14 @@ fn run_terminal_loop(
         while running.load(Ordering::Relaxed) {
             if event::poll(Duration::from_millis(16))? {
                 if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
-                        break;
+                    if key.kind == KeyEventKind::Press {
+                        match key.code {
+                            KeyCode::Char('q') => break,
+                            KeyCode::Char('w') | KeyCode::Char('W') => {
+                                visualizer.toggle_mode();
+                            }
+                            _ => {}
+                        }
                     }
                 }
             }

@@ -166,6 +166,26 @@ impl TerminalVisualizer {
         self.status_line = status;
     }
 
+    pub fn toggle_mode(&mut self) {
+        self.config.mode = match self.config.mode {
+            TerminalMode::BarMeter => TerminalMode::Waterfall,
+            TerminalMode::Waterfall => TerminalMode::BarMeter,
+        };
+
+        let num_bands = match self.config.mode {
+            TerminalMode::BarMeter => self.config.width,
+            TerminalMode::Waterfall => self.config.height,
+        };
+
+        let spectrum_config = SpectrumConfig {
+            num_bands,
+            ..Default::default()
+        };
+        self.analyzer = SpectrumAnalyzer::new(spectrum_config);
+
+        self.history = WaterfallHistory::new(self.config.width, num_bands);
+    }
+
     pub fn push_samples(&mut self, samples: &[f32]) {
         self.analyzer.push_samples(samples);
     }
