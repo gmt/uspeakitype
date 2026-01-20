@@ -240,9 +240,9 @@ User should not see AGC fighting their manual adjustments.
 ## Phase 1 TODO (Current)
 
 - [x] Port audio capture (PipeWire, 16kHz mono)
-- [ ] Port Moonshine inference
+- [x] Port Moonshine inference
 - [x] Port minimal UI (layer shell + spectrogram + text)
-- [ ] Wire streaming loop
+- [x] Wire streaming loop
 - [x] Partial vs committed text rendering (two-tone)
 
 ### Policies
