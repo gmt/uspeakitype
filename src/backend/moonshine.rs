@@ -540,11 +540,6 @@ fn select_next_token(logits: ArrayD<f32>) -> Result<u32> {
     Ok(best_idx as u32)
 }
 
-pub enum StreamEvent {
-    Partial(String),
-    Commit(String),
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
