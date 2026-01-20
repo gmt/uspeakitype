@@ -209,6 +209,36 @@ impl Spectrogram {
         self.color_scheme = scheme;
     }
 
+    pub fn set_mode(&mut self, mode: SpectrogramMode) {
+        let mode_changed = !matches!(
+            (&self.mode, &mode),
+            (SpectrogramMode::BarMeter, SpectrogramMode::BarMeter)
+                | (SpectrogramMode::Waterfall, SpectrogramMode::Waterfall)
+        );
+
+        if !mode_changed {
+            return;
+        }
+
+        self.mode = mode;
+
+        let num_bands = match self.mode {
+            SpectrogramMode::BarMeter => 64,
+            SpectrogramMode::Waterfall => (self.size.height as usize).max(16),
+        };
+
+        let mut config = self.analyzer.config().clone();
+        config.num_bands = num_bands;
+        self.analyzer = SpectrumAnalyzer::new(config);
+
+        self.history = WaterfallHistory::new(self.size.width as usize, num_bands);
+
+        self.bar_data = vec![MIN_AMPLITUDE; num_bands];
+        self.target_bar_data = vec![MIN_AMPLITUDE; num_bands];
+
+        self.update_instance_buffer();
+    }
+
     pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
         let size_changed = self.size.width != new_size.width || self.size.height != new_size.height;
         self.size = new_size;
@@ -410,5 +440,31 @@ mod tests {
             32,
             "BarInstance must be 32 bytes for GPU buffer layout"
         );
+    }
+
+    #[test]
+    fn set_mode_num_bands_calculation() {
+        let _bar_mode = SpectrogramMode::BarMeter;
+        let _waterfall_mode = SpectrogramMode::Waterfall;
+
+        let size = PhysicalSize::new(800, 600);
+        let bar_bands = match SpectrogramMode::BarMeter {
+            SpectrogramMode::BarMeter => 64,
+            SpectrogramMode::Waterfall => (size.height as usize).max(16),
+        };
+        assert_eq!(bar_bands, 64);
+
+        let waterfall_bands = match SpectrogramMode::Waterfall {
+            SpectrogramMode::BarMeter => 64,
+            SpectrogramMode::Waterfall => (size.height as usize).max(16),
+        };
+        assert_eq!(waterfall_bands, 600);
+
+        let small_size = PhysicalSize::new(100, 10);
+        let min_bands = match SpectrogramMode::Waterfall {
+            SpectrogramMode::BarMeter => 64,
+            SpectrogramMode::Waterfall => (small_size.height as usize).max(16),
+        };
+        assert_eq!(min_bands, 16);
     }
 }
