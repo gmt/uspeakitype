@@ -254,7 +254,25 @@ impl Renderer {
         self.spectrogram.set_mode(self.mode);
     }
 
+    pub fn set_mode(&mut self, mode: SpectrogramMode) {
+        self.mode = mode;
+        self.spectrogram.set_mode(mode);
+    }
+
+    pub fn set_color_scheme(&mut self, scheme_name: &str) {
+        use crate::spectrum::get_color_scheme;
+        self.spectrogram
+            .set_color_scheme(get_color_scheme(scheme_name));
+    }
+
     pub fn draw(&mut self) {
+        self.draw_with_panel(None);
+    }
+
+    pub fn draw_with_panel(
+        &mut self,
+        control_panel: Option<&super::control_panel::ControlPanelState>,
+    ) {
         let output = match self.surface.get_current_texture() {
             Ok(t) => t,
             Err(_) => {
@@ -320,8 +338,99 @@ impl Renderer {
             PADDING,
         );
 
+        if let Some(panel) = control_panel {
+            self.render_control_panel(&view, &mut encoder, panel);
+        }
+
         self.queue.submit(Some(encoder.finish()));
         output.present();
         self.window.request_redraw();
+    }
+
+    fn render_control_panel(
+        &mut self,
+        view: &wgpu::TextureView,
+        encoder: &mut wgpu::CommandEncoder,
+        panel: &super::control_panel::ControlPanelState,
+    ) {
+        let gear_text = "⚙️";
+        let gear_x = self.config.width as f32 - 50.0;
+        let gear_y = 10.0;
+
+        self.text_renderer.render(
+            view,
+            encoder,
+            gear_text,
+            "",
+            gear_x,
+            gear_y,
+            1.5,
+            self.config.width,
+            40,
+            5.0,
+        );
+
+        if !panel.is_open {
+            return;
+        }
+
+        let panel_width = 400.0;
+        let panel_x = (self.config.width as f32 - panel_width) / 2.0;
+        let panel_y = 100.0;
+
+        let controls = [
+            format!(
+                "Device: {}",
+                panel
+                    .selected_device
+                    .map(|id| format!("#{}", id))
+                    .unwrap_or_else(|| "Default".to_string())
+            ),
+            format!(
+                "Gain: {:.1}x {}",
+                panel.gain_value,
+                if panel.agc_enabled { "(AGC)" } else { "" }
+            ),
+            format!("AGC: {}", if panel.agc_enabled { "[X]" } else { "[ ]" }),
+            format!("Pause: {}", if panel.is_paused { "[X]" } else { "[ ]" }),
+            format!(
+                "Viz: {}",
+                match panel.viz_mode {
+                    SpectrogramMode::BarMeter => "Bars",
+                    SpectrogramMode::Waterfall => "Waterfall",
+                }
+            ),
+            format!("Color: {}", panel.color_scheme_name),
+        ];
+
+        let title = "Control Panel (click to toggle)";
+        self.text_renderer.render(
+            view,
+            encoder,
+            title,
+            "",
+            panel_x,
+            panel_y,
+            1.0,
+            self.config.width,
+            30,
+            5.0,
+        );
+
+        for (idx, control_text) in controls.iter().enumerate() {
+            let y = panel_y + 40.0 + (idx as f32 * 40.0);
+            self.text_renderer.render(
+                view,
+                encoder,
+                control_text,
+                "",
+                panel_x + 10.0,
+                y,
+                1.0,
+                self.config.width,
+                30,
+                5.0,
+            );
+        }
     }
 }

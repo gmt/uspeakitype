@@ -16,6 +16,7 @@ use winit::window::{WindowAttributes, WindowId};
 
 use crate::audio::CaptureControl;
 
+use super::control_panel::ControlPanelState;
 use super::renderer::Renderer;
 use super::spectrogram::SpectrogramMode;
 use super::SharedAudioState;
@@ -30,6 +31,9 @@ pub fn run(
 ) {
     let event_loop = EventLoop::new().expect("Failed to create event loop");
 
+    let mut control_panel = ControlPanelState::new();
+    control_panel.viz_mode = mode;
+
     let app = Box::new(OverlayApp {
         renderers: HashMap::new(),
         audio_state,
@@ -37,6 +41,7 @@ pub fn run(
         capture_control,
         mouse_position: None,
         mode,
+        control_panel,
     });
 
     event_loop
@@ -51,6 +56,7 @@ struct OverlayApp {
     capture_control: Option<Arc<CaptureControl>>,
     mouse_position: Option<(f64, f64)>,
     mode: SpectrogramMode,
+    control_panel: ControlPanelState,
 }
 
 impl OverlayApp {
@@ -83,10 +89,98 @@ impl OverlayApp {
         }
     }
 
-    fn get_window_width(&self, window_id: &WindowId) -> Option<u32> {
-        self.renderers
-            .get(window_id)
-            .map(|r| r.window.surface_size().width)
+    fn handle_control_panel_click(&mut self, x: f64, y: f64, width: u32, height: u32) {
+        let gear_icon_size = 40.0;
+        let gear_x = width as f64 - gear_icon_size - 10.0;
+        let gear_y = 10.0;
+
+        if x >= gear_x
+            && x <= gear_x + gear_icon_size
+            && y >= gear_y
+            && y <= gear_y + gear_icon_size
+        {
+            self.control_panel.toggle_open();
+            return;
+        }
+
+        if !self.control_panel.is_open {
+            return;
+        }
+
+        let panel_width = 400.0;
+        let panel_height = 300.0;
+        let panel_x = (width as f64 - panel_width) / 2.0;
+        let panel_y = (height as f64 - panel_height) / 2.0;
+
+        if x < panel_x || x > panel_x + panel_width || y < panel_y || y > panel_y + panel_height {
+            self.control_panel.toggle_open();
+            return;
+        }
+
+        let control_height = 40.0;
+        let start_y = panel_y + 50.0;
+        let relative_y = y - start_y;
+
+        if relative_y < 0.0 || relative_y > control_height * 6.0 {
+            return;
+        }
+
+        let control_idx = (relative_y / control_height) as usize;
+
+        use super::control_panel::Control;
+        let controls = [
+            Control::DeviceSelector,
+            Control::GainSlider,
+            Control::AgcCheckbox,
+            Control::PauseButton,
+            Control::VizToggle,
+            Control::ColorPicker,
+        ];
+
+        if control_idx < controls.len() {
+            match controls[control_idx] {
+                Control::AgcCheckbox => {
+                    self.control_panel.toggle_agc();
+                    let mut state = self.audio_state.write();
+                    self.control_panel.apply_agc(&mut state);
+                }
+                Control::PauseButton => {
+                    self.control_panel.toggle_pause();
+                    if let Some(ref ctrl) = self.capture_control {
+                        self.control_panel.apply_pause(ctrl);
+                    }
+                }
+                Control::VizToggle => {
+                    self.control_panel.toggle_viz_mode();
+                    self.mode = self.control_panel.viz_mode;
+                    for renderer in self.renderers.values_mut() {
+                        renderer.set_mode(self.control_panel.viz_mode);
+                    }
+                }
+                Control::ColorPicker => {
+                    let next_scheme = match self.control_panel.color_scheme_name {
+                        "flame" => "ice",
+                        "ice" => "mono",
+                        _ => "flame",
+                    };
+                    self.control_panel.set_color_scheme(next_scheme);
+                    for renderer in self.renderers.values_mut() {
+                        renderer.set_color_scheme(next_scheme);
+                    }
+                }
+                Control::GainSlider => {
+                    let new_gain = if self.control_panel.gain_value >= 2.0 {
+                        0.5
+                    } else {
+                        (self.control_panel.gain_value + 0.5).min(2.0)
+                    };
+                    self.control_panel.set_gain(new_gain);
+                    let mut state = self.audio_state.write();
+                    self.control_panel.apply_gain(&mut state);
+                }
+                _ => {}
+            }
+        }
     }
 }
 
@@ -197,15 +291,10 @@ impl ApplicationHandler for OverlayApp {
                 button: ButtonSource::Mouse(MouseButton::Left),
                 ..
             } => {
-                if let Some((x, _y)) = self.mouse_position {
-                    if let Some(width) = self.get_window_width(&window_id) {
-                        let relative_x = x / width as f64;
-
-                        if relative_x < 0.15 {
-                            self.handle_pause_toggle();
-                        } else if relative_x > 0.85 {
-                            self.handle_auto_gain_toggle();
-                        }
+                if let Some((x, y)) = self.mouse_position {
+                    if let Some(renderer) = self.renderers.get(&window_id) {
+                        let size = renderer.window.surface_size();
+                        self.handle_control_panel_click(x, y, size.width, size.height);
                     }
                 }
             }
@@ -218,7 +307,7 @@ impl ApplicationHandler for OverlayApp {
                     renderer.resize(size.width, size.height);
                 }
                 WindowEvent::RedrawRequested => {
-                    renderer.draw();
+                    renderer.draw_with_panel(Some(&self.control_panel));
                 }
                 _ => {}
             }
