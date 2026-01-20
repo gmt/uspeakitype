@@ -34,6 +34,7 @@ use crate::spectrum::{
     WaterfallHistory,
 };
 
+use super::control_panel::{Control, ControlPanelState};
 use super::theme::{Theme, DEFAULT_THEME};
 
 const BLOCK_CHARS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -425,6 +426,122 @@ impl TerminalVisualizer {
 
     pub fn cleanup_terminal() -> io::Result<()> {
         println!("\x1b[?25h\x1b[0m");
+        io::stdout().flush()
+    }
+
+    pub fn render_control_panel(&mut self, panel: &ControlPanelState) -> io::Result<()> {
+        if !panel.is_open {
+            return Ok(());
+        }
+
+        let panel_width = 50;
+        let panel_height = 14;
+        let panel_left = (self.config.term_width.saturating_sub(panel_width)) / 2;
+        let panel_top = (self.config.term_height.saturating_sub(panel_height)) / 2;
+
+        self.output_buffer.clear();
+
+        let border = if self.config.use_unicode {
+            &UNICODE_BORDER
+        } else {
+            &ASCII_BORDER
+        };
+
+        self.cursor_to(panel_top, panel_left);
+        self.output_buffer.push(border.top_left);
+        for _ in 0..panel_width - 2 {
+            self.output_buffer.push(border.horizontal);
+        }
+        self.output_buffer.push(border.top_right);
+
+        let title = " Control Panel (↑↓: navigate, Enter: toggle, Esc/c: close) ";
+        let title_row = panel_top;
+        let title_col = panel_left + (panel_width.saturating_sub(title.len())) / 2;
+        self.cursor_to(title_row, title_col);
+        self.output_buffer.push_str(title);
+
+        let controls = [
+            (
+                Control::DeviceSelector,
+                format!(
+                    "Device: {}",
+                    panel
+                        .selected_device
+                        .map(|id| format!("#{}", id))
+                        .unwrap_or_else(|| "Default".to_string())
+                ),
+            ),
+            (
+                Control::GainSlider,
+                format!(
+                    "Gain: {:.1}x {}",
+                    panel.gain_value,
+                    if panel.agc_enabled {
+                        "(AGC active)"
+                    } else {
+                        ""
+                    }
+                ),
+            ),
+            (
+                Control::AgcCheckbox,
+                format!("AGC: {}", if panel.agc_enabled { "[X]" } else { "[ ]" }),
+            ),
+            (
+                Control::PauseButton,
+                format!("Pause: {}", if panel.is_paused { "[X]" } else { "[ ]" }),
+            ),
+            (
+                Control::VizToggle,
+                format!(
+                    "Visualization: {}",
+                    match panel.viz_mode {
+                        crate::ui::spectrogram::SpectrogramMode::BarMeter => "Bar Meter",
+                        crate::ui::spectrogram::SpectrogramMode::Waterfall => "Waterfall",
+                    }
+                ),
+            ),
+            (
+                Control::ColorPicker,
+                format!("Color: {}", panel.color_scheme_name),
+            ),
+        ];
+
+        for (idx, (control, label)) in controls.iter().enumerate() {
+            let row = panel_top + 2 + (idx * 2);
+            self.cursor_to(row, panel_left);
+            self.output_buffer.push(border.vertical);
+
+            let is_focused = panel.focused_control == Some(*control);
+            let prefix = if is_focused { " > " } else { "   " };
+
+            self.cursor_to(row, panel_left + 2);
+            if is_focused {
+                self.output_buffer.push_str("\x1b[7m");
+            }
+            self.output_buffer.push_str(prefix);
+            self.output_buffer.push_str(label);
+            if is_focused {
+                self.output_buffer.push_str("\x1b[0m");
+            }
+
+            let padding = panel_width - 2 - prefix.len() - label.len() - 2;
+            for _ in 0..padding {
+                self.output_buffer.push(' ');
+            }
+
+            self.cursor_to(row, panel_left + panel_width - 1);
+            self.output_buffer.push(border.vertical);
+        }
+
+        self.cursor_to(panel_top + panel_height - 1, panel_left);
+        self.output_buffer.push(border.bottom_left);
+        for _ in 0..panel_width - 2 {
+            self.output_buffer.push(border.horizontal);
+        }
+        self.output_buffer.push(border.bottom_right);
+
+        print!("{}", self.output_buffer);
         io::stdout().flush()
     }
 }

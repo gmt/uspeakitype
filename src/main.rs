@@ -351,6 +351,13 @@ fn run_terminal_loop(
     };
     visualizer.set_color_scheme(get_color_scheme(color_name));
 
+    let mut control_panel = ui::control_panel::ControlPanelState::new();
+    control_panel.color_scheme_name = color_name;
+    control_panel.viz_mode = match mode {
+        TerminalMode::BarMeter => ui::spectrogram::SpectrogramMode::BarMeter,
+        TerminalMode::Waterfall => ui::spectrogram::SpectrogramMode::Waterfall,
+    };
+
     terminal::enable_raw_mode()?;
     TerminalVisualizer::init_terminal()?;
 
@@ -359,12 +366,105 @@ fn run_terminal_loop(
             if event::poll(Duration::from_millis(16))? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
-                        match key.code {
-                            KeyCode::Char('q') => break,
-                            KeyCode::Char('w') | KeyCode::Char('W') => {
-                                visualizer.toggle_mode();
+                        if control_panel.is_open {
+                            match key.code {
+                                KeyCode::Esc | KeyCode::Char('c') | KeyCode::Char('C') => {
+                                    control_panel.toggle_open();
+                                }
+                                KeyCode::Up => {
+                                    let controls = [
+                                        ui::control_panel::Control::DeviceSelector,
+                                        ui::control_panel::Control::GainSlider,
+                                        ui::control_panel::Control::AgcCheckbox,
+                                        ui::control_panel::Control::PauseButton,
+                                        ui::control_panel::Control::VizToggle,
+                                        ui::control_panel::Control::ColorPicker,
+                                    ];
+                                    let current_idx = control_panel
+                                        .focused_control
+                                        .and_then(|c| controls.iter().position(|&x| x == c))
+                                        .unwrap_or(0);
+                                    let new_idx = if current_idx == 0 {
+                                        controls.len() - 1
+                                    } else {
+                                        current_idx - 1
+                                    };
+                                    control_panel.set_focused(Some(controls[new_idx]));
+                                }
+                                KeyCode::Down => {
+                                    let controls = [
+                                        ui::control_panel::Control::DeviceSelector,
+                                        ui::control_panel::Control::GainSlider,
+                                        ui::control_panel::Control::AgcCheckbox,
+                                        ui::control_panel::Control::PauseButton,
+                                        ui::control_panel::Control::VizToggle,
+                                        ui::control_panel::Control::ColorPicker,
+                                    ];
+                                    let current_idx = control_panel
+                                        .focused_control
+                                        .and_then(|c| controls.iter().position(|&x| x == c))
+                                        .unwrap_or(0);
+                                    let new_idx = (current_idx + 1) % controls.len();
+                                    control_panel.set_focused(Some(controls[new_idx]));
+                                }
+                                KeyCode::Enter => match control_panel.focused_control {
+                                    Some(ui::control_panel::Control::AgcCheckbox) => {
+                                        control_panel.toggle_agc();
+                                        let mut state = audio_state.write();
+                                        control_panel.apply_agc(&mut state);
+                                    }
+                                    Some(ui::control_panel::Control::PauseButton) => {
+                                        control_panel.toggle_pause();
+                                        if let Some(ctrl) = capture_control {
+                                            control_panel.apply_pause(ctrl);
+                                        }
+                                    }
+                                    Some(ui::control_panel::Control::VizToggle) => {
+                                        control_panel.toggle_viz_mode();
+                                        visualizer.toggle_mode();
+                                    }
+                                    Some(ui::control_panel::Control::ColorPicker) => {
+                                        let next_scheme = match control_panel.color_scheme_name {
+                                            "flame" => "ice",
+                                            "ice" => "mono",
+                                            _ => "flame",
+                                        };
+                                        control_panel.set_color_scheme(next_scheme);
+                                        visualizer.set_color_scheme(get_color_scheme(next_scheme));
+                                    }
+                                    Some(ui::control_panel::Control::GainSlider) => {
+                                        let new_gain = if control_panel.gain_value >= 2.0 {
+                                            0.5
+                                        } else {
+                                            (control_panel.gain_value + 0.5).min(2.0)
+                                        };
+                                        control_panel.set_gain(new_gain);
+                                        let mut state = audio_state.write();
+                                        control_panel.apply_gain(&mut state);
+                                    }
+                                    _ => {}
+                                },
+                                _ => {}
                             }
-                            _ => {}
+                        } else {
+                            match key.code {
+                                KeyCode::Char('q') => break,
+                                KeyCode::Char('w') | KeyCode::Char('W') => {
+                                    visualizer.toggle_mode();
+                                    control_panel.toggle_viz_mode();
+                                }
+                                KeyCode::Char('c') | KeyCode::Char('C') => {
+                                    control_panel.toggle_open();
+                                    if control_panel.is_open
+                                        && control_panel.focused_control.is_none()
+                                    {
+                                        control_panel.set_focused(Some(
+                                            ui::control_panel::Control::DeviceSelector,
+                                        ));
+                                    }
+                                }
+                                _ => {}
+                            }
                         }
                     }
                 }
@@ -402,6 +502,10 @@ fn run_terminal_loop(
 
             visualizer.push_samples(&samples);
             visualizer.process_and_render()?;
+
+            if control_panel.is_open {
+                visualizer.render_control_panel(&control_panel)?;
+            }
         }
         Ok(())
     })();
