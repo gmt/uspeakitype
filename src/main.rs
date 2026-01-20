@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +13,7 @@ use barbara::audio::{self, AudioCapture, CaptureConfig, CaptureControl};
 use barbara::spectrum::get_color_scheme;
 use barbara::ui;
 use barbara::ui::terminal::{TerminalConfig, TerminalMode, TerminalVisualizer};
+use barbara::{backend, download, streaming};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum SpectrogramStyle {
@@ -68,10 +70,20 @@ struct Args {
 
     #[arg(long)]
     source: Option<String>,
+
+    /// Path to model directory (default: ~/.cache/barbara/models)
+    #[arg(long)]
+    model_dir: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    let model_dir = args.model_dir.clone().unwrap_or_else(|| {
+        dirs::cache_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("barbara/models")
+    });
 
     if args.list_sources {
         println!("Available audio sources:");
@@ -93,6 +105,36 @@ fn main() -> anyhow::Result<()> {
     let running = Arc::new(AtomicBool::new(true));
     let audio_state = ui::new_shared_state();
 
+    let streaming_transcriber: Option<streaming::DefaultStreamingTranscriber> =
+        if args.demo || args.ansi_sweep {
+            None
+        } else {
+            use audio::{SileroVad, VadConfig};
+            use backend::MoonshineStreamer;
+            use streaming::{StreamingConfig, StreamingTranscriber};
+
+            println!("Loading models from {:?}...", model_dir);
+            let model_paths = download::ensure_models_exist(&model_dir)?;
+
+            println!("Initializing VAD...");
+            let vad = SileroVad::new(&model_paths.silero_vad, VadConfig::default())?;
+
+            println!("Initializing Moonshine transcriber...");
+            let transcriber = MoonshineStreamer::new(&model_paths.moonshine_dir)?;
+
+            println!("Creating streaming coordinator...");
+            Some(StreamingTranscriber::new(
+                vad,
+                transcriber,
+                StreamingConfig::default(),
+            ))
+        };
+
+    let (audio_tx, audio_rx): (
+        std::sync::mpsc::SyncSender<Vec<f32>>,
+        std::sync::mpsc::Receiver<Vec<f32>>,
+    ) = std::sync::mpsc::sync_channel(100);
+
     let capture_control: Option<Arc<CaptureControl>> = if args.demo || args.ansi_sweep {
         if args.ansi_sweep {
             run_sweep_audio(audio_state.clone());
@@ -108,9 +150,11 @@ fn main() -> anyhow::Result<()> {
         };
 
         let state = audio_state.clone();
+        let tx = audio_tx.clone();
         let capture = AudioCapture::new(
             Box::new(move |samples| {
                 state.write().update_samples(samples);
+                if tx.try_send(samples.to_vec()).is_err() {}
             }),
             config,
         )?;
@@ -124,6 +168,35 @@ fn main() -> anyhow::Result<()> {
         std::mem::forget(capture);
         Some(control)
     };
+
+    if let Some(mut streamer) = streaming_transcriber {
+        use streaming::StreamEvent;
+        let audio_state_for_worker = audio_state.clone();
+
+        std::thread::spawn(move || {
+            while let Ok(samples) = audio_rx.recv() {
+                match streamer.process(&samples) {
+                    Ok(events) => {
+                        for event in events {
+                            match event {
+                                StreamEvent::Partial(text) => {
+                                    audio_state_for_worker.write().set_partial(text);
+                                }
+                                StreamEvent::Commit(text) => {
+                                    audio_state_for_worker.write().set_partial(text);
+                                    audio_state_for_worker.write().commit();
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Streaming transcription error: {}", e);
+                    }
+                }
+            }
+            println!("Streaming worker thread exiting");
+        });
+    }
 
     if args.headless || args.ansi {
         run_terminal_loop(audio_state, running, &args, capture_control.as_ref())?;
