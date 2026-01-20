@@ -3,6 +3,7 @@ pub mod renderer;
 pub mod spectrogram;
 pub mod terminal;
 pub mod text_renderer;
+pub mod theme;
 
 use parking_lot::RwLock;
 use std::sync::Arc;
