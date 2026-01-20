@@ -34,6 +34,8 @@ use crate::spectrum::{
     WaterfallHistory,
 };
 
+use super::theme::{Theme, DEFAULT_THEME};
+
 const BLOCK_CHARS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 const ASCII_CHARS: [char; 9] = [' ', '.', ':', '-', '=', '+', '*', '#', '@'];
 
@@ -106,6 +108,9 @@ pub struct TerminalVisualizer {
     box_left: usize,
     box_top: usize,
     status_line: String,
+    theme: Theme,
+    committed_text: String,
+    partial_text: String,
 }
 
 const BOTTOM_MARGIN: usize = 2;
@@ -155,6 +160,9 @@ impl TerminalVisualizer {
             box_left,
             box_top,
             status_line: String::new(),
+            theme: DEFAULT_THEME,
+            committed_text: String::new(),
+            partial_text: String::new(),
         }
     }
 
@@ -164,6 +172,11 @@ impl TerminalVisualizer {
 
     pub fn set_status_line(&mut self, status: String) {
         self.status_line = status;
+    }
+
+    pub fn set_transcript(&mut self, committed: String, partial: String) {
+        self.committed_text = committed;
+        self.partial_text = partial;
     }
 
     pub fn toggle_mode(&mut self) {
@@ -242,7 +255,7 @@ impl TerminalVisualizer {
         }
 
         let box_width = self.config.width + 2;
-        let status_row = self.box_top + self.config.height + 2;
+        let status_row = self.box_top + self.config.height + 3;
         let status_len = self.status_line.chars().count();
         let center_offset = box_width.saturating_sub(status_len) / 2;
 
@@ -250,6 +263,69 @@ impl TerminalVisualizer {
         self.output_buffer.push_str("\x1b[2m");
         self.output_buffer.push_str(&self.status_line);
         self.output_buffer.push_str("\x1b[0m");
+    }
+
+    fn draw_transcript(&mut self) {
+        let transcript_row = self.box_top + self.config.height + 2;
+        let max_width = self.config.term_width.saturating_sub(4);
+
+        let mut full_text = String::new();
+        let theme_ansi = self.theme.to_ansi();
+
+        if !self.committed_text.is_empty() {
+            full_text.push_str("\x1b[1m");
+            full_text.push_str(&theme_ansi.text_committed);
+            full_text.push_str(&self.committed_text);
+            full_text.push_str("\x1b[0m");
+        }
+
+        if !self.committed_text.is_empty() && !self.partial_text.is_empty() {
+            full_text.push(' ');
+        }
+
+        if !self.partial_text.is_empty() {
+            full_text.push_str("\x1b[2m");
+            full_text.push_str(&theme_ansi.text_partial);
+            full_text.push_str(&self.partial_text);
+            full_text.push_str("\x1b[0m");
+        }
+
+        let display_text = self.truncate_with_ansi(&full_text, max_width);
+
+        self.cursor_to(transcript_row, 2);
+        self.output_buffer.push_str(&display_text);
+    }
+
+    fn truncate_with_ansi(&self, text: &str, max_visible_chars: usize) -> String {
+        if text.chars().count() <= max_visible_chars {
+            return text.to_string();
+        }
+
+        let mut truncated = String::new();
+        let mut visible_count = 0;
+        let mut in_escape_sequence = false;
+
+        for ch in text.chars() {
+            if ch == '\x1b' {
+                in_escape_sequence = true;
+            }
+
+            truncated.push(ch);
+
+            if !in_escape_sequence {
+                visible_count += 1;
+                if visible_count >= max_visible_chars - 3 {
+                    break;
+                }
+            }
+
+            if in_escape_sequence && ch == 'm' {
+                in_escape_sequence = false;
+            }
+        }
+
+        truncated.push_str("...");
+        truncated
     }
 
     fn render_bar_meter(&mut self) -> io::Result<()> {
@@ -287,6 +363,7 @@ impl TerminalVisualizer {
             }
         }
 
+        self.draw_transcript();
         self.draw_status_line();
         print!("{}", self.output_buffer);
         io::stdout().flush()
@@ -335,6 +412,7 @@ impl TerminalVisualizer {
             }
         }
 
+        self.draw_transcript();
         self.draw_status_line();
         print!("{}", self.output_buffer);
         io::stdout().flush()

@@ -364,14 +364,20 @@ fn run_terminal_loop(
                 }
             }
 
-            let samples = {
+            let (samples, committed, partial) = {
                 let state = audio_state.read();
-                state.samples.clone()
+                (
+                    state.samples.clone(),
+                    state.committed.clone(),
+                    state.partial.clone(),
+                )
             };
 
             if samples.is_empty() {
                 continue;
             }
+
+            visualizer.set_transcript(committed, partial);
 
             let status = match capture_control {
                 Some(ctrl) => {
