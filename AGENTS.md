@@ -192,6 +192,51 @@ pub use capture::AudioCapture;
 pub use vad::SileroVad;
 ```
 
+## UI/Config Principles
+
+### Dual UX Requirement
+Every user-facing control ("frob") MUST have both:
+- **Terminal UI** (ANSI): works in `--ansi` mode
+- **Graphical UI** (WGPU): works in overlay mode
+
+No frob may exist in only one surface. If it can't be represented in terminal, reconsider whether it belongs.
+
+### Four Control Surfaces (Precedence Order)
+Settings can come from multiple sources. Higher precedence wins:
+
+1. **GUI** (runtime changes in control panel)
+2. **Command line** (`--flag value`)
+3. **Config file** (`~/.config/barbara/barbara.toml`)
+4. **Defaults** (compiled-in)
+
+Use a unified config framework (e.g., `config-rs` + `clap`) to keep these in sync. Avoid hand-rolling precedence logic per-setting.
+
+### Config Persistence
+- **Auto-save mode** (checkbox in control panel): each user change persists immediately to config file
+- **Manual mode**: control panel has OK/Save/Cancel buttons
+- AGC-mediated changes (the algorithm adjusting gain) do NOT persist; only explicit user choices do
+
+### Control Panel Contents (Current Spec)
+- Input device selector (dropdown/list)
+- Software gain slider (disabled or becomes "aggressiveness" when soft AGC enabled)
+- Hardware gain slider (disabled or becomes "aggressiveness" when hard AGC enabled)
+- Soft AGC checkbox
+- Hard AGC checkbox
+- Auto-save checkbox
+- Description panel: 1-2 sentence help text for focused/hovered control
+
+### Frob Behavior When AGC Active
+When AGC controls a gain slider, that slider either:
+- Becomes disabled (AGC owns it), OR
+- Transforms into an "AGC aggressiveness" control
+
+User should not see AGC fighting their manual adjustments.
+
+### Future Control Panel TODOs
+- [ ] Monitoring/metering UI (levels, clipping indicator, noise floor)
+- [ ] "Wrong mic" detection warning
+- [ ] Push-to-talk vs always-on mode toggle
+
 ## Phase 1 TODO (Current)
 
 - [x] Port audio capture (PipeWire, 16kHz mono)
@@ -199,3 +244,22 @@ pub use vad::SileroVad;
 - [x] Port minimal UI (layer shell + spectrogram + text)
 - [ ] Wire streaming loop
 - [x] Partial vs committed text rendering (two-tone)
+
+### Policies
+
+## All state controls should have four control surfaces, in order of precedence:
+- gui (ansi/tui control panel), or, equivalently,
+- gui (opengl control panel)
+- cmdline
+- ~/.config/barbara/barbara.conf
+
+## try to keep tui layout and opengl layout as analogous as possible; switching between the two should feel natural
+
+## work is not done until
+- all skip tests are audited to ensure the reasons they were marked out is still valid
+- all tests are either passing or marked as skip with documentation as to why it couldn't be fixed
+- all enabled tests represent plausible future regressions or test core functionality
+- all enabled tests pass
+- a build succeeds and advice from rust is either implemented or the compiler is appeased
+- the executable runs in ansi and opengl demo mode without crashing
+- the testing will continue until morale improves! but if you are sure it's a dead-end test, document why and mark it as a skip.
