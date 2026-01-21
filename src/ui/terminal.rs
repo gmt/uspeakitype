@@ -29,6 +29,14 @@
 
 use std::io::{self, Write};
 
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, List, ListItem},
+    Terminal as RatatuiTerminal,
+};
+
 use crate::spectrum::{
     quantize_intensity, ColorScheme, FlameScheme, SpectrumAnalyzer, SpectrumConfig,
     WaterfallHistory,
@@ -202,6 +210,7 @@ pub struct TerminalVisualizer {
     committed_text: String,
     partial_text: String,
     is_paused: bool,
+    ratatui_terminal: Option<RatatuiTerminal<CrosstermBackend<std::io::Stdout>>>,
 }
 
 const BOTTOM_MARGIN: usize = 2;
@@ -255,6 +264,7 @@ impl TerminalVisualizer {
             committed_text: String::new(),
             partial_text: String::new(),
             is_paused: false,
+            ratatui_terminal: None,
         }
     }
 
@@ -544,10 +554,16 @@ impl TerminalVisualizer {
         io::stdout().flush()
     }
 
-    pub fn init_terminal() -> io::Result<()> {
+    pub fn init_terminal(&mut self) -> io::Result<()> {
         print!("\x1b[2J\x1b[?25l");
         print!("\x1b[1;1H\x1b[2K");
-        io::stdout().flush()
+        io::stdout().flush()?;
+
+        // Initialize ratatui terminal
+        let backend = CrosstermBackend::new(io::stdout());
+        self.ratatui_terminal = Some(RatatuiTerminal::new(backend)?);
+
+        Ok(())
     }
 
     /// Restore terminal state on exit.
@@ -589,33 +605,6 @@ impl TerminalVisualizer {
 
         let mode = self.layout_mode();
         let (panel_left, panel_top, panel_width, panel_height) = self.panel_geometry();
-
-        self.output_buffer.clear();
-
-        // Fill entire panel area with spaces to prevent spectrogram bleed-through
-        for row in 0..panel_height {
-            self.cursor_to(panel_top + row, panel_left);
-            self.output_buffer.push_str(&" ".repeat(panel_width));
-        }
-
-        let border = if self.config.use_unicode {
-            &UNICODE_BORDER
-        } else {
-            &ASCII_BORDER
-        };
-
-        self.cursor_to(panel_top, panel_left);
-        self.output_buffer.push(border.top_left);
-        for _ in 0..panel_width - 2 {
-            self.output_buffer.push(border.horizontal);
-        }
-        self.output_buffer.push(border.top_right);
-
-        let title = panel_title(mode);
-        let title_row = panel_top;
-        let title_col = panel_left + (panel_width.saturating_sub(title.len())) / 2;
-        self.cursor_to(title_row, title_col);
-        self.output_buffer.push_str(title);
 
         let device_value = panel
             .selected_device
@@ -664,46 +653,44 @@ impl TerminalVisualizer {
             ),
         ];
 
-        for (idx, (control, label)) in controls.iter().enumerate() {
-            let row = panel_top + 1 + idx;
-            self.cursor_to(row, panel_left);
-            self.output_buffer.push(border.vertical);
+        let title = panel_title(mode);
+        let items: Vec<ListItem> = controls
+            .iter()
+            .map(|(control, label)| {
+                let is_focused = panel.focused_control == Some(*control);
+                let prefix = if is_focused { " > " } else { "   " };
+                let style = if is_focused {
+                    Style::default().add_modifier(Modifier::REVERSED)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(format!("{}{}", prefix, label)).style(style)
+            })
+            .collect();
 
-            let is_focused = panel.focused_control == Some(*control);
-            let prefix = if is_focused { " > " } else { "   " };
+        let block = Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::White));
 
-            self.cursor_to(row, panel_left + 2);
-            if is_focused {
-                self.output_buffer.push_str("\x1b[7m");
-            }
-            self.output_buffer.push_str(prefix);
-            self.output_buffer.push_str(label);
-            if is_focused {
-                self.output_buffer.push_str("\x1b[0m");
-            }
+        let list = List::new(items).block(block);
 
-            let padding = panel_width
-                .saturating_sub(2)
-                .saturating_sub(prefix.len())
-                .saturating_sub(label.len())
-                .saturating_sub(2);
-            for _ in 0..padding {
-                self.output_buffer.push(' ');
-            }
+        let terminal = self.ratatui_terminal.as_mut().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::Other, "Ratatui terminal not initialized")
+        })?;
 
-            self.cursor_to(row, panel_left + panel_width - 1);
-            self.output_buffer.push(border.vertical);
-        }
+        let area = Rect {
+            x: panel_left as u16,
+            y: panel_top as u16,
+            width: panel_width as u16,
+            height: panel_height as u16,
+        };
 
-        self.cursor_to(panel_top + panel_height - 1, panel_left);
-        self.output_buffer.push(border.bottom_left);
-        for _ in 0..panel_width - 2 {
-            self.output_buffer.push(border.horizontal);
-        }
-        self.output_buffer.push(border.bottom_right);
+        terminal.draw(|f| {
+            f.render_widget(list, area);
+        })?;
 
-        print!("{}", self.output_buffer);
-        io::stdout().flush()
+        Ok(())
     }
 
     pub fn clear_panel_area(&mut self) {

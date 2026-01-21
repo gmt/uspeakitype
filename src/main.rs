@@ -159,7 +159,7 @@ fn run_fireworks_test() -> anyhow::Result<()> {
         };
 
         let mut visualizer = TerminalVisualizer::new(config);
-        TerminalVisualizer::init_terminal()?;
+        visualizer.init_terminal()?;
         visualizer.process_and_render()?;
 
         thread::sleep(Duration::from_millis(500));
@@ -451,7 +451,7 @@ fn run_terminal_loop(
     };
 
     terminal::enable_raw_mode()?;
-    TerminalVisualizer::init_terminal()?;
+    visualizer.init_terminal()?;
 
     let result = (|| -> anyhow::Result<()> {
         while running.load(Ordering::Relaxed) {
