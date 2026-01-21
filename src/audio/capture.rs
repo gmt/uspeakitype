@@ -203,6 +203,10 @@ struct UserData {
 
 struct SpeechAgc {
     config: AgcConfig,
+    /// Smoothed gain estimate based on the measurement side.
+    ///
+    /// This is the "controller" state (attack/decay) before peak limiting.
+    target_gain: f32,
     gain: f32,
     frozen: bool,
 }
@@ -211,6 +215,7 @@ impl SpeechAgc {
     fn new(config: AgcConfig) -> Self {
         Self {
             config,
+            target_gain: 1.0,
             gain: 1.0,
             frozen: false,
         }
@@ -221,6 +226,34 @@ impl SpeechAgc {
     }
 
     fn gain(&self) -> f32 {
+        self.gain
+    }
+
+    #[allow(dead_code)]
+    fn calculate_gain(&mut self, speech_rms: f32, peak: f32) -> f32 {
+        if self.frozen {
+            return self.gain;
+        }
+
+        let desired_rms_squared = self.config.desired_rms * self.config.desired_rms;
+        let speech_rms_squared = speech_rms * speech_rms;
+
+        if speech_rms_squared > 1e-10 {
+            let ratio = speech_rms_squared / desired_rms_squared;
+            let adjustment = 1.0 + self.config.smoothing_factor * (1.0 - ratio);
+            self.target_gain *= adjustment;
+            self.target_gain = self
+                .target_gain
+                .clamp(self.config.min_gain, self.config.max_gain);
+        }
+
+        self.gain = self.target_gain;
+
+        const HEADROOM: f32 = 0.95;
+        if peak > 0.0 && peak * self.gain > HEADROOM {
+            self.gain = HEADROOM / peak;
+        }
+
         self.gain
     }
 
@@ -235,8 +268,11 @@ impl SpeechAgc {
                 if sample_power > 1e-10 {
                     let ratio = sample_power / desired_rms_squared;
                     let adjustment = 1.0 + self.config.smoothing_factor * (1.0 - ratio);
-                    self.gain *= adjustment;
-                    self.gain = self.gain.clamp(self.config.min_gain, self.config.max_gain);
+                    self.target_gain *= adjustment;
+                    self.target_gain = self
+                        .target_gain
+                        .clamp(self.config.min_gain, self.config.max_gain);
+                    self.gain = self.target_gain;
                 }
             }
 
