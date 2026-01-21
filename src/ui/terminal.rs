@@ -872,4 +872,68 @@ mod tests {
         // Output buffer should now have cursor escape sequence
         assert!(visualizer.output_buffer.len() > 0);
     }
+
+    #[test]
+    fn test_resize_updates_dimensions() {
+        let config = TerminalConfig {
+            width: 48,
+            height: 6,
+            mode: TerminalMode::BarMeter,
+            use_color: true,
+            use_unicode: false,
+            term_width: 80,
+            term_height: 24,
+        };
+        let mut visualizer = TerminalVisualizer::new(config);
+
+        // Resize from 80x24 to 120x40
+        visualizer.resize(120, 40);
+
+        // Verify config was updated
+        assert_eq!(visualizer.config.term_width, 120);
+        assert_eq!(visualizer.config.term_height, 40);
+    }
+
+    #[test]
+    fn test_resize_noop_when_same_size() {
+        let config = TerminalConfig {
+            width: 48,
+            height: 6,
+            mode: TerminalMode::BarMeter,
+            use_color: true,
+            use_unicode: false,
+            term_width: 80,
+            term_height: 24,
+        };
+        let mut visualizer = TerminalVisualizer::new(config);
+
+        // Save original box_left value
+        let original_box_left = visualizer.box_left;
+
+        // Resize to same dimensions (should be no-op)
+        visualizer.resize(80, 24);
+
+        // Verify box_left unchanged (early return optimization)
+        assert_eq!(visualizer.box_left, original_box_left);
+    }
+
+    #[test]
+    fn test_resize_to_degenerate() {
+        let config = TerminalConfig {
+            width: 48,
+            height: 6,
+            mode: TerminalMode::BarMeter,
+            use_color: true,
+            use_unicode: false,
+            term_width: 80,
+            term_height: 24,
+        };
+        let mut visualizer = TerminalVisualizer::new(config);
+
+        // Resize to degenerate dimensions (20x6 is below threshold: 25 cols or 8 rows)
+        visualizer.resize(20, 6);
+
+        // Verify layout_mode() returns Degenerate
+        assert_eq!(visualizer.layout_mode(), LayoutMode::Degenerate);
+    }
 }
