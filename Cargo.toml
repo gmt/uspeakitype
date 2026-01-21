@@ -47,6 +47,8 @@ dirs = "5.0"
 
 [dev-dependencies]
 tempfile = "3.10"
+portable-pty = "0.8"
+vt100 = "0.15"
 
 [features]
 default = []
