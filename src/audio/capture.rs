@@ -199,6 +199,8 @@ struct UserData {
     control: Arc<CaptureControl>,
     agc: SpeechAgc,
     hpf: HighPassFilter,
+    bandpass: BandpassFilter,
+    limiter: SoftLimiter,
 }
 
 struct SpeechAgc {
@@ -225,6 +227,7 @@ impl SpeechAgc {
         self.frozen = frozen;
     }
 
+    #[allow(dead_code)]
     fn gain(&self) -> f32 {
         self.gain
     }
@@ -257,6 +260,7 @@ impl SpeechAgc {
         self.gain
     }
 
+    #[allow(dead_code)]
     fn process(&mut self, samples: &mut [f32]) {
         let desired_rms_squared = self.config.desired_rms * self.config.desired_rms;
 
@@ -474,25 +478,49 @@ fn apply_auto_gain(
     control: &CaptureControl,
     agc: &mut SpeechAgc,
     hpf: &mut HighPassFilter,
+    bandpass: &mut BandpassFilter,
+    limiter: &mut SoftLimiter,
 ) {
     if !control.is_auto_gain_enabled() {
         return;
     }
 
-    for s in samples.iter_mut() {
-        *s = hpf.process(*s);
+    // 1. HPF for output path (remove DC + subsonic)
+    let mut hpf_samples: Vec<f32> = samples.iter().map(|s| hpf.process(*s)).collect();
+
+    // 2. Bandpass for speech detection (sidechain)
+    let speech_samples: Vec<f32> = samples.iter().map(|s| bandpass.process(*s)).collect();
+    let speech_rms = if speech_samples.is_empty() {
+        0.0
+    } else {
+        let mean_sq = speech_samples.iter().map(|s| s * s).sum::<f32>() / speech_samples.len() as f32;
+        mean_sq.sqrt()
+    };
+
+    // 3. Peak detection on full spectrum (HPF'd signal)
+    let peak = hpf_samples
+        .iter()
+        .map(|s| s.abs())
+        .fold(0.0f32, f32::max);
+
+    // 4. Set frozen state based on speech RMS
+    agc.set_frozen(speech_rms < 0.001);
+
+    // 5. Calculate gain (speech-aware, peak-limited)
+    let gain = agc.calculate_gain(speech_rms, peak);
+
+    // 6. Apply gain to HPF'd signal
+    for sample in hpf_samples.iter_mut() {
+        *sample *= gain;
     }
 
-    const PREAMP: f32 = 50.0;
-    for s in samples.iter_mut() {
-        *s *= PREAMP;
+    // 7. Soft limiter for safety
+    for (out, &gained) in samples.iter_mut().zip(hpf_samples.iter()) {
+        *out = limiter.process(gained);
     }
 
-    let rms = (samples.iter().map(|s| s.powi(2)).sum::<f32>() / samples.len() as f32).sqrt();
-    agc.set_frozen(rms < 0.001);
-
-    agc.process(samples);
-    control.set_current_gain(agc.gain() * PREAMP);
+    // 8. Update control display
+    control.set_current_gain(gain);
 }
 
 fn resolve_source(source: &str) -> Result<u32> {
@@ -545,6 +573,8 @@ fn run_capture_loop(
         control: control.clone(),
         agc: SpeechAgc::new(config.agc),
         hpf: HighPassFilter::new(100.0, 16000.0),
+        bandpass: BandpassFilter::new(16000.0),
+        limiter: SoftLimiter::default(),
     };
 
     let _listener = stream
@@ -621,6 +651,8 @@ fn run_capture_loop(
                     &user_data.control,
                     &mut user_data.agc,
                     &mut user_data.hpf,
+                    &mut user_data.bandpass,
+                    &mut user_data.limiter,
                 );
 
                 (user_data.callback)(&samples);
