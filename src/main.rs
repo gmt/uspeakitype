@@ -81,10 +81,102 @@ struct Args {
     /// Path to model directory (default: ~/.cache/barbara/models)
     #[arg(long)]
     model_dir: Option<PathBuf>,
+
+    /// Run visual test sequence in tmux (cycles through terminal sizes)
+    #[arg(long)]
+    test_fireworks: bool,
+}
+
+/// RAII guard to restore tmux pane size on drop
+struct RestoreGuard {
+    width: String,
+    height: String,
+}
+
+impl Drop for RestoreGuard {
+    fn drop(&mut self) {
+        use std::process::Command;
+
+        let _ = Command::new("tmux")
+            .args(["resize-pane", "-x", &self.width, "-y", &self.height])
+            .status();
+    }
+}
+
+/// Visual test mode: cycles through terminal sizes in tmux
+fn run_fireworks_test() -> anyhow::Result<()> {
+    use std::process::Command;
+    use std::thread;
+    use std::time::Duration;
+
+    if std::env::var("TMUX").is_err() {
+        eprintln!("Not in tmux session");
+        return Ok(());
+    }
+
+    let output = Command::new("tmux")
+        .args(["display", "-p", "#{pane_width}x#{pane_height}"])
+        .output()?;
+    let orig_size = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let parts: Vec<&str> = orig_size.split('x').collect();
+    let orig_width = parts[0];
+    let orig_height = parts[1];
+
+    let _guard = RestoreGuard {
+        width: orig_width.to_string(),
+        height: orig_height.to_string(),
+    };
+
+    let test_sizes = [
+        (20, 6, "Degenerate (20x6)"),
+        (30, 8, "Minimal (30x8)"),
+        (40, 12, "Compact (40x12)"),
+        (50, 12, "Full (50x12)"),
+        (80, 24, "Full (80x24)"),
+    ];
+
+    for (width, height, name) in &test_sizes {
+        Command::new("tmux")
+            .args([
+                "resize-pane",
+                "-x",
+                &width.to_string(),
+                "-y",
+                &height.to_string(),
+            ])
+            .status()?;
+
+        eprintln!("Testing: {}", name);
+
+        let config = TerminalConfig {
+            width: *width as usize,
+            height: *height as usize,
+            mode: TerminalMode::BarMeter,
+            use_color: true,
+            use_unicode: false,
+            term_width: *width as usize,
+            term_height: *height as usize,
+        };
+
+        let mut visualizer = TerminalVisualizer::new(config);
+        TerminalVisualizer::init_terminal()?;
+        visualizer.process_and_render()?;
+
+        thread::sleep(Duration::from_millis(500));
+
+        TerminalVisualizer::cleanup_terminal()?;
+        terminal::disable_raw_mode()?;
+    }
+
+    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    if args.test_fireworks {
+        return run_fireworks_test();
+    }
 
     let model_dir = args.model_dir.clone().unwrap_or_else(|| {
         dirs::cache_dir()
