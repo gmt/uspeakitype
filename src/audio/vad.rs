@@ -7,13 +7,14 @@ use std::collections::VecDeque;
 use std::path::Path;
 
 use anyhow::{anyhow, ensure, Context, Result};
-use ndarray::{Array1, Array2, ArrayD, IxDyn};
+use ndarray::{Array2, ArrayD, IxDyn};
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 use ort::value::Tensor;
 
 const SAMPLE_RATE_HZ: i64 = 16000;
 const FRAME_SIZE: usize = 512;
+const CONTEXT_SIZE: usize = 64;
 
 #[derive(Debug, Clone)]
 pub struct VadConfig {
@@ -26,8 +27,8 @@ pub struct VadConfig {
 impl Default for VadConfig {
     fn default() -> Self {
         Self {
-            speech_threshold: 0.3,
-            silence_threshold: 0.2,
+            speech_threshold: 0.5,
+            silence_threshold: 0.35,
             min_speech_frames: 2,
             min_silence_frames: 20,
         }
@@ -56,6 +57,7 @@ pub struct SileroVad {
     current_state: VadState,
     frame_counter: usize,
     sample_buffer: VecDeque<f32>,
+    context: Vec<f32>,
 }
 
 impl SileroVad {
@@ -70,7 +72,7 @@ impl SileroVad {
         let state_array = ArrayD::<f32>::zeros(IxDyn(&[2, 1, 128]));
         let state_tensor = Tensor::from_array(state_array).context("creating initial VAD state")?;
 
-        let sample_rate_array = Array1::from_vec(vec![SAMPLE_RATE_HZ]);
+        let sample_rate_array = ndarray::arr0(SAMPLE_RATE_HZ);
         let sample_rate_tensor =
             Tensor::from_array(sample_rate_array).context("creating sample rate tensor")?;
 
@@ -82,6 +84,7 @@ impl SileroVad {
             current_state: VadState::Silence,
             frame_counter: 0,
             sample_buffer: VecDeque::new(),
+            context: vec![0.0; CONTEXT_SIZE],
         })
     }
 
@@ -92,8 +95,17 @@ impl SileroVad {
             frame.len()
         );
 
+        let mut input_with_context = Vec::with_capacity(CONTEXT_SIZE + FRAME_SIZE);
+        input_with_context.extend_from_slice(&self.context);
+        input_with_context.extend_from_slice(frame);
+
+        self.context.clear();
+        self.context
+            .extend_from_slice(&input_with_context[FRAME_SIZE..]);
+
         let frame_array =
-            Array2::from_shape_vec((1, FRAME_SIZE), frame.to_vec()).context("frame shape")?;
+            Array2::from_shape_vec((1, CONTEXT_SIZE + FRAME_SIZE), input_with_context)
+                .context("frame shape")?;
         let frame_tensor = Tensor::from_array(frame_array).context("creating frame tensor")?;
 
         let outputs = self
@@ -233,15 +245,15 @@ mod tests {
     fn vad_state_transitions() {
         let config = VadConfig::default();
 
-        let (s, c) = step_state(VadState::Silence, 0, 0.31, &config);
+        let (s, c) = step_state(VadState::Silence, 0, 0.55, &config);
         assert_eq!(s, VadState::PossibleSpeech);
         assert_eq!(c, 1);
 
-        let (s, c) = step_state(s, c, 0.35, &config);
+        let (s, c) = step_state(s, c, 0.60, &config);
         assert_eq!(s, VadState::Speech);
         assert_eq!(c, 0);
 
-        let (s, c) = step_state(s, c, 0.19, &config);
+        let (s, c) = step_state(s, c, 0.30, &config);
         assert_eq!(s, VadState::PossibleSilence);
         assert_eq!(c, 1);
 
@@ -255,14 +267,14 @@ mod tests {
         assert_eq!(s2, VadState::Silence);
         assert_eq!(c2, 0);
 
-        let (s, c) = step_state(VadState::Silence, 0, 0.31, &config);
+        let (s, c) = step_state(VadState::Silence, 0, 0.55, &config);
         let (s, c) = step_state(s, c, 0.0, &config);
         assert_eq!(s, VadState::Silence);
         assert_eq!(c, 0);
 
         let (s, c) = step_state(VadState::Speech, 0, 0.0, &config);
         assert_eq!(s, VadState::PossibleSilence);
-        let (s, c) = step_state(s, c, 0.21, &config);
+        let (s, c) = step_state(s, c, 0.40, &config);
         assert_eq!(s, VadState::Speech);
         assert_eq!(c, 0);
     }

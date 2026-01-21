@@ -294,7 +294,6 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            println!("Streaming worker thread exiting");
         });
     }
 

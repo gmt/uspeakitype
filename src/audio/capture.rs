@@ -54,9 +54,9 @@ impl Default for AgcConfig {
     fn default() -> Self {
         Self {
             desired_rms: 0.1,
-            smoothing_factor: 0.0001,
-            max_gain: 10.0,
+            max_gain: 100.0,
             min_gain: 0.1,
+            smoothing_factor: 0.001,
         }
     }
 }
@@ -198,6 +198,7 @@ struct UserData {
     callback: AudioCallback,
     control: Arc<CaptureControl>,
     agc: SpeechAgc,
+    hpf: HighPassFilter,
 }
 
 struct SpeechAgc {
@@ -244,16 +245,56 @@ impl SpeechAgc {
     }
 }
 
-fn apply_auto_gain(samples: &mut [f32], control: &CaptureControl, agc: &mut SpeechAgc) {
+struct HighPassFilter {
+    prev_in: f32,
+    prev_out: f32,
+    alpha: f32,
+}
+
+impl HighPassFilter {
+    fn new(cutoff_hz: f32, sample_rate: f32) -> Self {
+        let rc = 1.0 / (2.0 * std::f32::consts::PI * cutoff_hz);
+        let dt = 1.0 / sample_rate;
+        let alpha = rc / (rc + dt);
+        Self {
+            prev_in: 0.0,
+            prev_out: 0.0,
+            alpha,
+        }
+    }
+
+    fn process(&mut self, sample: f32) -> f32 {
+        let out = self.alpha * (self.prev_out + sample - self.prev_in);
+        self.prev_in = sample;
+        self.prev_out = out;
+        out
+    }
+}
+
+fn apply_auto_gain(
+    samples: &mut [f32],
+    control: &CaptureControl,
+    agc: &mut SpeechAgc,
+    hpf: &mut HighPassFilter,
+) {
     if !control.is_auto_gain_enabled() {
         return;
     }
 
+    for s in samples.iter_mut() {
+        *s = hpf.process(*s);
+    }
+
+    const PREAMP: f32 = 50.0;
+    for s in samples.iter_mut() {
+        *s *= PREAMP;
+    }
+
     let rms = (samples.iter().map(|s| s.powi(2)).sum::<f32>() / samples.len() as f32).sqrt();
-    agc.set_frozen(rms < 0.01);
+    agc.set_frozen(rms < 0.001);
 
     agc.process(samples);
-    control.set_current_gain(agc.gain());
+    control.set_current_gain(agc.gain() * PREAMP);
 }
 
 fn resolve_source(source: &str) -> Result<u32> {
@@ -305,6 +346,7 @@ fn run_capture_loop(
         callback,
         control: control.clone(),
         agc: SpeechAgc::new(config.agc),
+        hpf: HighPassFilter::new(100.0, 16000.0),
     };
 
     let _listener = stream
@@ -376,7 +418,12 @@ fn run_capture_loop(
                     samples.push(f32::from_le_bytes(sample_bytes));
                 }
 
-                apply_auto_gain(&mut samples, &user_data.control, &mut user_data.agc);
+                apply_auto_gain(
+                    &mut samples,
+                    &user_data.control,
+                    &mut user_data.agc,
+                    &mut user_data.hpf,
+                );
 
                 (user_data.callback)(&samples);
             }
@@ -639,7 +686,7 @@ mod tests {
         let config = CaptureConfig::default();
         assert!(!config.auto_gain_enabled);
         assert!((config.agc.desired_rms - 0.1).abs() < 0.001);
-        assert!((config.agc.smoothing_factor - 0.0001).abs() < 0.00001);
+        assert!((config.agc.smoothing_factor - 0.001).abs() < 0.0001);
     }
 
     fn generate_sine(
