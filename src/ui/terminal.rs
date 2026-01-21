@@ -29,13 +29,7 @@
 
 use std::io::{self, Write};
 
-use ratatui::{
-    backend::CrosstermBackend,
-    layout::Rect,
-    style::{Color, Modifier, Style},
-    widgets::{Block, Borders, List, ListItem},
-    Terminal as RatatuiTerminal,
-};
+use ratatui::{backend::CrosstermBackend, Terminal as RatatuiTerminal};
 
 use crate::spectrum::{
     quantize_intensity, ColorScheme, FlameScheme, SpectrumAnalyzer, SpectrumConfig,
@@ -458,11 +452,6 @@ impl TerminalVisualizer {
         self.output_buffer.push_str(&self.status_line);
         self.output_buffer.push_str("\x1b[0m");
     }
-
-    fn draw_keybind_hints(&mut self) {
-        // No-op: keybinds are now displayed in the status line
-    }
-
     fn draw_transcript(&mut self) {
         let transcript_row = self.box_top + self.config.height + 2;
         let max_width = self.config.term_width.saturating_sub(4);
@@ -539,15 +528,19 @@ impl TerminalVisualizer {
 
         for row in (0..height).rev() {
             let screen_row = top + (height - 1 - row);
-            self.cursor_to(screen_row, left);
-
             let threshold = (row as f32 + 0.5) / height as f32;
+            let mut need_cursor_reposition = true;
 
             for col in 0..width {
                 let screen_col = left + col;
                 if self.is_masked_by_panel(screen_row, screen_col) {
-                    self.output_buffer.push(' ');
+                    need_cursor_reposition = true;
                     continue;
+                }
+
+                if need_cursor_reposition {
+                    self.cursor_to(screen_row, screen_col);
+                    need_cursor_reposition = false;
                 }
 
                 let intensity = bands.get(col).copied().unwrap_or(0.0);
@@ -586,13 +579,18 @@ impl TerminalVisualizer {
 
         for row in (0..height).rev() {
             let screen_row = top + (height - 1 - row);
-            self.cursor_to(screen_row, left);
+            let mut need_cursor_reposition = true;
 
             for col in 0..width {
                 let screen_col = left + col;
                 if self.is_masked_by_panel(screen_row, screen_col) {
-                    self.output_buffer.push(' ');
+                    need_cursor_reposition = true;
                     continue;
+                }
+
+                if need_cursor_reposition {
+                    self.cursor_to(screen_row, screen_col);
+                    need_cursor_reposition = false;
                 }
 
                 let hist_col = if history_len >= width {
@@ -650,15 +648,6 @@ impl TerminalVisualizer {
     pub fn cleanup_terminal() -> io::Result<()> {
         print!("\x1b[999;1H\x1b[?25h\x1b[0m\n");
         io::stdout().flush()
-    }
-
-    fn safe_truncate(s: &str, max_chars: usize) -> String {
-        if s.chars().count() <= max_chars {
-            s.to_string()
-        } else {
-            let truncated: String = s.chars().take(max_chars.saturating_sub(2)).collect();
-            format!("{}..", truncated)
-        }
     }
 
     /// Returns (panel_left, panel_top, panel_width, panel_height) for current terminal size.
@@ -728,41 +717,57 @@ impl TerminalVisualizer {
         ];
 
         let title = panel_title(mode);
-        let items: Vec<ListItem> = controls
-            .iter()
-            .map(|(control, label)| {
-                let is_focused = panel.focused_control == Some(*control);
-                let prefix = if is_focused { " > " } else { "   " };
-                let style = if is_focused {
-                    Style::default().add_modifier(Modifier::REVERSED)
-                } else {
-                    Style::default()
-                };
-                ListItem::new(format!("{}{}", prefix, label)).style(style)
-            })
-            .collect();
 
-        let block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::White));
+        self.output_buffer.clear();
+        self.cursor_to(panel_top, panel_left);
+        self.output_buffer.push(self.border.top_left);
+        let title_space = panel_width.saturating_sub(2);
+        let title_len = title.chars().count().min(title_space);
+        let padding_left = (title_space - title_len) / 2;
+        let padding_right = title_space - title_len - padding_left;
+        for _ in 0..padding_left {
+            self.output_buffer.push(self.border.horizontal);
+        }
+        self.output_buffer
+            .push_str(&title[..title.chars().take(title_len).map(|c| c.len_utf8()).sum()]);
+        for _ in 0..padding_right {
+            self.output_buffer.push(self.border.horizontal);
+        }
+        self.output_buffer.push(self.border.top_right);
 
-        let list = List::new(items).block(block);
+        for (i, (control, label)) in controls.iter().enumerate() {
+            self.cursor_to(panel_top + 1 + i, panel_left);
+            self.output_buffer.push(self.border.vertical);
 
-        let terminal = self.ratatui_terminal.as_mut().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::Other, "Ratatui terminal not initialized")
-        })?;
+            let is_focused = panel.focused_control == Some(*control);
+            let content_width = panel_width.saturating_sub(2);
+            let prefix = if is_focused { " > " } else { "   " };
 
-        let area = Rect {
-            x: panel_left as u16,
-            y: panel_top as u16,
-            width: panel_width as u16,
-            height: panel_height as u16,
-        };
+            if is_focused {
+                self.output_buffer.push_str("\x1b[7m");
+            }
+            self.output_buffer.push_str(prefix);
+            let label_space = content_width.saturating_sub(3);
+            let label_chars: String = label.chars().take(label_space).collect();
+            self.output_buffer.push_str(&label_chars);
+            for _ in label_chars.chars().count()..label_space {
+                self.output_buffer.push(' ');
+            }
+            if is_focused {
+                self.output_buffer.push_str("\x1b[0m");
+            }
+            self.output_buffer.push(self.border.vertical);
+        }
 
-        terminal.draw(|f| {
-            f.render_widget(list, area);
-        })?;
+        self.cursor_to(panel_top + panel_height - 1, panel_left);
+        self.output_buffer.push(self.border.bottom_left);
+        for _ in 0..(panel_width.saturating_sub(2)) {
+            self.output_buffer.push(self.border.horizontal);
+        }
+        self.output_buffer.push(self.border.bottom_right);
+
+        print!("{}", self.output_buffer);
+        io::stdout().flush()?;
 
         Ok(())
     }
@@ -784,26 +789,6 @@ impl TerminalVisualizer {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_safe_truncate_short() {
-        assert_eq!(TerminalVisualizer::safe_truncate("hello", 3), "h..");
-    }
-
-    #[test]
-    fn test_safe_truncate_exact() {
-        assert_eq!(TerminalVisualizer::safe_truncate("hello", 5), "hello");
-    }
-
-    #[test]
-    fn test_safe_truncate_zero() {
-        assert_eq!(TerminalVisualizer::safe_truncate("hello", 0), "..");
-    }
-
-    #[test]
-    fn test_safe_truncate_unicode() {
-        assert_eq!(TerminalVisualizer::safe_truncate("日本語", 2), "..");
-    }
 
     #[test]
     fn test_layout_mode_full() {
