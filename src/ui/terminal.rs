@@ -470,6 +470,12 @@ impl TerminalVisualizer {
 
         self.output_buffer.clear();
 
+        // Fill entire panel area with spaces to prevent spectrogram bleed-through
+        for row in 0..panel_height {
+            self.cursor_to(panel_top + row, panel_left);
+            self.output_buffer.push_str(&" ".repeat(panel_width));
+        }
+
         let border = if self.config.use_unicode {
             &UNICODE_BORDER
         } else {
