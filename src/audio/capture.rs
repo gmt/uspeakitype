@@ -398,6 +398,41 @@ impl BandpassFilter {
     }
 }
 
+#[allow(dead_code)]
+struct SoftLimiter {
+    threshold: f32,
+    knee: f32,
+}
+
+#[allow(dead_code)]
+impl SoftLimiter {
+    const DEFAULT_THRESHOLD: f32 = 0.9;
+    const DEFAULT_KNEE: f32 = 0.1;
+
+    fn new(threshold: f32, knee: f32) -> Self {
+        Self { threshold, knee }
+    }
+
+    fn process(&mut self, sample: f32) -> f32 {
+        let abs_s = sample.abs();
+        if abs_s <= self.threshold {
+            sample
+        } else {
+            let excess = abs_s - self.threshold;
+            let compressed =
+                self.threshold + self.knee * (1.0 - (-excess / self.knee).exp());
+            compressed.copysign(sample)
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl Default for SoftLimiter {
+    fn default() -> Self {
+        Self::new(Self::DEFAULT_THRESHOLD, Self::DEFAULT_KNEE)
+    }
+}
+
 fn apply_auto_gain(
     samples: &mut [f32],
     control: &CaptureControl,
