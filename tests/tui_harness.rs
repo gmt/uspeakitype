@@ -4,14 +4,16 @@
 //! at various terminal sizes.
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 use vt100::Parser;
 
 /// Test harness for TUI integration tests
 pub struct TuiTestHarness {
-    master: Box<dyn Read + Send>,
-    child: Box<dyn portable_pty::Child>,
+    master_writer: Box<dyn Write + Send>,
+    master_reader: Box<dyn Read + Send>,
+    slave: Box<dyn portable_pty::SlavePty>,
+    child: Option<Box<dyn portable_pty::Child>>,
     parser: Parser,
 }
 
@@ -28,27 +30,35 @@ impl TuiTestHarness {
         })?;
 
         let parser = Parser::new(rows, cols, 0);
-        let master = pty_pair.master.try_clone_reader()?;
-
-        let cmd = CommandBuilder::new("true");
-        let child = pty_pair.slave.spawn_command(cmd)?;
+        let master_reader = pty_pair.master.try_clone_reader()?;
+        let master_writer = pty_pair.master.take_writer()?;
 
         Ok(Self {
-            master,
-            child,
+            master_writer,
+            master_reader,
+            slave: pty_pair.slave,
+            child: None,
             parser,
         })
     }
 
     /// Spawn barbara binary with given arguments
-    pub fn spawn(&mut self, _args: &[&str]) -> anyhow::Result<()> {
-        // TODO: Implement spawn by restructuring to keep slave PTY alive
+    pub fn spawn(&mut self, args: &[&str]) -> anyhow::Result<()> {
+        let exe_path = env!("CARGO_BIN_EXE_barbara");
+        let mut cmd = CommandBuilder::new(exe_path);
+
+        for arg in args {
+            cmd.arg(arg);
+        }
+
+        let child = self.slave.spawn_command(cmd)?;
+        self.child = Some(child);
         Ok(())
     }
 
     /// Send keys to the PTY (simulates user input)
-    pub fn send_keys(&mut self, _text: &str) -> anyhow::Result<()> {
-        // TODO: Implement send_keys by keeping master writer in struct
+    pub fn send_keys(&mut self, text: &str) -> anyhow::Result<()> {
+        self.master_writer.write_all(text.as_bytes())?;
         Ok(())
     }
 
@@ -58,7 +68,7 @@ impl TuiTestHarness {
             std::thread::sleep(Duration::from_millis(50));
 
             let mut buf = [0u8; 4096];
-            match self.master.read(&mut buf) {
+            match self.master_reader.read(&mut buf) {
                 Ok(bytes_read) if bytes_read > 0 => {
                     self.parser.process(&buf[..bytes_read]);
                 }
@@ -80,15 +90,19 @@ impl TuiTestHarness {
 
     /// Wait for child process to exit with timeout
     pub fn wait_exit(&mut self, timeout_ms: u64) -> anyhow::Result<i32> {
+        let child = self
+            .child
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("No child process"))?;
         let deadline = Instant::now() + Duration::from_millis(timeout_ms);
 
         loop {
-            if let Some(status) = self.child.try_wait()? {
+            if let Some(status) = child.try_wait()? {
                 return Ok(status.exit_code() as i32);
             }
 
             if Instant::now() > deadline {
-                self.child.kill()?;
+                child.kill()?;
                 return Err(anyhow::anyhow!("Timeout waiting for exit"));
             }
 
