@@ -920,6 +920,14 @@ mod tests {
     }
 
     fn generate_sine(
+        freq: f32,
+        sample_rate: f32,
+        num_samples: usize,
+    ) -> Vec<f32> {
+        generate_sine_with_amplitude(freq, sample_rate, num_samples, 1.0)
+    }
+
+    fn generate_sine_with_amplitude(
         freq_hz: f32,
         sample_rate: f32,
         duration_samples: usize,
@@ -934,6 +942,13 @@ mod tests {
 
     fn rms(samples: &[f32]) -> f32 {
         (samples.iter().map(|s| s.powi(2)).sum::<f32>() / samples.len() as f32).sqrt()
+    }
+
+    fn rms_skip(samples: &[f32], skip: usize) -> f32 {
+        if samples.len() <= skip {
+            return 0.0;
+        }
+        rms(&samples[skip..])
     }
 
     #[test]
@@ -1003,7 +1018,7 @@ mod tests {
         let mut agc = SpeechAgc::new(config);
 
         for _ in 0..10 {
-            let mut speech = generate_sine(200.0, 16000.0, 4000, 0.3);
+            let mut speech = generate_sine_with_amplitude(200.0, 16000.0, 4000, 0.3);
             agc.process(&mut speech);
 
             agc.set_frozen(true);
@@ -1030,11 +1045,11 @@ mod tests {
         let mut agc = SpeechAgc::new(config);
 
         for _ in 0..20 {
-            let mut chunk = generate_sine(440.0, 16000.0, 1600, 0.05);
+            let mut chunk = generate_sine_with_amplitude(440.0, 16000.0, 1600, 0.05);
             agc.process(&mut chunk);
         }
 
-        let mut final_chunk = generate_sine(440.0, 16000.0, 1600, 0.05);
+        let mut final_chunk = generate_sine_with_amplitude(440.0, 16000.0, 1600, 0.05);
         agc.process(&mut final_chunk);
         let output_rms = rms(&final_chunk);
 
@@ -1056,7 +1071,7 @@ mod tests {
 
         for i in 1..=10 {
             let amplitude = 0.02 * i as f32;
-            let mut chunk = generate_sine(300.0, 16000.0, 1600, amplitude);
+            let mut chunk = generate_sine_with_amplitude(300.0, 16000.0, 1600, amplitude);
             agc.process(&mut chunk);
         }
 
@@ -1081,7 +1096,7 @@ mod tests {
         let mut quiet = vec![0.01; 5000];
         agc.process(&mut quiet);
 
-        let mut medium = generate_sine(440.0, 16000.0, 2000, 0.5);
+        let mut medium = generate_sine_with_amplitude(440.0, 16000.0, 2000, 0.5);
         agc.process(&mut medium);
 
         assert!(
@@ -1099,7 +1114,7 @@ mod tests {
         };
         let mut agc = SpeechAgc::new(config);
 
-        let mut dc_with_signal: Vec<f32> = generate_sine(200.0, 16000.0, 4000, 0.1)
+        let mut dc_with_signal: Vec<f32> = generate_sine_with_amplitude(200.0, 16000.0, 4000, 0.1)
             .into_iter()
             .map(|s| s + 0.1)
             .collect();
@@ -1124,7 +1139,7 @@ mod tests {
         let mut gains = Vec::new();
         for i in 0..20 {
             let amplitude = if i % 2 == 0 { 0.05 } else { 0.2 };
-            let mut chunk = generate_sine(300.0, 16000.0, 1600, amplitude);
+            let mut chunk = generate_sine_with_amplitude(300.0, 16000.0, 1600, amplitude);
             agc.process(&mut chunk);
             gains.push(agc.gain());
         }
@@ -1139,5 +1154,210 @@ mod tests {
             "gain should not oscillate wildly with alternating volumes, variance: {}",
             gain_variance
         );
+    }
+
+    #[test]
+    fn test_biquad_lowpass_response() {
+        let sample_rate = 16000.0;
+        let num_samples = 2000;
+        let settle = 200;
+
+        let mut lpf = BiquadFilter::new_lowpass(1000.0, 0.707, sample_rate);
+
+        // 500Hz (below cutoff) should pass through mostly.
+        let low_freq = generate_sine(500.0, sample_rate, num_samples);
+        let filtered_low: Vec<f32> = low_freq.iter().map(|&s| lpf.process(s)).collect();
+        let attenuation_low = rms_skip(&filtered_low, settle) / rms_skip(&low_freq, settle);
+        assert!(
+            attenuation_low > 0.6,
+            "500Hz should pass with minimal attenuation (ratio={})",
+            attenuation_low
+        );
+
+        // Reset filter state.
+        lpf = BiquadFilter::new_lowpass(1000.0, 0.707, sample_rate);
+
+        // 5kHz (well above cutoff) should be heavily attenuated.
+        let high_freq = generate_sine(5000.0, sample_rate, num_samples);
+        let filtered_high: Vec<f32> = high_freq.iter().map(|&s| lpf.process(s)).collect();
+        let attenuation_high = rms_skip(&filtered_high, settle) / rms_skip(&high_freq, settle);
+        assert!(
+            attenuation_high < 0.2,
+            "5kHz should be heavily attenuated (ratio={})",
+            attenuation_high
+        );
+    }
+
+    #[test]
+    fn test_bandpass_speech_band() {
+        let sample_rate = 16000.0;
+        let num_samples = 2000;
+        let settle = 200;
+
+        // Bass attenuation (100Hz, below 300Hz cutoff)
+        let mut bp_bass = BandpassFilter::new(sample_rate);
+        let bass = generate_sine(100.0, sample_rate, num_samples);
+        let filtered_bass: Vec<f32> = bass.iter().map(|&s| bp_bass.process(s)).collect();
+        let atten_bass = rms_skip(&filtered_bass, settle) / rms_skip(&bass, settle);
+        assert!(
+            atten_bass < 0.2,
+            "100Hz should be heavily attenuated (ratio={})",
+            atten_bass
+        );
+
+        // Passband (1kHz, within 300-3400Hz)
+        let mut bp_mid = BandpassFilter::new(sample_rate);
+        let mid = generate_sine(1000.0, sample_rate, num_samples);
+        let filtered_mid: Vec<f32> = mid.iter().map(|&s| bp_mid.process(s)).collect();
+        let atten_mid = rms_skip(&filtered_mid, settle) / rms_skip(&mid, settle);
+        assert!(
+            atten_mid > 0.5,
+            "1kHz should pass through (ratio={})",
+            atten_mid
+        );
+
+        // Highs attenuation (6kHz, above 3400Hz cutoff)
+        let mut bp_high = BandpassFilter::new(sample_rate);
+        let high = generate_sine(6000.0, sample_rate, num_samples);
+        let filtered_high: Vec<f32> = high.iter().map(|&s| bp_high.process(s)).collect();
+        let atten_high = rms_skip(&filtered_high, settle) / rms_skip(&high, settle);
+        assert!(
+            atten_high < 0.2,
+            "6kHz should be heavily attenuated (ratio={})",
+            atten_high
+        );
+    }
+
+    #[test]
+    fn test_soft_limiter_threshold() {
+        let mut limiter = SoftLimiter::new(0.9, 0.1);
+
+        // Below threshold: pass through unchanged.
+        let below = 0.5;
+        assert_eq!(limiter.process(below), below);
+
+        // Above threshold: compress smoothly.
+        let above = 1.5;
+        let limited = limiter.process(above);
+        assert!(limited <= 1.0, "Output should not exceed 1.0");
+        assert!(limited > 0.9, "Output should be above threshold");
+        assert!(limited < above, "Output should be less than input");
+    }
+
+    #[test]
+    fn test_soft_limiter_bounds() {
+        let mut limiter = SoftLimiter::default();
+
+        for i in 0..=100 {
+            let input = -2.0 + 0.04 * i as f32; // -2.0..=+2.0
+            let output = limiter.process(input);
+            assert!(
+                output.abs() <= 1.0 + 1e-6,
+                "Output should never exceed ±1.0 (input={}, output={})",
+                input,
+                output
+            );
+        }
+    }
+
+    #[test]
+    fn test_agc_sidechain_ignores_bass() {
+        let sample_rate = 16000.0;
+        let num_samples = 4000;
+        let settle = 400;
+
+        // Loud bass + quiet speech.
+        // Choose a bass frequency far below the 300Hz HPF corner so the sidechain
+        // largely rejects it.
+        let bass = generate_sine_with_amplitude(50.0, sample_rate, num_samples, 0.8);
+        let speech = generate_sine_with_amplitude(1000.0, sample_rate, num_samples, 0.02);
+        let mix: Vec<f32> = bass.iter().zip(speech.iter()).map(|(b, s)| b + s).collect();
+
+        // Sidechain RMS should be dominated by speech, not the bass.
+        let mut bp_mix = BandpassFilter::new(sample_rate);
+        let mix_bp: Vec<f32> = mix.iter().map(|&s| bp_mix.process(s)).collect();
+        let mix_bp_rms = rms_skip(&mix_bp, settle);
+
+        let mut bp_speech = BandpassFilter::new(sample_rate);
+        let speech_bp: Vec<f32> = speech.iter().map(|&s| bp_speech.process(s)).collect();
+        let speech_bp_rms = rms_skip(&speech_bp, settle);
+
+        assert!(speech_bp_rms > 0.0, "speech bandpass RMS should be non-zero");
+        let relative_delta = (mix_bp_rms - speech_bp_rms).abs() / speech_bp_rms;
+        assert!(
+            relative_delta < 0.5,
+            "sidechain should mostly ignore bass: speech_bp_rms={}, mix_bp_rms={}, delta={}",
+            speech_bp_rms,
+            mix_bp_rms,
+            relative_delta
+        );
+
+        // Full-band RMS DOES increase substantially when bass is added.
+        let mix_rms = rms_skip(&mix, settle);
+        let speech_rms = rms_skip(&speech, settle);
+        assert!(
+            mix_rms > 5.0 * speech_rms,
+            "mix RMS should be much larger than speech RMS (mix_rms={}, speech_rms={})",
+            mix_rms,
+            speech_rms
+        );
+
+        // Gain computed from sidechain should be similar with/without bass present.
+        let config = AgcConfig {
+            desired_rms: 0.1,
+            smoothing_factor: 0.01,
+            min_gain: 0.1,
+            max_gain: 100.0,
+        };
+
+        let mut agc_speech = SpeechAgc::new(config.clone());
+        let mut agc_mix = SpeechAgc::new(config);
+
+        let peak = 0.1;
+        for _ in 0..100 {
+            agc_speech.calculate_gain(speech_bp_rms, peak);
+            agc_mix.calculate_gain(mix_bp_rms, peak);
+        }
+
+        let gain_speech = agc_speech.gain();
+        let gain_mix = agc_mix.gain();
+        let gain_delta = (gain_speech - gain_mix).abs() / gain_speech.max(1e-6);
+        assert!(
+            gain_delta < 0.1,
+            "bass should not strongly affect gain (speech_gain={}, mix_gain={}, delta={})",
+            gain_speech,
+            gain_mix,
+            gain_delta
+        );
+    }
+
+    #[test]
+    fn test_agc_peak_limiting() {
+        let config = AgcConfig {
+            desired_rms: 0.1,
+            smoothing_factor: 0.01,
+            min_gain: 0.1,
+            max_gain: 100.0,
+        };
+        let mut agc = SpeechAgc::new(config);
+
+        // Drive the desired gain up (quiet speech, low peak).
+        for _ in 0..500 {
+            agc.calculate_gain(0.001, 0.1);
+        }
+
+        // Now present a high peak (e.g. bass transient) and ensure gain backs off.
+        let peak = 0.9;
+        let gain = agc.calculate_gain(0.001, peak);
+
+        let expected = 0.95 / peak;
+        assert!(
+            (gain - expected).abs() < 0.02,
+            "gain should be headroom-limited (gain={}, expected={})",
+            gain,
+            expected
+        );
+        assert!(peak * gain <= 0.95 + 1e-6, "Peak * gain must not exceed headroom");
+        assert!(gain <= 1.1, "Gain should be backed off due to high peak");
     }
 }
