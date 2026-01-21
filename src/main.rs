@@ -388,6 +388,22 @@ fn run_sweep_audio(audio_state: ui::SharedAudioState) {
     });
 }
 
+/// Flush batched resize events, returning the final size
+fn flush_resize_events(first: (u16, u16)) -> (u16, u16) {
+    use crossterm::event::{poll, read, Event};
+    use std::time::Duration;
+
+    let mut last = first;
+    while let Ok(true) = poll(Duration::from_millis(50)) {
+        if let Ok(Event::Resize(x, y)) = read() {
+            last = (x, y);
+        } else {
+            break; // Non-resize event, stop flushing
+        }
+    }
+    last
+}
+
 fn run_terminal_loop(
     audio_state: ui::SharedAudioState,
     running: Arc<AtomicBool>,
