@@ -210,6 +210,7 @@ pub struct TerminalVisualizer {
     committed_text: String,
     partial_text: String,
     is_paused: bool,
+    panel_open: bool,
     ratatui_terminal: Option<RatatuiTerminal<CrosstermBackend<std::io::Stdout>>>,
 }
 
@@ -264,6 +265,7 @@ impl TerminalVisualizer {
             committed_text: String::new(),
             partial_text: String::new(),
             is_paused: false,
+            panel_open: false,
             ratatui_terminal: None,
         }
     }
@@ -358,6 +360,21 @@ impl TerminalVisualizer {
     /// Set pause state for degenerate mode status indicator
     pub fn set_paused(&mut self, paused: bool) {
         self.is_paused = paused;
+    }
+
+    pub fn set_panel_open(&mut self, open: bool) {
+        self.panel_open = open;
+    }
+
+    fn is_masked_by_panel(&self, row: usize, col: usize) -> bool {
+        if !self.panel_open {
+            return false;
+        }
+        let (panel_left, panel_top, panel_width, panel_height) = self.panel_geometry();
+        row >= panel_top
+            && row < panel_top + panel_height
+            && col >= panel_left
+            && col < panel_left + panel_width
     }
 
     pub fn process_and_render(&mut self) -> io::Result<()> {
@@ -527,6 +544,12 @@ impl TerminalVisualizer {
             let threshold = (row as f32 + 0.5) / height as f32;
 
             for col in 0..width {
+                let screen_col = left + col;
+                if self.is_masked_by_panel(screen_row, screen_col) {
+                    self.output_buffer.push(' ');
+                    continue;
+                }
+
                 let intensity = bands.get(col).copied().unwrap_or(0.0);
                 let cell_fill = ((intensity - threshold) * height as f32 + 0.5).clamp(0.0, 1.0);
                 let char_idx = quantize_intensity(cell_fill, num_levels);
@@ -566,6 +589,12 @@ impl TerminalVisualizer {
             self.cursor_to(screen_row, left);
 
             for col in 0..width {
+                let screen_col = left + col;
+                if self.is_masked_by_panel(screen_row, screen_col) {
+                    self.output_buffer.push(' ');
+                    continue;
+                }
+
                 let hist_col = if history_len >= width {
                     col
                 } else {
@@ -731,8 +760,6 @@ impl TerminalVisualizer {
             height: panel_height as u16,
         };
 
-        // Reset ratatui's buffer to force full redraw (raw print! causes desync)
-        terminal.clear()?;
         terminal.draw(|f| {
             f.render_widget(list, area);
         })?;
