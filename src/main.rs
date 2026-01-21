@@ -458,13 +458,18 @@ fn run_terminal_loop(
                                     control_panel.toggle_viz_mode();
                                 }
                                 KeyCode::Char('c') | KeyCode::Char('C') => {
-                                    control_panel.toggle_open();
-                                    if control_panel.is_open
-                                        && control_panel.focused_control.is_none()
+                                    // Only allow panel toggle if NOT in degenerate mode
+                                    if visualizer.layout_mode()
+                                        != ui::terminal::LayoutMode::Degenerate
                                     {
-                                        control_panel.set_focused(Some(
-                                            ui::control_panel::Control::DeviceSelector,
-                                        ));
+                                        control_panel.toggle_open();
+                                        if control_panel.is_open
+                                            && control_panel.focused_control.is_none()
+                                        {
+                                            control_panel.set_focused(Some(
+                                                ui::control_panel::Control::DeviceSelector,
+                                            ));
+                                        }
                                     }
                                 }
                                 _ => {}
@@ -505,6 +510,11 @@ fn run_terminal_loop(
             visualizer.set_status_line(status);
 
             visualizer.push_samples(&samples);
+
+            // Set pause state for degenerate mode indicator
+            visualizer.set_paused(control_panel.is_paused);
+
+            // Render visualization
             visualizer.process_and_render()?;
 
             if control_panel.is_open {

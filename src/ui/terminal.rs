@@ -201,6 +201,7 @@ pub struct TerminalVisualizer {
     theme: Theme,
     committed_text: String,
     partial_text: String,
+    is_paused: bool,
 }
 
 const BOTTOM_MARGIN: usize = 2;
@@ -253,6 +254,7 @@ impl TerminalVisualizer {
             theme: DEFAULT_THEME,
             committed_text: String::new(),
             partial_text: String::new(),
+            is_paused: false,
         }
     }
 
@@ -298,7 +300,27 @@ impl TerminalVisualizer {
         LayoutMode::from_size(self.config.term_width, self.config.term_height)
     }
 
+    /// Set pause state for degenerate mode status indicator
+    pub fn set_paused(&mut self, paused: bool) {
+        self.is_paused = paused;
+    }
+
     pub fn process_and_render(&mut self) -> io::Result<()> {
+        // DEGENERATE MODE CHECK - must be first
+        if self.layout_mode() == LayoutMode::Degenerate {
+            // Clear screen, show single ASCII status character at 0,0
+            print!("\x1b[2J\x1b[1;1H"); // Clear and home
+            let status_char = if self.is_paused { '-' } else { '*' };
+            let color = if self.is_paused {
+                "\x1b[33m"
+            } else {
+                "\x1b[32m"
+            };
+            print!("{}{}\x1b[0m", color, status_char);
+            io::stdout().flush()?;
+            return Ok(()); // Skip ALL other rendering (spectrogram, hints, status)
+        }
+
         if !self.analyzer.process() {
             return Ok(());
         }
@@ -312,6 +334,11 @@ impl TerminalVisualizer {
     }
 
     fn cursor_to(&mut self, row: usize, col: usize) {
+        // Bounds check: skip if out of terminal bounds
+        if row >= self.config.term_height || col >= self.config.term_width {
+            return; // Skip cursor movement if out of bounds
+        }
+
         use std::fmt::Write;
         let _ = write!(self.output_buffer, "\x1b[{};{}H", row + 1, col + 1);
     }
@@ -783,5 +810,34 @@ mod tests {
         assert_eq!(panel_title(LayoutMode::Full), " Panel (Up/Dn/Enter/Esc) ");
         assert_eq!(panel_title(LayoutMode::Compact), " Panel ");
         assert_eq!(panel_title(LayoutMode::Minimal), " ... ");
+    }
+
+    #[test]
+    fn test_cursor_to_bounds_checking() {
+        let config = TerminalConfig {
+            width: 80,
+            height: 6,
+            mode: TerminalMode::BarMeter,
+            use_color: true,
+            use_unicode: false,
+            term_width: 80,
+            term_height: 24,
+        };
+        let mut visualizer = TerminalVisualizer::new(config);
+
+        // Clear output buffer
+        visualizer.output_buffer.clear();
+
+        // Try to move cursor out of bounds (row 100, height is 24)
+        visualizer.cursor_to(100, 0);
+
+        // Output buffer should remain empty (no cursor movement)
+        assert_eq!(visualizer.output_buffer.len(), 0);
+
+        // Try valid cursor position
+        visualizer.cursor_to(10, 10);
+
+        // Output buffer should now have cursor escape sequence
+        assert!(visualizer.output_buffer.len() > 0);
     }
 }
