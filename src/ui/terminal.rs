@@ -115,6 +115,53 @@ impl LayoutMode {
     }
 }
 
+/// Format control label with appropriate abbreviation based on layout mode
+fn format_control_label(control: Control, value: &str, mode: LayoutMode) -> String {
+    let prefix = match (control, mode) {
+        // DeviceSelector
+        (Control::DeviceSelector, LayoutMode::Full) => "Device",
+        (Control::DeviceSelector, LayoutMode::Compact) => "Dev",
+        (Control::DeviceSelector, _) => "D",
+
+        // GainSlider
+        (Control::GainSlider, LayoutMode::Full) => "Gain",
+        (Control::GainSlider, LayoutMode::Compact) => "Gn",
+        (Control::GainSlider, _) => "G",
+
+        // AgcCheckbox
+        (Control::AgcCheckbox, LayoutMode::Full) => "AGC",
+        (Control::AgcCheckbox, LayoutMode::Compact) => "AGC",
+        (Control::AgcCheckbox, _) => "A",
+
+        // PauseButton
+        (Control::PauseButton, LayoutMode::Full) => "Pause",
+        (Control::PauseButton, LayoutMode::Compact) => "Pse",
+        (Control::PauseButton, _) => "P",
+
+        // VizToggle
+        (Control::VizToggle, LayoutMode::Full) => "Visualization",
+        (Control::VizToggle, LayoutMode::Compact) => "Viz",
+        (Control::VizToggle, _) => "V",
+
+        // ColorPicker
+        (Control::ColorPicker, LayoutMode::Full) => "Color",
+        (Control::ColorPicker, LayoutMode::Compact) => "Col",
+        (Control::ColorPicker, _) => "C",
+    };
+
+    format!("{}: {}", prefix, value)
+}
+
+/// Get panel title appropriate for layout mode
+fn panel_title(mode: LayoutMode) -> &'static str {
+    match mode {
+        LayoutMode::Full => " Panel (Up/Dn/Enter/Esc) ", // 25 chars (Phase 1 canonical)
+        LayoutMode::Compact => " Panel ",                // 8 chars
+        LayoutMode::Minimal => " ... ",                  // 5 chars
+        LayoutMode::Degenerate => "",                    // Not used (panel hidden)
+    }
+}
+
 #[derive(Clone)]
 pub struct TerminalConfig {
     pub width: usize,
@@ -244,6 +291,11 @@ impl TerminalVisualizer {
 
     pub fn push_samples(&mut self, samples: &[f32]) {
         self.analyzer.push_samples(samples);
+    }
+
+    /// Determine current layout mode based on terminal size
+    pub fn layout_mode(&self) -> LayoutMode {
+        LayoutMode::from_size(self.config.term_width, self.config.term_height)
     }
 
     pub fn process_and_render(&mut self) -> io::Result<()> {
@@ -508,6 +560,7 @@ impl TerminalVisualizer {
             return Ok(());
         }
 
+        let mode = self.layout_mode();
         let (panel_left, panel_top, panel_width, panel_height) = self.panel_geometry();
 
         self.output_buffer.clear();
@@ -531,56 +584,56 @@ impl TerminalVisualizer {
         }
         self.output_buffer.push(border.top_right);
 
-        let title = " Panel (Up/Dn/Enter/Esc) ";
+        let title = panel_title(mode);
         let title_row = panel_top;
         let title_col = panel_left + (panel_width.saturating_sub(title.len())) / 2;
         self.cursor_to(title_row, title_col);
         self.output_buffer.push_str(title);
 
+        let device_value = panel
+            .selected_device
+            .map(|id| format!("#{}", id))
+            .unwrap_or_else(|| "Default".to_string());
+        let gain_value = format!(
+            "{:.1}x {}",
+            panel.gain_value,
+            if panel.agc_enabled {
+                "(AGC active)"
+            } else {
+                ""
+            }
+        );
+        let agc_value = if panel.agc_enabled { "[X]" } else { "[ ]" };
+        let pause_value = if panel.is_paused { "[X]" } else { "[ ]" };
+        let viz_value = match panel.viz_mode {
+            crate::ui::spectrogram::SpectrogramMode::BarMeter => "Bar Meter",
+            crate::ui::spectrogram::SpectrogramMode::Waterfall => "Waterfall",
+        };
+
         let controls = [
             (
                 Control::DeviceSelector,
-                format!(
-                    "Device: {}",
-                    panel
-                        .selected_device
-                        .map(|id| format!("#{}", id))
-                        .unwrap_or_else(|| "Default".to_string())
-                ),
+                format_control_label(Control::DeviceSelector, &device_value, mode),
             ),
             (
                 Control::GainSlider,
-                format!(
-                    "Gain: {:.1}x {}",
-                    panel.gain_value,
-                    if panel.agc_enabled {
-                        "(AGC active)"
-                    } else {
-                        ""
-                    }
-                ),
+                format_control_label(Control::GainSlider, &gain_value, mode),
             ),
             (
                 Control::AgcCheckbox,
-                format!("AGC: {}", if panel.agc_enabled { "[X]" } else { "[ ]" }),
+                format_control_label(Control::AgcCheckbox, agc_value, mode),
             ),
             (
                 Control::PauseButton,
-                format!("Pause: {}", if panel.is_paused { "[X]" } else { "[ ]" }),
+                format_control_label(Control::PauseButton, pause_value, mode),
             ),
             (
                 Control::VizToggle,
-                format!(
-                    "Visualization: {}",
-                    match panel.viz_mode {
-                        crate::ui::spectrogram::SpectrogramMode::BarMeter => "Bar Meter",
-                        crate::ui::spectrogram::SpectrogramMode::Waterfall => "Waterfall",
-                    }
-                ),
+                format_control_label(Control::VizToggle, viz_value, mode),
             ),
             (
                 Control::ColorPicker,
-                format!("Color: {}", panel.color_scheme_name),
+                format_control_label(Control::ColorPicker, panel.color_scheme_name, mode),
             ),
         ];
 
@@ -687,5 +740,48 @@ mod tests {
         assert_eq!(LayoutMode::from_size(20, 6), LayoutMode::Degenerate);
         assert_eq!(LayoutMode::from_size(24, 10), LayoutMode::Degenerate); // width boundary
         assert_eq!(LayoutMode::from_size(50, 7), LayoutMode::Degenerate); // height boundary
+    }
+
+    #[test]
+    fn test_format_control_label_full() {
+        assert_eq!(
+            format_control_label(Control::DeviceSelector, "Default", LayoutMode::Full),
+            "Device: Default"
+        );
+        assert_eq!(
+            format_control_label(Control::VizToggle, "Bar Meter", LayoutMode::Full),
+            "Visualization: Bar Meter"
+        );
+    }
+
+    #[test]
+    fn test_format_control_label_compact() {
+        assert_eq!(
+            format_control_label(Control::DeviceSelector, "Default", LayoutMode::Compact),
+            "Dev: Default"
+        );
+        assert_eq!(
+            format_control_label(Control::GainSlider, "1.5x", LayoutMode::Compact),
+            "Gn: 1.5x"
+        );
+    }
+
+    #[test]
+    fn test_format_control_label_minimal() {
+        assert_eq!(
+            format_control_label(Control::VizToggle, "Bar Meter", LayoutMode::Minimal),
+            "V: Bar Meter"
+        );
+        assert_eq!(
+            format_control_label(Control::ColorPicker, "flame", LayoutMode::Minimal),
+            "C: flame"
+        );
+    }
+
+    #[test]
+    fn test_panel_title() {
+        assert_eq!(panel_title(LayoutMode::Full), " Panel (Up/Dn/Enter/Esc) ");
+        assert_eq!(panel_title(LayoutMode::Compact), " Panel ");
+        assert_eq!(panel_title(LayoutMode::Minimal), " ... ");
     }
 }
