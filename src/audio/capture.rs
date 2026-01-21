@@ -271,6 +271,133 @@ impl HighPassFilter {
     }
 }
 
+#[allow(dead_code)]
+struct BiquadFilter {
+    // Feedforward
+    b0: f32,
+    b1: f32,
+    b2: f32,
+
+    // Feedback (a0 assumed normalized to 1)
+    a1: f32,
+    a2: f32,
+
+    // State
+    x1: f32,
+    x2: f32,
+    y1: f32,
+    y2: f32,
+}
+
+#[allow(dead_code)]
+impl BiquadFilter {
+    fn new_lowpass(freq: f32, q: f32, sample_rate: f32) -> Self {
+        // Audio EQ Cookbook (RBJ) lowpass biquad.
+        let omega: f32 = 2.0 * std::f32::consts::PI * freq / sample_rate;
+        let sin_omega: f32 = omega.sin();
+        let cos_omega: f32 = omega.cos();
+        let alpha: f32 = sin_omega / (2.0 * q);
+
+        let mut b0: f32 = (1.0 - cos_omega) / 2.0;
+        let mut b1: f32 = 1.0 - cos_omega;
+        let mut b2: f32 = (1.0 - cos_omega) / 2.0;
+        let a0: f32 = 1.0 + alpha;
+        let mut a1: f32 = -2.0 * cos_omega;
+        let mut a2: f32 = 1.0 - alpha;
+
+        b0 /= a0;
+        b1 /= a0;
+        b2 /= a0;
+        a1 /= a0;
+        a2 /= a0;
+
+        Self {
+            b0,
+            b1,
+            b2,
+            a1,
+            a2,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+
+    fn new_highpass(freq: f32, q: f32, sample_rate: f32) -> Self {
+        // Audio EQ Cookbook (RBJ) highpass biquad.
+        let omega: f32 = 2.0 * std::f32::consts::PI * freq / sample_rate;
+        let sin_omega: f32 = omega.sin();
+        let cos_omega: f32 = omega.cos();
+        let alpha: f32 = sin_omega / (2.0 * q);
+
+        let mut b0: f32 = (1.0 + cos_omega) / 2.0;
+        let mut b1: f32 = -(1.0 + cos_omega);
+        let mut b2: f32 = (1.0 + cos_omega) / 2.0;
+        let a0: f32 = 1.0 + alpha;
+        let mut a1: f32 = -2.0 * cos_omega;
+        let mut a2: f32 = 1.0 - alpha;
+
+        b0 /= a0;
+        b1 /= a0;
+        b2 /= a0;
+        a1 /= a0;
+        a2 /= a0;
+
+        Self {
+            b0,
+            b1,
+            b2,
+            a1,
+            a2,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+
+    fn process(&mut self, x: f32) -> f32 {
+        // Direct Form I:
+        // y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2] - a1*y[n-1] - a2*y[n-2]
+        let y: f32 = self.b0 * x
+            + self.b1 * self.x1
+            + self.b2 * self.x2
+            - self.a1 * self.y1
+            - self.a2 * self.y2;
+
+        self.x2 = self.x1;
+        self.x1 = x;
+        self.y2 = self.y1;
+        self.y1 = y;
+
+        y
+    }
+}
+
+#[allow(dead_code)]
+struct BandpassFilter {
+    hpf: BiquadFilter,
+    lpf: BiquadFilter,
+}
+
+#[allow(dead_code)]
+impl BandpassFilter {
+    fn new(sample_rate: f32) -> Self {
+        let hpf = BiquadFilter::new_highpass(300.0, 0.707, sample_rate);
+        let lpf = BiquadFilter::new_lowpass(3400.0, 0.707, sample_rate);
+        Self { hpf, lpf }
+    }
+
+    #[allow(clippy::let_and_return)]
+    fn process(&mut self, sample: f32) -> f32 {
+        // Chain: HPF removes bass, LPF removes highs.
+        let after_hpf = self.hpf.process(sample);
+        let after_lpf = self.lpf.process(after_hpf);
+        after_lpf
+    }
+}
+
 fn apply_auto_gain(
     samples: &mut [f32],
     control: &CaptureControl,

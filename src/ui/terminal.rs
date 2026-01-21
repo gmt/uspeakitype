@@ -737,7 +737,8 @@ impl TerminalVisualizer {
     /// the shell prompt appears mid-screen starting from wherever the cursor was.
     /// This has been a recurring bug - do NOT simplify to just `println!`.
     pub fn cleanup_terminal() -> io::Result<()> {
-        print!("\x1b[999;1H\x1b[?25h\x1b[0m\n");
+        print!("\x1b[999;1H\x1b[?25h\x1b[0m");
+        println!();
         io::stdout().flush()
     }
 
