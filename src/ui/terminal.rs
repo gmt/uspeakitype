@@ -450,15 +450,23 @@ impl TerminalVisualizer {
         }
     }
 
+    /// Returns (panel_left, panel_top, panel_width, panel_height) for current terminal size.
+    /// SINGLE SOURCE OF TRUTH for panel geometry - used by render and clear.
+    fn panel_geometry(&self) -> (usize, usize, usize, usize) {
+        let desired_width = 50; // Fits 25-char ASCII title (from Task 1.0)
+        let panel_height = 8; // 1 border + 6 controls + 1 border (from Task 1.1)
+        let panel_width = desired_width.min(self.config.term_width);
+        let panel_left = (self.config.term_width.saturating_sub(panel_width)) / 2;
+        let panel_top = (self.config.term_height.saturating_sub(panel_height)) / 2;
+        (panel_left, panel_top, panel_width, panel_height)
+    }
+
     pub fn render_control_panel(&mut self, panel: &ControlPanelState) -> io::Result<()> {
         if !panel.is_open {
             return Ok(());
         }
 
-        let panel_width = 50;
-        let panel_height = 8;
-        let panel_left = (self.config.term_width.saturating_sub(panel_width)) / 2;
-        let panel_top = (self.config.term_height.saturating_sub(panel_height)) / 2;
+        let (panel_left, panel_top, panel_width, panel_height) = self.panel_geometry();
 
         self.output_buffer.clear();
 
@@ -568,6 +576,19 @@ impl TerminalVisualizer {
 
         print!("{}", self.output_buffer);
         io::stdout().flush()
+    }
+
+    pub fn clear_panel_area(&mut self) {
+        let (panel_left, panel_top, panel_width, panel_height) = self.panel_geometry();
+        self.output_buffer.clear();
+        for row in 0..panel_height {
+            self.cursor_to(panel_top + row, panel_left);
+            for _ in 0..panel_width {
+                self.output_buffer.push(' ');
+            }
+        }
+        print!("{}", self.output_buffer);
+        io::stdout().flush().ok();
     }
 }
 
