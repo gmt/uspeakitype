@@ -731,6 +731,8 @@ impl TerminalVisualizer {
             height: panel_height as u16,
         };
 
+        // Reset ratatui's buffer to force full redraw (raw print! causes desync)
+        terminal.clear()?;
         terminal.draw(|f| {
             f.render_widget(list, area);
         })?;

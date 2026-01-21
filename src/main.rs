@@ -569,7 +569,6 @@ fn run_terminal_loop(
                                         control_panel.toggle_viz_mode();
                                     }
                                     KeyCode::Char('c') | KeyCode::Char('C') => {
-                                        // Only allow panel toggle if NOT in degenerate mode
                                         if visualizer.layout_mode()
                                             != ui::terminal::LayoutMode::Degenerate
                                         {
