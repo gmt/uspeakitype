@@ -301,6 +301,51 @@ impl TerminalVisualizer {
         self.history = WaterfallHistory::new(self.config.width, num_bands);
     }
 
+    /// Resize the terminal visualizer to new dimensions.
+    ///
+    /// Recalculates layout and reinitializes the spectrogram analyzer if width changes.
+    /// Clears the screen to prevent visual artifacts.
+    pub fn resize(&mut self, new_width: u16, new_height: u16) {
+        let new_width = new_width as usize;
+        let new_height = new_height as usize;
+
+        if self.config.term_width == new_width && self.config.term_height == new_height {
+            return;
+        }
+
+        self.config.term_width = new_width;
+        self.config.term_height = new_height;
+
+        let new_spec_width = (new_width as f32 * 0.6).round() as usize;
+
+        if self.config.width != new_spec_width {
+            self.config.width = new_spec_width;
+
+            let num_bands = match self.config.mode {
+                TerminalMode::BarMeter => self.config.width,
+                TerminalMode::Waterfall => self.config.height,
+            };
+
+            let spectrum_config = SpectrumConfig {
+                num_bands,
+                ..Default::default()
+            };
+            self.analyzer = SpectrumAnalyzer::new(spectrum_config);
+            self.history = WaterfallHistory::new(self.config.width, num_bands);
+        }
+
+        let box_width = self.config.width + 2;
+        let box_height = self.config.height + 2;
+        self.box_left = self.config.term_width.saturating_sub(box_width) / 2;
+        self.box_top = self
+            .config
+            .term_height
+            .saturating_sub(box_height + BOTTOM_MARGIN);
+
+        print!("\x1b[2J");
+        let _ = io::stdout().flush();
+    }
+
     pub fn push_samples(&mut self, samples: &[f32]) {
         self.analyzer.push_samples(samples);
     }
