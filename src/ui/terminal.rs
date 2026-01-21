@@ -378,19 +378,22 @@ impl TerminalVisualizer {
     }
 
     pub fn process_and_render(&mut self) -> io::Result<()> {
-        // DEGENERATE MODE CHECK - must be first
         if self.layout_mode() == LayoutMode::Degenerate {
-            // Clear screen, show single ASCII status character at 0,0
-            print!("\x1b[2J\x1b[1;1H"); // Clear and home
-            let status_char = if self.is_paused { '-' } else { '*' };
-            let color = if self.is_paused {
-                "\x1b[33m"
+            print!("\x1b[2J\x1b[1;1H");
+            let (icon, color) = if self.is_paused {
+                let i = if self.config.use_unicode { '‖' } else { '=' };
+                (i, "\x1b[33m")
             } else {
-                "\x1b[32m"
+                let i = if self.config.use_unicode { '●' } else { '*' };
+                (i, "\x1b[31m")
             };
-            print!("{}{}\x1b[0m", color, status_char);
+            if self.config.use_color {
+                print!("{}{}\x1b[0m", color, icon);
+            } else {
+                print!("{}", icon);
+            }
             io::stdout().flush()?;
-            return Ok(()); // Skip ALL other rendering (spectrogram, hints, status)
+            return Ok(());
         }
 
         if !self.analyzer.process() {
@@ -437,9 +440,38 @@ impl TerminalVisualizer {
 
         self.cursor_to(top + height + 1, left);
         self.output_buffer.push(self.border.bottom_left);
-        for _ in 0..width {
+
+        let indicator_width = 5;
+        let horiz_before = width.saturating_sub(indicator_width);
+        for _ in 0..horiz_before {
             self.output_buffer.push(self.border.horizontal);
         }
+
+        if width >= indicator_width {
+            let (icon, color) = if self.is_paused {
+                let i = if self.config.use_unicode { '‖' } else { '=' };
+                (i, "\x1b[33m")
+            } else {
+                let i = if self.config.use_unicode { '●' } else { '*' };
+                (i, "\x1b[31m")
+            };
+            self.output_buffer.push('[');
+            self.output_buffer.push(' ');
+            if self.config.use_color {
+                self.output_buffer.push_str(color);
+            }
+            self.output_buffer.push(icon);
+            if self.config.use_color {
+                self.output_buffer.push_str("\x1b[0m");
+            }
+            self.output_buffer.push(' ');
+            self.output_buffer.push(']');
+        } else {
+            for _ in 0..width.min(indicator_width) {
+                self.output_buffer.push(self.border.horizontal);
+            }
+        }
+
         self.output_buffer.push(self.border.bottom_right);
     }
 
@@ -462,10 +494,10 @@ impl TerminalVisualizer {
         };
 
         let candidates = [
-            format!("c:settings  w:viz  |  {}  |  q:quit", mode_str),
-            format!("c:settings w:viz | {} | q:quit", mode_str),
-            format!("c:set w:viz {} q:quit", mode_str),
-            "c w q".to_string(),
+            format!("spc:pause  c:settings  w:viz  |  {}  |  q:quit", mode_str),
+            format!("spc:pause c:settings w:viz | {} | q:quit", mode_str),
+            format!("spc c:set w:viz {} q:quit", mode_str),
+            "spc c w q".to_string(),
         ];
 
         self.render_status_candidate(status_row, box_width, &candidates);
@@ -474,11 +506,14 @@ impl TerminalVisualizer {
     fn draw_status_with_rate(&mut self, status_row: usize, box_width: usize, rate: u32, ch: &str) {
         let rate_khz = rate / 1000;
         let candidates = [
-            format!("c:settings  w:viz  |  {}Hz {}  |  q:quit", rate, ch),
-            format!("c:settings w:viz | {}Hz {} | q:quit", rate, ch),
-            format!("c:set w:viz {}kHz {} q:quit", rate_khz, ch),
-            format!("c:set w:viz {}k q:quit", rate_khz),
-            "c w q".to_string(),
+            format!(
+                "spc:pause  c:settings  w:viz  |  {}Hz {}  |  q:quit",
+                rate, ch
+            ),
+            format!("spc:pause c:settings w:viz | {}Hz {} | q:quit", rate, ch),
+            format!("spc c:set w:viz {}kHz {} q:quit", rate_khz, ch),
+            format!("spc c:set w:viz {}k q:quit", rate_khz),
+            "spc c w q".to_string(),
         ];
 
         self.render_status_candidate(status_row, box_width, &candidates);

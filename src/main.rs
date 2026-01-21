@@ -34,10 +34,11 @@ enum ColorSchemeName {
 #[command(about = "Streaming speech-to-text with live revision")]
 #[command(long_about = "Streaming speech-to-text with live revision\n\n\
 Keybindings:\n  \
+Space - Pause/resume recording\n  \
 w - Toggle between bar meter and waterfall visualization\n  \
+c - Open control panel\n  \
 q/Esc - Quit (GUI mode)\n  \
-q - Quit (TUI mode)\n\n\
-Note: Control panel ('c' key) is planned but not yet implemented.")]
+q - Quit (TUI mode)")]
 struct Args {
     #[arg(long)]
     headless: bool,
@@ -478,6 +479,12 @@ fn run_terminal_loop(
                             if control_panel.is_open {
                                 match key.code {
                                     KeyCode::Char('q') => break,
+                                    KeyCode::Char(' ') => {
+                                        control_panel.toggle_pause();
+                                        if let Some(ctrl) = capture_control {
+                                            control_panel.apply_pause(ctrl);
+                                        }
+                                    }
                                     KeyCode::Esc | KeyCode::Char('c') | KeyCode::Char('C') => {
                                         let was_open = control_panel.is_open;
                                         control_panel.toggle_open();
@@ -566,6 +573,12 @@ fn run_terminal_loop(
                             } else {
                                 match key.code {
                                     KeyCode::Char('q') => break,
+                                    KeyCode::Char(' ') => {
+                                        control_panel.toggle_pause();
+                                        if let Some(ctrl) = capture_control {
+                                            control_panel.apply_pause(ctrl);
+                                        }
+                                    }
                                     KeyCode::Char('w') | KeyCode::Char('W') => {
                                         visualizer.toggle_mode();
                                         control_panel.toggle_viz_mode();
