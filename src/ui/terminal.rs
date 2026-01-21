@@ -73,6 +73,48 @@ pub enum TerminalMode {
     Waterfall,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayoutMode {
+    /// Full layout: width >= 50, height >= 10
+    /// Panel width 50, full labels, 25-char title
+    Full,
+
+    /// Compact layout: width >= 35, height >= 10
+    /// Abbreviated labels (e.g., "Dev:" instead of "Device:")
+    Compact,
+
+    /// Minimal layout: width >= 25, height >= 8
+    /// Single-char labels (e.g., "D:" instead of "Device:")
+    Minimal,
+
+    /// Degenerate layout: width < 25 OR height < 8
+    /// Hide panel entirely, show single-char status indicator only
+    Degenerate,
+}
+
+impl LayoutMode {
+    /// Determine layout mode based on terminal dimensions
+    pub fn from_size(width: usize, height: usize) -> Self {
+        // Degenerate: width < 25 OR height < 8
+        if width < 25 || height < 8 {
+            return LayoutMode::Degenerate;
+        }
+
+        // Minimal: 25 <= width < 35, height >= 8
+        if width < 35 {
+            return LayoutMode::Minimal;
+        }
+
+        // Compact: 35 <= width < 50, height >= 10
+        if width < 50 {
+            return LayoutMode::Compact;
+        }
+
+        // Full: width >= 50, height >= 10
+        LayoutMode::Full
+    }
+}
+
 #[derive(Clone)]
 pub struct TerminalConfig {
     pub width: usize,
@@ -620,5 +662,30 @@ mod tests {
     #[test]
     fn test_safe_truncate_unicode() {
         assert_eq!(TerminalVisualizer::safe_truncate("日本語", 2), "..");
+    }
+
+    #[test]
+    fn test_layout_mode_full() {
+        assert_eq!(LayoutMode::from_size(80, 24), LayoutMode::Full);
+        assert_eq!(LayoutMode::from_size(50, 10), LayoutMode::Full); // boundary
+    }
+
+    #[test]
+    fn test_layout_mode_compact() {
+        assert_eq!(LayoutMode::from_size(49, 10), LayoutMode::Compact); // just below Full
+        assert_eq!(LayoutMode::from_size(40, 15), LayoutMode::Compact);
+    }
+
+    #[test]
+    fn test_layout_mode_minimal() {
+        assert_eq!(LayoutMode::from_size(30, 10), LayoutMode::Minimal);
+        assert_eq!(LayoutMode::from_size(25, 8), LayoutMode::Minimal); // boundary
+    }
+
+    #[test]
+    fn test_layout_mode_degenerate() {
+        assert_eq!(LayoutMode::from_size(20, 6), LayoutMode::Degenerate);
+        assert_eq!(LayoutMode::from_size(24, 10), LayoutMode::Degenerate); // width boundary
+        assert_eq!(LayoutMode::from_size(50, 7), LayoutMode::Degenerate); // height boundary
     }
 }
