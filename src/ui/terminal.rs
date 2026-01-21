@@ -266,6 +266,10 @@ impl TerminalVisualizer {
         self.output_buffer.push_str("\x1b[0m");
     }
 
+    fn draw_keybind_hints(&mut self) {
+        // No-op: keybinds are now displayed in the status line
+    }
+
     fn draw_transcript(&mut self) {
         let transcript_row = self.box_top + self.config.height + 2;
         let max_width = self.config.term_width.saturating_sub(4);
@@ -421,12 +425,29 @@ impl TerminalVisualizer {
 
     pub fn init_terminal() -> io::Result<()> {
         print!("\x1b[2J\x1b[?25l");
+        print!("\x1b[1;1H\x1b[2K");
         io::stdout().flush()
     }
 
+    /// Restore terminal state on exit.
+    ///
+    /// IMPORTANT: This MUST position the cursor before emitting any newlines.
+    /// The spectrogram rendering leaves the cursor at arbitrary positions.
+    /// `println!` only emits LF (no CR), so without explicit positioning,
+    /// the shell prompt appears mid-screen starting from wherever the cursor was.
+    /// This has been a recurring bug - do NOT simplify to just `println!`.
     pub fn cleanup_terminal() -> io::Result<()> {
-        println!("\x1b[?25h\x1b[0m");
+        print!("\x1b[999;1H\x1b[?25h\x1b[0m\n");
         io::stdout().flush()
+    }
+
+    fn safe_truncate(s: &str, max_chars: usize) -> String {
+        if s.chars().count() <= max_chars {
+            s.to_string()
+        } else {
+            let truncated: String = s.chars().take(max_chars.saturating_sub(2)).collect();
+            format!("{}..", truncated)
+        }
     }
 
     pub fn render_control_panel(&mut self, panel: &ControlPanelState) -> io::Result<()> {
@@ -435,7 +456,7 @@ impl TerminalVisualizer {
         }
 
         let panel_width = 50;
-        let panel_height = 14;
+        let panel_height = 8;
         let panel_left = (self.config.term_width.saturating_sub(panel_width)) / 2;
         let panel_top = (self.config.term_height.saturating_sub(panel_height)) / 2;
 
@@ -454,7 +475,7 @@ impl TerminalVisualizer {
         }
         self.output_buffer.push(border.top_right);
 
-        let title = " Control Panel (↑↓: navigate, Enter: toggle, Esc/c: close) ";
+        let title = " Panel (Up/Dn/Enter/Esc) ";
         let title_row = panel_top;
         let title_col = panel_left + (panel_width.saturating_sub(title.len())) / 2;
         self.cursor_to(title_row, title_col);
@@ -508,7 +529,7 @@ impl TerminalVisualizer {
         ];
 
         for (idx, (control, label)) in controls.iter().enumerate() {
-            let row = panel_top + 2 + (idx * 2);
+            let row = panel_top + 1 + idx;
             self.cursor_to(row, panel_left);
             self.output_buffer.push(border.vertical);
 
@@ -525,7 +546,11 @@ impl TerminalVisualizer {
                 self.output_buffer.push_str("\x1b[0m");
             }
 
-            let padding = panel_width - 2 - prefix.len() - label.len() - 2;
+            let padding = panel_width
+                .saturating_sub(2)
+                .saturating_sub(prefix.len())
+                .saturating_sub(label.len())
+                .saturating_sub(2);
             for _ in 0..padding {
                 self.output_buffer.push(' ');
             }
@@ -543,5 +568,30 @@ impl TerminalVisualizer {
 
         print!("{}", self.output_buffer);
         io::stdout().flush()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_safe_truncate_short() {
+        assert_eq!(TerminalVisualizer::safe_truncate("hello", 3), "h..");
+    }
+
+    #[test]
+    fn test_safe_truncate_exact() {
+        assert_eq!(TerminalVisualizer::safe_truncate("hello", 5), "hello");
+    }
+
+    #[test]
+    fn test_safe_truncate_zero() {
+        assert_eq!(TerminalVisualizer::safe_truncate("hello", 0), "..");
+    }
+
+    #[test]
+    fn test_safe_truncate_unicode() {
+        assert_eq!(TerminalVisualizer::safe_truncate("日本語", 2), "..");
     }
 }

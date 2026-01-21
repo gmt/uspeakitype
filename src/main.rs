@@ -491,12 +491,12 @@ fn run_terminal_loop(
                     let ch = ctrl.channels();
                     if rate > 0 {
                         let ch_str = if ch == 1 { "mono" } else { "stereo" };
-                        format!("{}Hz {} | Press 'q' to quit", rate, ch_str)
+                        format!("c:settings  w:viz  |  {}Hz {}  |  q:quit", rate, ch_str)
                     } else {
-                        "Press 'q' to quit".to_string()
+                        "c:settings  w:viz  |  q:quit".to_string()
                     }
                 }
-                None => "Press 'q' to quit".to_string(),
+                None => "c:settings  w:viz  |  demo  |  q:quit".to_string(),
             };
             visualizer.set_status_line(status);
 
