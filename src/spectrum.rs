@@ -181,6 +181,9 @@ pub struct SpectrumConfig {
     pub log_frequency: bool,
     /// Smoothing factor for band levels (0.0 = no smoothing, 1.0 = infinite smoothing)
     pub smoothing: f32,
+    /// Apply pink noise compensation (+3 dB/octave) to flatten natural 1/f noise slope
+    /// This reduces bass dominance in the display, making speech frequencies more visible
+    pub pink_compensation: bool,
 }
 
 impl Default for SpectrumConfig {
@@ -194,6 +197,7 @@ impl Default for SpectrumConfig {
             max_freq: 7500.0,
             log_frequency: true,
             smoothing: 0.3,
+            pink_compensation: true,
         }
     }
 }
@@ -346,6 +350,7 @@ impl SpectrumAnalyzer {
     fn compute_bands(&mut self, magnitudes: &[f32]) {
         let num_bands = self.config.num_bands;
         let smoothing = self.config.smoothing;
+        let bin_hz = self.config.sample_rate / self.config.fft_size as f32;
         let mut peak = 0.0f32;
 
         for band in 0..num_bands {
@@ -361,12 +366,19 @@ impl SpectrumAnalyzer {
                 band_mag = band_mag.max(mag);
             }
 
-            // dB conversion: 20 * log10(mag), map [-60dB, 0dB] to [0, 1]
-            let db = if band_mag > 1e-10 {
+            let mut db = if band_mag > 1e-10 {
                 20.0 * band_mag.log10()
             } else {
                 -100.0
             };
+
+            if self.config.pink_compensation {
+                let center_bin = (start_bin + end_bin) as f32 / 2.0;
+                let center_freq = (center_bin * bin_hz).max(1.0);
+                let compensation_db = 3.01 * (center_freq / 1000.0).log2();
+                db += compensation_db;
+            }
+
             let normalized = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
 
             self.smoothed_bands[band] =
@@ -544,5 +556,55 @@ mod tests {
     fn ansi_color_format() {
         let red = Color::rgb(1.0, 0.0, 0.0);
         assert_eq!(red.to_ansi_fg(), "\x1b[38;2;255;0;0m");
+    }
+
+    #[test]
+    fn pink_compensation_math() {
+        let comp_100hz = 3.01 * (100.0_f32 / 1000.0).log2();
+        let comp_1khz = 3.01 * (1000.0_f32 / 1000.0).log2();
+        let comp_4khz = 3.01 * (4000.0_f32 / 1000.0).log2();
+
+        assert!((comp_100hz - (-10.0)).abs() < 0.1, "100Hz should be ~-10dB");
+        assert!((comp_1khz - 0.0).abs() < 0.01, "1kHz should be 0dB");
+        assert!((comp_4khz - 6.0).abs() < 0.1, "4kHz should be ~+6dB");
+    }
+
+    #[test]
+    fn pink_compensation_flattens_low_frequencies() {
+        let config = SpectrumConfig {
+            fft_size: 256,
+            hop_size: 128,
+            num_bands: 8,
+            pink_compensation: true,
+            ..Default::default()
+        };
+        let mut analyzer = SpectrumAnalyzer::new(config);
+
+        let amplitude = 0.001;
+        let samples: Vec<f32> = (0..512)
+            .map(|i| amplitude * (i as f32 * 0.05).sin())
+            .collect();
+        analyzer.push_samples(&samples);
+        analyzer.process();
+
+        let config_no_comp = SpectrumConfig {
+            fft_size: 256,
+            hop_size: 128,
+            num_bands: 8,
+            pink_compensation: false,
+            ..Default::default()
+        };
+        let mut analyzer_no_comp = SpectrumAnalyzer::new(config_no_comp);
+        analyzer_no_comp.push_samples(&samples);
+        analyzer_no_comp.process();
+
+        let lowest_band_with = analyzer.data().bands[0];
+        let lowest_band_without = analyzer_no_comp.data().bands[0];
+        assert!(
+            lowest_band_with < lowest_band_without,
+            "Pink compensation should reduce lowest band: with={} without={}",
+            lowest_band_with,
+            lowest_band_without
+        );
     }
 }
