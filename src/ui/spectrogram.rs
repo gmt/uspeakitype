@@ -183,12 +183,21 @@ impl Spectrogram {
         let bar_data = vec![MIN_AMPLITUDE; num_bands];
         let target_bar_data = vec![MIN_AMPLITUDE; num_bands];
 
+        // Waterfall needs width * num_bands instances; bar meter needs only num_bands
+        let max_instances = match mode {
+            SpectrogramMode::BarMeter => num_bands,
+            SpectrogramMode::Waterfall => (size.width as usize) * num_bands,
+        };
+
         let instances = Self::create_bar_instances(&bar_data, size, color_scheme.as_ref());
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let buffer_size = (max_instances * std::mem::size_of::<BarInstance>()) as u64;
+        let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Spectrogram Instances"),
-            contents: bytemuck::cast_slice(&instances),
+            size: buffer_size,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
+        queue.write_buffer(&instance_buffer, 0, bytemuck::cast_slice(&instances));
 
         Self {
             queue,
