@@ -477,6 +477,7 @@ fn run_terminal_loop(
                         if key.kind == KeyEventKind::Press {
                             if control_panel.is_open {
                                 match key.code {
+                                    KeyCode::Char('q') => break,
                                     KeyCode::Esc | KeyCode::Char('c') | KeyCode::Char('C') => {
                                         let was_open = control_panel.is_open;
                                         control_panel.toggle_open();
@@ -612,20 +613,22 @@ fn run_terminal_loop(
 
             visualizer.set_transcript(committed, partial);
 
-            let status = match capture_control {
+            let status_info = match capture_control {
                 Some(ctrl) => {
                     let rate = ctrl.sample_rate();
                     let ch = ctrl.channels();
                     if rate > 0 {
-                        let ch_str = if ch == 1 { "mono" } else { "stereo" };
-                        format!("c:settings  w:viz  |  {}Hz {}  |  q:quit", rate, ch_str)
+                        ui::terminal::StatusInfo::Live {
+                            sample_rate: rate,
+                            channels: ch as u16,
+                        }
                     } else {
-                        "c:settings  w:viz  |  q:quit".to_string()
+                        ui::terminal::StatusInfo::Demo
                     }
                 }
-                None => "c:settings  w:viz  |  demo  |  q:quit".to_string(),
+                None => ui::terminal::StatusInfo::Demo,
             };
-            visualizer.set_status_line(status);
+            visualizer.set_status_info(status_info);
 
             visualizer.push_samples(&samples);
 

@@ -69,6 +69,12 @@ const ASCII_BORDER: BorderChars = BorderChars {
     vertical: '|',
 };
 
+#[derive(Clone, Copy, Debug)]
+pub enum StatusInfo {
+    Demo,
+    Live { sample_rate: u32, channels: u16 },
+}
+
 #[derive(Clone, Copy)]
 pub enum TerminalMode {
     BarMeter,
@@ -199,7 +205,7 @@ pub struct TerminalVisualizer {
     border: &'static BorderChars,
     box_left: usize,
     box_top: usize,
-    status_line: String,
+    status_info: StatusInfo,
     theme: Theme,
     committed_text: String,
     partial_text: String,
@@ -254,7 +260,7 @@ impl TerminalVisualizer {
             border,
             box_left,
             box_top,
-            status_line: String::new(),
+            status_info: StatusInfo::Demo,
             theme: DEFAULT_THEME,
             committed_text: String::new(),
             partial_text: String::new(),
@@ -268,8 +274,8 @@ impl TerminalVisualizer {
         self.color_scheme = scheme;
     }
 
-    pub fn set_status_line(&mut self, status: String) {
-        self.status_line = status;
+    pub fn set_status_info(&mut self, info: StatusInfo) {
+        self.status_info = info;
     }
 
     pub fn set_transcript(&mut self, committed: String, partial: String) {
@@ -438,18 +444,68 @@ impl TerminalVisualizer {
     }
 
     fn draw_status_line(&mut self) {
-        if self.status_line.is_empty() {
+        let box_width = self.config.width + 2;
+        let status_row = self.box_top + self.config.height + 3;
+
+        let mode_str = match self.status_info {
+            StatusInfo::Demo => "demo",
+            StatusInfo::Live {
+                sample_rate,
+                channels,
+            } => {
+                let ch = if channels == 1 { "mono" } else { "stereo" };
+                if sample_rate >= 1000 {
+                    return self.draw_status_with_rate(status_row, box_width, sample_rate, ch);
+                }
+                return self.draw_status_with_rate(status_row, box_width, sample_rate, ch);
+            }
+        };
+
+        let candidates = [
+            format!("c:settings  w:viz  |  {}  |  q:quit", mode_str),
+            format!("c:settings w:viz | {} | q:quit", mode_str),
+            format!("c:set w:viz {} q:quit", mode_str),
+            "c w q".to_string(),
+        ];
+
+        self.render_status_candidate(status_row, box_width, &candidates);
+    }
+
+    fn draw_status_with_rate(&mut self, status_row: usize, box_width: usize, rate: u32, ch: &str) {
+        let rate_khz = rate / 1000;
+        let candidates = [
+            format!("c:settings  w:viz  |  {}Hz {}  |  q:quit", rate, ch),
+            format!("c:settings w:viz | {}Hz {} | q:quit", rate, ch),
+            format!("c:set w:viz {}kHz {} q:quit", rate_khz, ch),
+            format!("c:set w:viz {}k q:quit", rate_khz),
+            "c w q".to_string(),
+        ];
+
+        self.render_status_candidate(status_row, box_width, &candidates);
+    }
+
+    fn render_status_candidate(
+        &mut self,
+        status_row: usize,
+        box_width: usize,
+        candidates: &[String],
+    ) {
+        let status = candidates
+            .iter()
+            .find(|s| s.chars().count() <= box_width)
+            .cloned()
+            .unwrap_or_default();
+
+        if status.is_empty() {
             return;
         }
 
-        let box_width = self.config.width + 2;
-        let status_row = self.box_top + self.config.height + 3;
-        let status_len = self.status_line.chars().count();
+        let status_len = status.chars().count();
         let center_offset = box_width.saturating_sub(status_len) / 2;
 
         self.cursor_to(status_row, self.box_left + center_offset);
         self.output_buffer.push_str("\x1b[2m");
-        self.output_buffer.push_str(&self.status_line);
+        self.output_buffer.push_str(&status);
         self.output_buffer.push_str("\x1b[0m");
     }
     fn draw_transcript(&mut self) {
