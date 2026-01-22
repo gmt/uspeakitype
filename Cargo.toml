@@ -3,6 +3,8 @@ name = "barbara"
 version = "0.1.0"
 edition = "2021"
 description = "Streaming ASR with live revision"
+license = "MIT"
+authors = ["Greg Turner <gmt@be-evil.net>"]
 
 [lib]
 name = "barbara"
