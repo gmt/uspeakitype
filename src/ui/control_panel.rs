@@ -1,19 +1,20 @@
 //! Control panel state management
 //!
-//! Manages the state for the 6 control panel controls:
+//! Manages the state for the 7 control panel controls:
 //! - Device selector
 //! - Gain slider
 //! - AGC checkbox
 //! - Pause button
 //! - Viz mode toggle
 //! - Color scheme picker
+//! - Input injection toggle
 
 use crate::audio::CaptureControl;
 use crate::spectrum::{get_color_scheme, ColorScheme};
 use crate::ui::spectrogram::{Spectrogram, SpectrogramMode};
 use crate::ui::{AudioSourceInfo, AudioState};
 
-/// The 6 control panel controls
+/// The 7 control panel controls
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Control {
     DeviceSelector,
@@ -22,6 +23,7 @@ pub enum Control {
     PauseButton,
     VizToggle,
     ColorPicker,
+    InjectionToggle,
 }
 
 /// State for the control panel UI
@@ -136,6 +138,11 @@ impl ControlPanelState {
     pub fn apply_device(&self, audio_state: &mut AudioState) {
         audio_state.selected_source_id = self.selected_device;
     }
+
+    /// Toggle injection in AudioState
+    pub fn toggle_injection(&self, audio_state: &mut AudioState) {
+        audio_state.injection_enabled = !audio_state.injection_enabled;
+    }
 }
 
 #[cfg(test)]
@@ -243,5 +250,17 @@ mod tests {
         state.apply_device(&mut audio_state);
 
         assert_eq!(audio_state.selected_source_id, Some(42));
+    }
+
+    #[test]
+    fn toggle_injection_updates_audio_state() {
+        let state = ControlPanelState::new();
+        let mut audio_state = AudioState::new();
+
+        assert!(audio_state.injection_enabled);
+        state.toggle_injection(&mut audio_state);
+        assert!(!audio_state.injection_enabled);
+        state.toggle_injection(&mut audio_state);
+        assert!(audio_state.injection_enabled);
     }
 }

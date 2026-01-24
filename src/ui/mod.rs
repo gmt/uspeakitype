@@ -43,6 +43,7 @@ pub struct AudioState {
     pub current_gain: f32,
     pub available_sources: Vec<AudioSourceInfo>,
     pub selected_source_id: Option<u32>,
+    pub injection_enabled: bool,
 }
 
 impl Default for AudioState {
@@ -58,6 +59,7 @@ impl Default for AudioState {
             current_gain: 1.0,
             available_sources: Vec::new(),
             selected_source_id: None,
+            injection_enabled: true,
         }
     }
 }

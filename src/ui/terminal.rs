@@ -140,6 +140,11 @@ fn format_control_label(control: Control, value: &str, mode: LayoutMode) -> Stri
         (Control::ColorPicker, LayoutMode::Full) => "Color",
         (Control::ColorPicker, LayoutMode::Compact) => "Col",
         (Control::ColorPicker, _) => "C",
+
+        // InjectionToggle
+        (Control::InjectionToggle, LayoutMode::Full) => "Injection",
+        (Control::InjectionToggle, LayoutMode::Compact) => "Inj",
+        (Control::InjectionToggle, _) => "I",
     };
 
     format!("{}: {}", prefix, value)

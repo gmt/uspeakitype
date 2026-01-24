@@ -274,6 +274,36 @@ fn main() -> anyhow::Result<()> {
         std::sync::mpsc::Receiver<Vec<f32>>,
     ) = std::sync::mpsc::sync_channel(100);
 
+    // Injection channel for typing transcribed text into focused apps
+    let (injection_tx, injection_rx): (
+        std::sync::mpsc::Sender<String>,
+        std::sync::mpsc::Receiver<String>,
+    ) = std::sync::mpsc::channel();
+
+    // Spawn injector thread (runs independently, logs errors to stderr)
+    std::thread::spawn(move || {
+        use barbara::input::WrtypeInjector;
+
+        let mut injector = match WrtypeInjector::new() {
+            Ok(inj) => {
+                eprintln!("Input injection initialized");
+                inj
+            }
+            Err(e) => {
+                eprintln!("Input injection unavailable: {}", e);
+                eprintln!("Continuing in display-only mode");
+                return;
+            }
+        };
+
+        while let Ok(text) = injection_rx.recv() {
+            use barbara::input::TextInjector;
+            if let Err(e) = injector.inject(&text) {
+                eprintln!("Injection error: {}", e);
+            }
+        }
+    });
+
     let capture_control: Option<Arc<CaptureControl>> = if args.demo || args.ansi_sweep {
         if args.ansi_sweep {
             run_sweep_audio(audio_state.clone());
@@ -311,6 +341,7 @@ fn main() -> anyhow::Result<()> {
     if let Some(mut streamer) = streaming_transcriber {
         use streaming::StreamEvent;
         let audio_state_for_worker = audio_state.clone();
+        let injection_tx_for_worker = injection_tx.clone();
 
         std::thread::spawn(move || {
             while let Ok(samples) = audio_rx.recv() {
@@ -324,8 +355,12 @@ fn main() -> anyhow::Result<()> {
                                     state.set_partial(text);
                                 }
                                 StreamEvent::Commit(text) => {
-                                    state.set_partial(text);
+                                    state.set_partial(text.clone());
                                     state.commit();
+
+                                    if !state.is_paused && state.injection_enabled {
+                                        let _ = injection_tx_for_worker.send(text);
+                                    }
                                 }
                             }
                         }
