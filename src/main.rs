@@ -308,7 +308,7 @@ fn main() -> anyhow::Result<()> {
         if args.ansi_sweep {
             run_sweep_audio(audio_state.clone());
         } else {
-            run_demo_audio(audio_state.clone());
+            run_demo_audio(audio_state.clone(), injection_tx.clone());
         }
         None
     } else {
@@ -386,7 +386,10 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_demo_audio(audio_state: ui::SharedAudioState) {
+fn run_demo_audio(
+    audio_state: ui::SharedAudioState,
+    injection_tx: std::sync::mpsc::Sender<String>,
+) {
     std::thread::spawn(move || {
         let mut t = 0.0f32;
 
@@ -414,6 +417,11 @@ fn run_demo_audio(audio_state: ui::SharedAudioState) {
                 audio_state.write().set_partial("Hello world".to_string());
             }
             if (5.0..5.1).contains(&t) {
+                let state = audio_state.read();
+                if !state.is_paused && state.injection_enabled {
+                    let _ = injection_tx.send("Hello world".to_string());
+                }
+                drop(state);
                 audio_state.write().commit();
             }
             if (6.0..6.1).contains(&t) {
@@ -422,6 +430,11 @@ fn run_demo_audio(audio_state: ui::SharedAudioState) {
                     .set_partial("this is streaming".to_string());
             }
             if (7.0..7.1).contains(&t) {
+                let state = audio_state.read();
+                if !state.is_paused && state.injection_enabled {
+                    let _ = injection_tx.send("this is streaming".to_string());
+                }
+                drop(state);
                 audio_state.write().commit();
                 audio_state.write().set_partial("transcription".to_string());
             }
