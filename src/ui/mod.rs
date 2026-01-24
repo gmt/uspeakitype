@@ -2,6 +2,7 @@ pub mod app;
 pub mod control_panel;
 pub mod renderer;
 pub mod spectrogram;
+pub mod spectrogram_widget;
 pub mod terminal;
 pub mod text_renderer;
 pub mod theme;
