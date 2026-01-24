@@ -485,12 +485,8 @@ fn run_terminal_loop(
                                         }
                                     }
                                     KeyCode::Esc | KeyCode::Char('c') | KeyCode::Char('C') => {
-                                        let was_open = control_panel.is_open;
                                         control_panel.toggle_open();
                                         visualizer.set_panel_open(control_panel.is_open);
-                                        if was_open && !control_panel.is_open {
-                                            visualizer.clear_panel_area();
-                                        }
                                     }
                                     KeyCode::Up => {
                                         let controls = [
