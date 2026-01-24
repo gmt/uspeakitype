@@ -16,6 +16,22 @@ use barbara::ui::spectrogram::SpectrogramMode;
 use barbara::ui::terminal::{TerminalConfig, TerminalMode, TerminalVisualizer};
 use barbara::{backend, download, streaming};
 
+/// Normalize backend names: lowercase, trim, filter unknown
+fn normalize_backend_names(raw: &[String]) -> Vec<String> {
+    const KNOWN: &[&str] = &["wrtype", "kwtype", "ydotool"];
+    raw.iter()
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| {
+            if KNOWN.contains(&s.as_str()) {
+                true
+            } else {
+                eprintln!("[barbara] Warning: unknown backend '{}', ignoring", s);
+                false
+            }
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum SpectrogramStyle {
     Bars,
@@ -125,6 +141,14 @@ struct Args {
     /// Run visual test sequence in tmux (cycles through terminal sizes)
     #[arg(long)]
     test_fireworks: bool,
+
+    /// Disable specific backends (comma-separated: wrtype,kwtype,ydotool)
+    #[arg(long, value_delimiter = ',')]
+    backend_disable: Vec<String>,
+
+    /// Auto-start ydotoold daemon if needed
+    #[arg(long)]
+    autostart_ydotoold: bool,
 }
 
 /// RAII guard to restore tmux pane size on drop
