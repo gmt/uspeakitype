@@ -73,7 +73,10 @@ impl<V: VadProcessor, T: Transcriber> StreamingTranscriber<V, T> {
         }
     }
 
-    /// Process audio samples and return any generated events
+    pub fn is_speaking(&self) -> bool {
+        self.vad.is_speaking()
+    }
+
     pub fn process(&mut self, samples: &[f32]) -> Result<Vec<StreamEvent>> {
         let mut events = Vec::new();
 

@@ -316,14 +316,16 @@ fn main() -> anyhow::Result<()> {
             while let Ok(samples) = audio_rx.recv() {
                 match streamer.process(&samples) {
                     Ok(events) => {
+                        let mut state = audio_state_for_worker.write();
+                        state.is_speaking = streamer.is_speaking();
                         for event in events {
                             match event {
                                 StreamEvent::Partial(text) => {
-                                    audio_state_for_worker.write().set_partial(text);
+                                    state.set_partial(text);
                                 }
                                 StreamEvent::Commit(text) => {
-                                    audio_state_for_worker.write().set_partial(text);
-                                    audio_state_for_worker.write().commit();
+                                    state.set_partial(text);
+                                    state.commit();
                                 }
                             }
                         }
