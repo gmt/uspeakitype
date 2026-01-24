@@ -522,7 +522,7 @@ mod tests {
         assert_eq!(quantize_intensity(-0.5, 8), 0);
         assert_eq!(quantize_intensity(1.5, 8), 7);
         let mid = quantize_intensity(0.5, 8);
-        assert!(mid >= 3 && mid <= 4);
+        assert!((3..=4).contains(&mid));
     }
 
     #[test]

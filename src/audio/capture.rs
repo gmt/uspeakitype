@@ -400,9 +400,7 @@ impl BiquadFilter {
     fn process(&mut self, x: f32) -> f32 {
         // Direct Form I:
         // y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2] - a1*y[n-1] - a2*y[n-2]
-        let y: f32 = self.b0 * x
-            + self.b1 * self.x1
-            + self.b2 * self.x2
+        let y: f32 = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2
             - self.a1 * self.y1
             - self.a2 * self.y2;
 
@@ -459,8 +457,7 @@ impl SoftLimiter {
             sample
         } else {
             let excess = abs_s - self.threshold;
-            let compressed =
-                self.threshold + self.knee * (1.0 - (-excess / self.knee).exp());
+            let compressed = self.threshold + self.knee * (1.0 - (-excess / self.knee).exp());
             compressed.copysign(sample)
         }
     }
@@ -493,15 +490,13 @@ fn apply_auto_gain(
     let speech_rms = if speech_samples.is_empty() {
         0.0
     } else {
-        let mean_sq = speech_samples.iter().map(|s| s * s).sum::<f32>() / speech_samples.len() as f32;
+        let mean_sq =
+            speech_samples.iter().map(|s| s * s).sum::<f32>() / speech_samples.len() as f32;
         mean_sq.sqrt()
     };
 
     // 3. Peak detection on full spectrum (HPF'd signal)
-    let peak = hpf_samples
-        .iter()
-        .map(|s| s.abs())
-        .fold(0.0f32, f32::max);
+    let peak = hpf_samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
 
     // 4. Set frozen state based on speech RMS
     agc.set_frozen(speech_rms < 0.001);
@@ -919,11 +914,7 @@ mod tests {
         assert!((config.agc.smoothing_factor - 0.001).abs() < 0.0001);
     }
 
-    fn generate_sine(
-        freq: f32,
-        sample_rate: f32,
-        num_samples: usize,
-    ) -> Vec<f32> {
+    fn generate_sine(freq: f32, sample_rate: f32, num_samples: usize) -> Vec<f32> {
         generate_sine_with_amplitude(freq, sample_rate, num_samples, 1.0)
     }
 
@@ -1100,7 +1091,7 @@ mod tests {
         agc.process(&mut medium);
 
         assert!(
-            medium.iter().all(|&s| s >= -1.0 && s <= 1.0),
+            medium.iter().all(|&s| (-1.0..=1.0).contains(&s)),
             "output samples must stay within [-1, 1]"
         );
     }
@@ -1282,7 +1273,10 @@ mod tests {
         let speech_bp: Vec<f32> = speech.iter().map(|&s| bp_speech.process(s)).collect();
         let speech_bp_rms = rms_skip(&speech_bp, settle);
 
-        assert!(speech_bp_rms > 0.0, "speech bandpass RMS should be non-zero");
+        assert!(
+            speech_bp_rms > 0.0,
+            "speech bandpass RMS should be non-zero"
+        );
         let relative_delta = (mix_bp_rms - speech_bp_rms).abs() / speech_bp_rms;
         assert!(
             relative_delta < 0.5,
@@ -1357,7 +1351,10 @@ mod tests {
             gain,
             expected
         );
-        assert!(peak * gain <= 0.95 + 1e-6, "Peak * gain must not exceed headroom");
+        assert!(
+            peak * gain <= 0.95 + 1e-6,
+            "Peak * gain must not exceed headroom"
+        );
         assert!(gain <= 1.1, "Gain should be backed off due to high peak");
     }
 }

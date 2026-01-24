@@ -59,20 +59,24 @@ impl TuiTestHarness {
     /// Send keys to the PTY (simulates user input)
     pub fn send_keys(&mut self, text: &str) -> anyhow::Result<()> {
         self.master_writer.write_all(text.as_bytes())?;
+        self.master_writer.flush()?;
         Ok(())
     }
 
-    /// Wait for N frames (50ms each), reading PTY output
+    /// Wait for N frames (50ms each), reading PTY output continuously
     pub fn wait_frames(&mut self, n: usize) -> anyhow::Result<()> {
-        for _ in 0..n {
-            std::thread::sleep(Duration::from_millis(50));
+        let total_time = Duration::from_millis(50 * n as u64);
+        let deadline = Instant::now() + total_time;
 
+        while Instant::now() < deadline {
             let mut buf = [0u8; 4096];
             match self.master_reader.read(&mut buf) {
                 Ok(bytes_read) if bytes_read > 0 => {
                     self.parser.process(&buf[..bytes_read]);
                 }
-                _ => {}
+                _ => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
             }
         }
         Ok(())

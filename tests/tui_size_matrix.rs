@@ -10,7 +10,7 @@ use tui_harness::{pty_available, TuiTestHarness};
 // ============================================================================
 
 #[test]
-#[ignore]
+
 fn test_size_20x6_degenerate() {
     if !pty_available() {
         eprintln!("Skipping: PTY not available");
@@ -32,7 +32,7 @@ fn test_size_20x6_degenerate() {
 }
 
 #[test]
-#[ignore]
+
 fn test_size_20x8_degenerate_width() {
     if !pty_available() {
         return;
@@ -52,7 +52,7 @@ fn test_size_20x8_degenerate_width() {
 }
 
 #[test]
-#[ignore]
+
 fn test_size_20x12_degenerate_width() {
     if !pty_available() {
         return;
@@ -72,7 +72,7 @@ fn test_size_20x12_degenerate_width() {
 }
 
 #[test]
-#[ignore]
+
 fn test_size_30x6_degenerate_height() {
     if !pty_available() {
         return;
@@ -92,7 +92,7 @@ fn test_size_30x6_degenerate_height() {
 }
 
 #[test]
-#[ignore]
+
 fn test_size_30x8_minimal() {
     if !pty_available() {
         return;
@@ -114,7 +114,7 @@ fn test_size_30x8_minimal() {
 }
 
 #[test]
-#[ignore]
+
 fn test_size_30x12_minimal() {
     if !pty_available() {
         return;
@@ -134,7 +134,7 @@ fn test_size_30x12_minimal() {
 }
 
 #[test]
-#[ignore]
+
 fn test_size_40x12_compact() {
     if !pty_available() {
         return;
@@ -154,7 +154,7 @@ fn test_size_40x12_compact() {
 }
 
 #[test]
-#[ignore]
+
 fn test_size_80x6_degenerate_height() {
     if !pty_available() {
         return;
@@ -174,7 +174,7 @@ fn test_size_80x6_degenerate_height() {
 }
 
 #[test]
-#[ignore]
+
 fn test_size_80x24_full() {
     if !pty_available() {
         return;
@@ -182,11 +182,11 @@ fn test_size_80x24_full() {
 
     let mut harness = TuiTestHarness::new(80, 24).unwrap();
     harness.spawn(&["--ansi", "--demo"]).unwrap();
-    harness.wait_frames(3).unwrap();
+    harness.wait_frames(5).unwrap();
 
     // Full mode: width >= 50, height >= 10
     harness.send_keys("c").unwrap();
-    harness.wait_frames(3).unwrap();
+    harness.wait_frames(5).unwrap();
     assert!(harness.has_text("Panel"));
 
     harness.send_keys("q").unwrap();
@@ -198,7 +198,7 @@ fn test_size_80x24_full() {
 // ============================================================================
 
 #[test]
-#[ignore]
+
 fn test_boundary_width_24_25() {
     if !pty_available() {
         return;
@@ -226,7 +226,7 @@ fn test_boundary_width_24_25() {
 }
 
 #[test]
-#[ignore]
+
 fn test_boundary_width_34_35() {
     if !pty_available() {
         return;
@@ -254,7 +254,7 @@ fn test_boundary_width_34_35() {
 }
 
 #[test]
-#[ignore]
+
 fn test_boundary_width_49_50() {
     if !pty_available() {
         return;
@@ -282,7 +282,7 @@ fn test_boundary_width_49_50() {
 }
 
 #[test]
-#[ignore]
+
 fn test_boundary_height_7_8() {
     if !pty_available() {
         return;
@@ -298,36 +298,35 @@ fn test_boundary_height_7_8() {
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
 
-    // 8: minimal (if width < 35) or compact/full (if width >= 35)
+    // 8: Minimal mode (height >= 8 but < 10 with width >= 35 falls back to Minimal)
     let mut harness = TuiTestHarness::new(50, 8).unwrap();
     harness.spawn(&["--ansi", "--demo"]).unwrap();
     harness.wait_frames(3).unwrap();
     harness.send_keys("c").unwrap();
     harness.wait_frames(3).unwrap();
-    assert!(harness.has_text("Panel"));
+    assert!(harness.has_text("..."));
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
 }
 
 #[test]
-#[ignore]
+
 fn test_boundary_height_9_10() {
     if !pty_available() {
         return;
     }
 
-    // Both should show panel (height >= 8)
-    // 9: valid
+    // 9: Minimal mode (height < 10 falls back to Minimal even with width >= 50)
     let mut harness = TuiTestHarness::new(50, 9).unwrap();
     harness.spawn(&["--ansi", "--demo"]).unwrap();
     harness.wait_frames(3).unwrap();
     harness.send_keys("c").unwrap();
     harness.wait_frames(3).unwrap();
-    assert!(harness.has_text("Panel"));
+    assert!(harness.has_text("..."));
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
 
-    // 10: valid
+    // 10: Full mode (height >= 10 && width >= 50)
     let mut harness = TuiTestHarness::new(50, 10).unwrap();
     harness.spawn(&["--ansi", "--demo"]).unwrap();
     harness.wait_frames(3).unwrap();

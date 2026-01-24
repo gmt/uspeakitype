@@ -35,7 +35,7 @@ use ratatui::{
     style::{Modifier, Style},
     text::Line,
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
-    Frame, Terminal as RatatuiTerminal,
+    Terminal as RatatuiTerminal,
 };
 
 use super::spectrogram_widget::SpectrogramWidget;
@@ -93,7 +93,8 @@ impl LayoutMode {
         }
 
         // Minimal: 25 <= width < 35, height >= 8
-        if width < 35 {
+        // Also used as fallback when height is 8-9 but width >= 35
+        if width < 35 || height < 10 {
             return LayoutMode::Minimal;
         }
 
@@ -383,22 +384,6 @@ impl TerminalVisualizer {
 
         // Legacy ANSI rendering path - now handled by process_and_render_ratatui()
         Ok(())
-    }
-
-    fn render_degenerate_icon(&self, frame: &mut Frame) {
-        let icon = if self.is_paused {
-            if self.config.use_unicode {
-                "‖"
-            } else {
-                "="
-            }
-        } else if self.config.use_unicode {
-            "●"
-        } else {
-            "*"
-        };
-        let paragraph = Paragraph::new(icon).alignment(Alignment::Center);
-        frame.render_widget(paragraph, frame.area());
     }
 
     fn convert_status_info(&self) -> WidgetStatusInfo {
