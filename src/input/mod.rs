@@ -2,7 +2,6 @@
 
 use anyhow::Result;
 
-pub mod kwtype;
 pub mod wrtype;
 pub mod ydotool;
 
@@ -15,13 +14,12 @@ pub trait TextInjector {
     fn inject(&mut self, text: &str) -> Result<()>;
 }
 
-pub use kwtype::KwtypeInjector;
 pub use wrtype::WrtypeInjector;
 pub use ydotool::{find_ydotool_socket, YdotoolInjector};
 
 /// Automatically select a text injection backend with fallback chain
 ///
-/// Probes backends in order: wrtype → kwtype → ydotool
+/// Probes backends in order: wrtype → ydotool
 /// Skips any backends listed in the `disabled` parameter.
 /// Logs probe attempts and results to stderr.
 ///
@@ -52,20 +50,6 @@ pub fn select_backend(disabled: &[String]) -> Option<Box<dyn TextInjector>> {
         eprintln!("[barbara] Probing wrtype... skipped (disabled)");
     }
 
-    // Probe kwtype
-    if !disabled.iter().any(|s| s == "kwtype") {
-        eprint!("[barbara] Probing kwtype... ");
-        match KwtypeInjector::new() {
-            Ok(inj) => {
-                eprintln!("active");
-                return Some(Box::new(inj));
-            }
-            Err(e) => eprintln!("unavailable ({})", e),
-        }
-    } else {
-        eprintln!("[barbara] Probing kwtype... skipped (disabled)");
-    }
-
     // Probe ydotool
     if !disabled.iter().any(|s| s == "ydotool") {
         eprint!("[barbara] Probing ydotool... ");
@@ -91,11 +75,7 @@ mod tests {
     #[test]
     fn test_select_backend_respects_disabled_list() {
         // When all backends are disabled, should return None
-        let disabled = vec![
-            "wrtype".to_string(),
-            "kwtype".to_string(),
-            "ydotool".to_string(),
-        ];
+        let disabled = vec!["wrtype".to_string(), "ydotool".to_string()];
         let result = select_backend(&disabled);
         assert!(result.is_none());
     }
