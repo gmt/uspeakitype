@@ -44,8 +44,7 @@ use super::transcript_widget::TranscriptWidget;
 use super::waterfall_widget::WaterfallWidget;
 
 use crate::spectrum::{
-    quantize_intensity, ColorScheme, FlameScheme, SpectrumAnalyzer, SpectrumConfig,
-    WaterfallHistory,
+    ColorScheme, FlameScheme, SpectrumAnalyzer, SpectrumConfig, WaterfallHistory,
 };
 
 use super::control_panel::{Control, ControlPanelState};
@@ -229,7 +228,6 @@ pub struct TerminalVisualizer {
     analyzer: SpectrumAnalyzer,
     history: WaterfallHistory,
     color_scheme: Box<dyn ColorScheme>,
-    output_buffer: String,
     charset: &'static [char; 9],
     border: &'static BorderChars,
     box_left: usize,
@@ -277,14 +275,11 @@ impl TerminalVisualizer {
             .term_height
             .saturating_sub(box_height + BOTTOM_MARGIN);
 
-        let buffer_size = (config.width + 20) * (config.height + 4);
-
         Self {
             config,
             analyzer,
             history,
             color_scheme: Box::new(FlameScheme),
-            output_buffer: String::with_capacity(buffer_size),
             charset,
             border,
             box_left,
@@ -431,10 +426,8 @@ impl TerminalVisualizer {
 
         self.history.push(&self.analyzer.data().bands);
 
-        match self.config.mode {
-            TerminalMode::BarMeter => self.render_bar_meter(),
-            TerminalMode::Waterfall => self.render_waterfall(),
-        }
+        // Legacy ANSI rendering path - now handled by process_and_render_ratatui()
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -645,325 +638,6 @@ impl TerminalVisualizer {
         Ok(())
     }
 
-    #[allow(dead_code)]
-    fn cursor_to(&mut self, row: usize, col: usize) {
-        // Bounds check: skip if out of terminal bounds
-        if row >= self.config.term_height || col >= self.config.term_width {
-            return; // Skip cursor movement if out of bounds
-        }
-
-        use std::fmt::Write;
-        let _ = write!(self.output_buffer, "\x1b[{};{}H", row + 1, col + 1);
-    }
-
-    #[allow(dead_code)]
-    fn draw_border(&mut self) {
-        let width = self.config.width;
-        let height = self.config.height;
-        let left = self.box_left;
-        let top = self.box_top;
-
-        self.cursor_to(top, left);
-        self.output_buffer.push(self.border.top_left);
-        for _ in 0..width {
-            self.output_buffer.push(self.border.horizontal);
-        }
-        self.output_buffer.push(self.border.top_right);
-
-        for row in 0..height {
-            self.cursor_to(top + 1 + row, left);
-            self.output_buffer.push(self.border.vertical);
-            self.cursor_to(top + 1 + row, left + width + 1);
-            self.output_buffer.push(self.border.vertical);
-        }
-
-        self.cursor_to(top + height + 1, left);
-        self.output_buffer.push(self.border.bottom_left);
-
-        let indicator_width = 5;
-        let horiz_before = width.saturating_sub(indicator_width);
-        for _ in 0..horiz_before {
-            self.output_buffer.push(self.border.horizontal);
-        }
-
-        if width >= indicator_width {
-            let (icon, color) = if self.is_paused {
-                let i = if self.config.use_unicode { '‖' } else { '=' };
-                (i, "\x1b[33m")
-            } else {
-                let i = if self.config.use_unicode { '●' } else { '*' };
-                (i, "\x1b[31m")
-            };
-            self.output_buffer.push('[');
-            self.output_buffer.push(' ');
-            if self.config.use_color {
-                self.output_buffer.push_str(color);
-            }
-            self.output_buffer.push(icon);
-            if self.config.use_color {
-                self.output_buffer.push_str("\x1b[0m");
-            }
-            self.output_buffer.push(' ');
-            self.output_buffer.push(']');
-        } else {
-            for _ in 0..width.min(indicator_width) {
-                self.output_buffer.push(self.border.horizontal);
-            }
-        }
-
-        self.output_buffer.push(self.border.bottom_right);
-    }
-
-    #[allow(dead_code)]
-    fn draw_status_line(&mut self) {
-        let box_width = self.config.width + 2;
-        let status_row = self.box_top + self.config.height + 3;
-
-        let mode_str = match self.status_info {
-            StatusInfo::Demo => "demo",
-            StatusInfo::Live {
-                sample_rate,
-                channels,
-            } => {
-                let ch = if channels == 1 { "mono" } else { "stereo" };
-                if sample_rate >= 1000 {
-                    return self.draw_status_with_rate(status_row, box_width, sample_rate, ch);
-                }
-                return self.draw_status_with_rate(status_row, box_width, sample_rate, ch);
-            }
-        };
-
-        let candidates = [
-            format!("spc:pause  c:settings  w:viz  |  {}  |  q:quit", mode_str),
-            format!("spc:pause c:settings w:viz | {} | q:quit", mode_str),
-            format!("spc c:set w:viz {} q:quit", mode_str),
-            "spc c w q".to_string(),
-        ];
-
-        self.render_status_candidate(status_row, box_width, &candidates);
-    }
-
-    #[allow(dead_code)]
-    fn draw_status_with_rate(&mut self, status_row: usize, box_width: usize, rate: u32, ch: &str) {
-        let rate_khz = rate / 1000;
-        let candidates = [
-            format!(
-                "spc:pause  c:settings  w:viz  |  {}Hz {}  |  q:quit",
-                rate, ch
-            ),
-            format!("spc:pause c:settings w:viz | {}Hz {} | q:quit", rate, ch),
-            format!("spc c:set w:viz {}kHz {} q:quit", rate_khz, ch),
-            format!("spc c:set w:viz {}k q:quit", rate_khz),
-            "spc c w q".to_string(),
-        ];
-
-        self.render_status_candidate(status_row, box_width, &candidates);
-    }
-
-    #[allow(dead_code)]
-    fn render_status_candidate(
-        &mut self,
-        status_row: usize,
-        box_width: usize,
-        candidates: &[String],
-    ) {
-        let status = candidates
-            .iter()
-            .find(|s| s.chars().count() <= box_width)
-            .cloned()
-            .unwrap_or_default();
-
-        if status.is_empty() {
-            return;
-        }
-
-        let status_len = status.chars().count();
-        let center_offset = box_width.saturating_sub(status_len) / 2;
-
-        self.cursor_to(status_row, self.box_left + center_offset);
-        self.output_buffer.push_str("\x1b[2m");
-        self.output_buffer.push_str(&status);
-        self.output_buffer.push_str("\x1b[0m");
-    }
-
-    #[allow(dead_code)]
-    fn draw_transcript(&mut self) {
-        let transcript_row = self.box_top + self.config.height + 2;
-        let max_width = self.config.term_width.saturating_sub(4);
-
-        let mut full_text = String::new();
-        let theme_ansi = self.theme.to_ansi();
-
-        if !self.committed_text.is_empty() {
-            full_text.push_str("\x1b[1m");
-            full_text.push_str(&theme_ansi.text_committed);
-            full_text.push_str(&self.committed_text);
-            full_text.push_str("\x1b[0m");
-        }
-
-        if !self.committed_text.is_empty() && !self.partial_text.is_empty() {
-            full_text.push(' ');
-        }
-
-        if !self.partial_text.is_empty() {
-            full_text.push_str("\x1b[2m");
-            full_text.push_str(&theme_ansi.text_partial);
-            full_text.push_str(&self.partial_text);
-            full_text.push_str("\x1b[0m");
-        }
-
-        let display_text = self.truncate_with_ansi(&full_text, max_width);
-
-        self.cursor_to(transcript_row, 2);
-        self.output_buffer.push_str(&display_text);
-    }
-
-    #[allow(dead_code)]
-    fn truncate_with_ansi(&self, text: &str, max_visible_chars: usize) -> String {
-        if text.chars().count() <= max_visible_chars {
-            return text.to_string();
-        }
-
-        let mut truncated = String::new();
-        let mut visible_count = 0;
-        let mut in_escape_sequence = false;
-
-        for ch in text.chars() {
-            if ch == '\x1b' {
-                in_escape_sequence = true;
-            }
-
-            truncated.push(ch);
-
-            if !in_escape_sequence {
-                visible_count += 1;
-                if visible_count >= max_visible_chars - 3 {
-                    break;
-                }
-            }
-
-            if in_escape_sequence && ch == 'm' {
-                in_escape_sequence = false;
-            }
-        }
-
-        truncated.push_str("...");
-        truncated
-    }
-
-    #[allow(dead_code)]
-    fn render_bar_meter(&mut self) -> io::Result<()> {
-        let bands = self.analyzer.data().bands.clone();
-        let width = bands.len().min(self.config.width);
-        let height = self.config.height;
-        let num_levels = self.charset.len();
-        let left = self.box_left + 1;
-        let top = self.box_top + 1;
-
-        self.output_buffer.clear();
-        self.draw_border();
-
-        for row in (0..height).rev() {
-            let screen_row = top + (height - 1 - row);
-            let threshold = (row as f32 + 0.5) / height as f32;
-            let mut need_cursor_reposition = true;
-
-            for col in 0..width {
-                let screen_col = left + col;
-                if self.is_masked_by_panel(screen_row, screen_col) {
-                    need_cursor_reposition = true;
-                    continue;
-                }
-
-                if need_cursor_reposition {
-                    self.cursor_to(screen_row, screen_col);
-                    need_cursor_reposition = false;
-                }
-
-                let intensity = bands.get(col).copied().unwrap_or(0.0);
-                let cell_fill = ((intensity - threshold) * height as f32 + 0.5).clamp(0.0, 1.0);
-                let char_idx = quantize_intensity(cell_fill, num_levels);
-
-                if self.config.use_color && intensity > 0.01 {
-                    let color = self.color_scheme.color_for_intensity(intensity);
-                    self.output_buffer.push_str(&color.to_ansi_fg());
-                }
-
-                self.output_buffer.push(self.charset[char_idx]);
-
-                if self.config.use_color && intensity > 0.01 {
-                    self.output_buffer.push_str("\x1b[0m");
-                }
-            }
-        }
-
-        self.draw_transcript();
-        self.draw_status_line();
-        print!("{}", self.output_buffer);
-        io::stdout().flush()
-    }
-
-    #[allow(dead_code)]
-    fn render_waterfall(&mut self) -> io::Result<()> {
-        let width = self.config.width;
-        let height = self.config.height;
-        let num_levels = self.charset.len();
-        let history_len = self.history.len();
-        let left = self.box_left + 1;
-        let top = self.box_top + 1;
-
-        self.output_buffer.clear();
-        self.draw_border();
-
-        for row in (0..height).rev() {
-            let screen_row = top + (height - 1 - row);
-            let mut need_cursor_reposition = true;
-
-            for col in 0..width {
-                let screen_col = left + col;
-                if self.is_masked_by_panel(screen_row, screen_col) {
-                    need_cursor_reposition = true;
-                    continue;
-                }
-
-                if need_cursor_reposition {
-                    self.cursor_to(screen_row, screen_col);
-                    need_cursor_reposition = false;
-                }
-
-                let hist_col = if history_len >= width {
-                    col
-                } else {
-                    col.saturating_sub(width - history_len)
-                };
-
-                let intensity = if hist_col < history_len {
-                    self.history.get_intensity(hist_col, row)
-                } else {
-                    0.0
-                };
-
-                let char_idx = quantize_intensity(intensity, num_levels);
-
-                if self.config.use_color && intensity > 0.01 {
-                    let color = self.color_scheme.color_for_intensity(intensity);
-                    self.output_buffer.push_str(&color.to_ansi_fg());
-                }
-
-                self.output_buffer.push(self.charset[char_idx]);
-
-                if self.config.use_color && intensity > 0.01 {
-                    self.output_buffer.push_str("\x1b[0m");
-                }
-            }
-        }
-
-        self.draw_transcript();
-        self.draw_status_line();
-        print!("{}", self.output_buffer);
-        io::stdout().flush()
-    }
-
     pub fn init_terminal(&mut self) -> io::Result<()> {
         print!("\x1b[2J\x1b[?25l");
         print!("\x1b[1;1H\x1b[2K");
@@ -1092,27 +766,32 @@ impl TerminalVisualizer {
         let mut buffer = Buffer::empty(area);
         list.render(area, &mut buffer, &mut list_state);
 
-        self.output_buffer.clear();
+        let mut output = String::new();
         for y in 0..buffer.area.height {
-            self.cursor_to(panel_top + y as usize, panel_left);
+            use std::fmt::Write;
+            let _ = write!(
+                output,
+                "\x1b[{};{}H",
+                panel_top + y as usize + 1,
+                panel_left + 1
+            );
             for x in 0..buffer.area.width {
                 let cell = buffer.cell((panel_left as u16 + x, panel_top as u16 + y));
                 if let Some(cell) = cell {
                     if cell.modifier.contains(Modifier::REVERSED) {
-                        self.output_buffer.push_str("\x1b[7m");
+                        output.push_str("\x1b[7m");
                     }
-                    self.output_buffer
-                        .push(cell.symbol().chars().next().unwrap_or(' '));
+                    output.push(cell.symbol().chars().next().unwrap_or(' '));
                     if cell.modifier.contains(Modifier::REVERSED) {
-                        self.output_buffer.push_str("\x1b[0m");
+                        output.push_str("\x1b[0m");
                     }
                 } else {
-                    self.output_buffer.push(' ');
+                    output.push(' ');
                 }
             }
         }
 
-        print!("{}", self.output_buffer);
+        print!("{}", output);
         io::stdout().flush()?;
 
         Ok(())
@@ -1120,14 +799,15 @@ impl TerminalVisualizer {
 
     pub fn clear_panel_area(&mut self) {
         let (panel_left, panel_top, panel_width, panel_height) = self.panel_geometry();
-        self.output_buffer.clear();
+        let mut output = String::new();
         for row in 0..panel_height {
-            self.cursor_to(panel_top + row, panel_left);
+            use std::fmt::Write;
+            let _ = write!(output, "\x1b[{};{}H", panel_top + row + 1, panel_left + 1);
             for _ in 0..panel_width {
-                self.output_buffer.push(' ');
+                output.push(' ');
             }
         }
-        print!("{}", self.output_buffer);
+        print!("{}", output);
         io::stdout().flush().ok();
     }
 }
@@ -1202,35 +882,6 @@ mod tests {
         assert_eq!(panel_title(LayoutMode::Full), " Panel (Up/Dn/Enter/Esc) ");
         assert_eq!(panel_title(LayoutMode::Compact), " Panel ");
         assert_eq!(panel_title(LayoutMode::Minimal), " ... ");
-    }
-
-    #[test]
-    fn test_cursor_to_bounds_checking() {
-        let config = TerminalConfig {
-            width: 80,
-            height: 6,
-            mode: TerminalMode::BarMeter,
-            use_color: true,
-            use_unicode: false,
-            term_width: 80,
-            term_height: 24,
-        };
-        let mut visualizer = TerminalVisualizer::new(config);
-
-        // Clear output buffer
-        visualizer.output_buffer.clear();
-
-        // Try to move cursor out of bounds (row 100, height is 24)
-        visualizer.cursor_to(100, 0);
-
-        // Output buffer should remain empty (no cursor movement)
-        assert_eq!(visualizer.output_buffer.len(), 0);
-
-        // Try valid cursor position
-        visualizer.cursor_to(10, 10);
-
-        // Output buffer should now have cursor escape sequence
-        assert!(visualizer.output_buffer.len() > 0);
     }
 
     #[test]
