@@ -52,9 +52,11 @@ impl<'a> Widget for WaterfallWidget<'a> {
         }
 
         let width = area.width as usize;
-        let height = (self.history.num_bands() as u16).min(area.height) as usize;
+        // Use full area height (scale bands to fit), not limited by num_bands
+        let height = area.height as usize;
         let history_len = self.history.len();
         let num_levels = self.charset.len();
+        let num_bands = self.history.num_bands();
 
         // Iterate columns (time snapshots)
         for col in 0..width {
@@ -63,23 +65,25 @@ impl<'a> Widget for WaterfallWidget<'a> {
             // Calculate which history column this screen column maps to
             // When history_len >= width: show rightmost columns (most recent)
             // When history_len < width: empty left, data right
+            let empty_cols = width.saturating_sub(history_len);
+            if col < empty_cols {
+                continue;
+            }
             let hist_col = if history_len >= width {
                 col + (history_len - width)
             } else {
-                col.saturating_sub(width - history_len)
+                col - empty_cols
             };
-
-            // Skip if this column is beyond history (empty on left when partial)
-            if hist_col >= history_len {
-                continue;
-            }
 
             // Iterate rows bottom-to-top (row 0 = lowest frequency band)
             for row in (0..height).rev() {
                 let y = area.bottom().saturating_sub((height - row) as u16);
 
                 // Get intensity for this time/frequency cell
-                let intensity = self.history.get_intensity(hist_col, row);
+                // Scale row index to band index (allows rendering more rows than bands)
+                // Low frequencies at bottom (row height-1 on screen = band 0)
+                let band_idx = ((height - 1 - row) * num_bands) / height.max(1);
+                let intensity = self.history.get_intensity(hist_col, band_idx);
 
                 // Skip cells with very low intensity for efficiency
                 if intensity <= 0.0 {

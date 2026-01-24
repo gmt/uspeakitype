@@ -52,18 +52,18 @@ impl<'a> Widget for SpectrogramWidget<'a> {
         let width = (self.bands.len() as u16).min(area.width) as usize;
         let height = area.height as usize;
         let num_levels = self.charset.len();
+        let x_offset = (area.width.saturating_sub(width as u16)) / 2;
 
-        // Iterate columns (bands)
         for col in 0..width {
             let intensity = self.bands.get(col).copied().unwrap_or(0.0);
-            let x = area.left() + col as u16;
+            let x = area.left() + x_offset + col as u16;
 
             // Iterate rows bottom-to-top (reversed)
             for row in (0..height).rev() {
                 let y = area.bottom().saturating_sub((height - row) as u16);
 
-                // Calculate threshold for this row
-                let threshold = (row as f32 + 0.5) / height as f32;
+                // Calculate threshold for this row (bottom = low threshold, top = high threshold)
+                let threshold = ((height - 1 - row) as f32 + 0.5) / height as f32;
 
                 // Calculate cell fill: how much of this cell should be filled
                 let cell_fill = ((intensity - threshold) * height as f32 + 0.5).clamp(0.0, 1.0);

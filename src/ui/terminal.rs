@@ -524,14 +524,25 @@ impl TerminalVisualizer {
             let main_area = areas[1];
             let transcript_area = areas[2];
 
+            // Center visualization at 60% width (matching config.width calculation)
+            let viz_width = (main_area.width as f32 * 0.6).round() as u16;
+            let viz_area = {
+                let h_layout = Layout::horizontal([
+                    Constraint::Fill(1),
+                    Constraint::Length(viz_width),
+                    Constraint::Fill(1),
+                ]);
+                h_layout.split(main_area)[1]
+            };
+
             match terminal_mode {
                 TerminalMode::BarMeter => {
                     let widget = SpectrogramWidget::new(&bands, color_scheme, charset);
-                    frame.render_widget(widget, main_area);
+                    frame.render_widget(widget, viz_area);
                 }
                 TerminalMode::Waterfall => {
                     let widget = WaterfallWidget::new(history, color_scheme, charset);
-                    frame.render_widget(widget, main_area);
+                    frame.render_widget(widget, viz_area);
                 }
             }
 
