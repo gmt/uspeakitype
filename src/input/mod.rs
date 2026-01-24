@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 
+pub mod kwtype;
 pub mod wrtype;
 
 /// Trait for text injection backends
@@ -13,4 +14,5 @@ pub trait TextInjector {
     fn inject(&mut self, text: &str) -> Result<()>;
 }
 
+pub use kwtype::KwtypeInjector;
 pub use wrtype::WrtypeInjector;
