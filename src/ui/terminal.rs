@@ -546,7 +546,7 @@ impl TerminalVisualizer {
                 }
             }
 
-            let status_widget = StatusWidget::new(status_info);
+            let status_widget = StatusWidget::new(status_info).paused(is_paused);
             frame.render_widget(status_widget, status_area);
 
             let transcript_widget = TranscriptWidget::new(

@@ -13,20 +13,31 @@ pub enum StatusInfo {
 
 pub struct StatusWidget {
     pub info: StatusInfo,
+    pub is_paused: bool,
 }
 
 impl StatusWidget {
     pub fn new(info: StatusInfo) -> Self {
-        Self { info }
+        Self {
+            info,
+            is_paused: false,
+        }
+    }
+
+    pub fn paused(mut self, paused: bool) -> Self {
+        self.is_paused = paused;
+        self
     }
 
     fn build_candidates(&self) -> Vec<String> {
+        let icon = if self.is_paused { "‖" } else { "▶" };
+
         match self.info {
             StatusInfo::Demo => vec![
-                "spc:pause  c:settings  w:viz  |  demo  |  q:quit".to_string(),
-                "spc:pause c:settings w:viz | demo | q:quit".to_string(),
-                "spc c:set w:viz demo q:quit".to_string(),
-                "spc c w q".to_string(),
+                format!("{}  spc:pause  c:settings  w:viz  |  demo  |  q:quit", icon),
+                format!("{} spc:pause c:settings w:viz | demo | q:quit", icon),
+                format!("{} spc c:set w:viz demo q:quit", icon),
+                format!("{} spc c w q", icon),
             ],
             StatusInfo::Live {
                 sample_rate,
@@ -36,16 +47,16 @@ impl StatusWidget {
                 let rate_khz = sample_rate / 1000;
                 vec![
                     format!(
-                        "spc:pause  c:settings  w:viz  |  {}Hz {}  |  q:quit",
-                        sample_rate, ch
+                        "{}  spc:pause  c:settings  w:viz  |  {}Hz {}  |  q:quit",
+                        icon, sample_rate, ch
                     ),
                     format!(
-                        "spc:pause c:settings w:viz | {}Hz {} | q:quit",
-                        sample_rate, ch
+                        "{} spc:pause c:settings w:viz | {}Hz {} | q:quit",
+                        icon, sample_rate, ch
                     ),
-                    format!("spc c:set w:viz {}kHz {} q:quit", rate_khz, ch),
-                    format!("spc c:set w:viz {}k q:quit", rate_khz),
-                    "spc c w q".to_string(),
+                    format!("{} spc c:set w:viz {}kHz {} q:quit", icon, rate_khz, ch),
+                    format!("{} spc c:set w:viz {}k q:quit", icon, rate_khz),
+                    format!("{} spc c w q", icon),
                 ]
             }
         }
