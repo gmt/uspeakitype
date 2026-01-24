@@ -647,12 +647,8 @@ fn run_terminal_loop(
             // Set pause state for degenerate mode indicator
             visualizer.set_paused(control_panel.is_paused);
 
-            // Render visualization
-            visualizer.process_and_render()?;
-
-            if control_panel.is_open {
-                visualizer.render_control_panel(&control_panel)?;
-            }
+            // Render visualization (unified ratatui draw loop)
+            visualizer.process_and_render_ratatui(&control_panel)?;
         }
         Ok(())
     })();
