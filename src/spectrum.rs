@@ -73,15 +73,15 @@ pub trait ColorScheme: Send + Sync {
 pub struct FlameScheme;
 
 impl FlameScheme {
-    const STOPS: [(f32, Color); 8] = [
-        (0.00, Color::rgb(0.0, 0.0, 0.0)),
-        (0.14, Color::rgb(0.1, 0.0, 0.3)),
-        (0.28, Color::rgb(0.0, 0.2, 0.6)),
-        (0.42, Color::rgb(0.0, 0.5, 0.5)),
-        (0.56, Color::rgb(0.2, 0.7, 0.2)),
-        (0.70, Color::rgb(0.8, 0.8, 0.0)),
-        (0.85, Color::rgb(1.0, 0.4, 0.0)),
-        (1.00, Color::rgb(1.0, 0.2, 0.2)),
+    // True blackbody radiation: black → deep red → red → orange → yellow → white
+    const STOPS: [(f32, Color); 7] = [
+        (0.00, Color::rgb(0.0, 0.0, 0.0)), // Black (cold)
+        (0.15, Color::rgb(0.3, 0.0, 0.0)), // Deep maroon
+        (0.30, Color::rgb(0.6, 0.1, 0.0)), // Dark red
+        (0.50, Color::rgb(0.9, 0.3, 0.0)), // Red-orange
+        (0.70, Color::rgb(1.0, 0.6, 0.1)), // Orange
+        (0.85, Color::rgb(1.0, 0.9, 0.4)), // Yellow
+        (1.00, Color::rgb(1.0, 1.0, 0.9)), // White-hot
     ];
 }
 
