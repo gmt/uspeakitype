@@ -1,10 +1,7 @@
 //! Wayland text injection via wrtype
 
+use super::TextInjector;
 use anyhow::Result;
-
-pub trait TextInjector {
-    fn inject(&mut self, text: &str) -> Result<()>;
-}
 
 pub struct WrtypeInjector {
     client: wrtype::WrtypeClient,
@@ -19,6 +16,10 @@ impl WrtypeInjector {
 }
 
 impl TextInjector for WrtypeInjector {
+    fn name(&self) -> &'static str {
+        "wrtype"
+    }
+
     fn inject(&mut self, text: &str) -> Result<()> {
         if text.is_empty() {
             return Ok(());
@@ -34,10 +35,15 @@ impl TextInjector for WrtypeInjector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input::TextInjector;
 
     struct MockInjector;
 
     impl TextInjector for MockInjector {
+        fn name(&self) -> &'static str {
+            "mock"
+        }
+
         fn inject(&mut self, text: &str) -> Result<()> {
             if text.is_empty() {
                 return Ok(());
