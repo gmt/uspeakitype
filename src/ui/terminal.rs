@@ -31,12 +31,17 @@ use std::io::{self, Write};
 
 use ratatui::{
     backend::CrosstermBackend,
-    layout::Alignment,
+    layout::{Alignment, Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::Line,
-    widgets::{Block, Borders, List, ListItem, ListState},
-    Terminal as RatatuiTerminal,
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
+    Frame, Terminal as RatatuiTerminal,
 };
+
+use super::spectrogram_widget::SpectrogramWidget;
+use super::status_widget::{StatusInfo as WidgetStatusInfo, StatusWidget};
+use super::transcript_widget::TranscriptWidget;
+use super::waterfall_widget::WaterfallWidget;
 
 use crate::spectrum::{
     quantize_intensity, ColorScheme, FlameScheme, SpectrumAnalyzer, SpectrumConfig,
@@ -175,6 +180,23 @@ fn panel_title(mode: LayoutMode) -> &'static str {
         LayoutMode::Minimal => " ... ",                  // 5 chars
         LayoutMode::Degenerate => "",                    // Not used (panel hidden)
     }
+}
+
+/// Calculate a centered rectangle for popup overlays
+fn centered_rect(percent_x: u16, fixed_height: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::vertical([
+        Constraint::Fill(1),
+        Constraint::Length(fixed_height),
+        Constraint::Fill(1),
+    ])
+    .split(r);
+
+    Layout::horizontal([
+        Constraint::Percentage((100 - percent_x) / 2),
+        Constraint::Percentage(percent_x),
+        Constraint::Percentage((100 - percent_x) / 2),
+    ])
+    .split(popup_layout[1])[1]
 }
 
 #[derive(Clone)]
@@ -415,6 +437,215 @@ impl TerminalVisualizer {
         }
     }
 
+    #[allow(dead_code)]
+    fn render_degenerate_icon(&self, frame: &mut Frame) {
+        let icon = if self.is_paused {
+            if self.config.use_unicode {
+                "‖"
+            } else {
+                "="
+            }
+        } else {
+            if self.config.use_unicode {
+                "●"
+            } else {
+                "*"
+            }
+        };
+        let paragraph = Paragraph::new(icon).alignment(Alignment::Center);
+        frame.render_widget(paragraph, frame.area());
+    }
+
+    fn convert_status_info(&self) -> WidgetStatusInfo {
+        match self.status_info {
+            StatusInfo::Demo => WidgetStatusInfo::Demo,
+            StatusInfo::Live {
+                sample_rate,
+                channels,
+            } => WidgetStatusInfo::Live {
+                sample_rate,
+                channels: channels as u32,
+            },
+        }
+    }
+
+    fn build_panel_data(
+        &self,
+        panel: &ControlPanelState,
+    ) -> (Vec<String>, Option<usize>, &'static str) {
+        let mode = self.layout_mode();
+
+        let device_value = panel
+            .selected_device
+            .map(|id| format!("#{}", id))
+            .unwrap_or_else(|| "Default".to_string());
+        let gain_value = format!(
+            "{:.1}x {}",
+            panel.gain_value,
+            if panel.agc_enabled {
+                "(AGC active)"
+            } else {
+                ""
+            }
+        );
+        let agc_value = if panel.agc_enabled { "[X]" } else { "[ ]" };
+        let pause_value = if panel.is_paused { "[X]" } else { "[ ]" };
+        let viz_value = match panel.viz_mode {
+            crate::ui::spectrogram::SpectrogramMode::BarMeter => "Bar Meter",
+            crate::ui::spectrogram::SpectrogramMode::Waterfall => "Waterfall",
+        };
+
+        let controls = [
+            (
+                Control::DeviceSelector,
+                format_control_label(Control::DeviceSelector, &device_value, mode),
+            ),
+            (
+                Control::GainSlider,
+                format_control_label(Control::GainSlider, &gain_value, mode),
+            ),
+            (
+                Control::AgcCheckbox,
+                format_control_label(Control::AgcCheckbox, agc_value, mode),
+            ),
+            (
+                Control::PauseButton,
+                format_control_label(Control::PauseButton, pause_value, mode),
+            ),
+            (
+                Control::VizToggle,
+                format_control_label(Control::VizToggle, viz_value, mode),
+            ),
+            (
+                Control::ColorPicker,
+                format_control_label(Control::ColorPicker, panel.color_scheme_name, mode),
+            ),
+        ];
+
+        let labels: Vec<String> = controls.iter().map(|(_, label)| label.clone()).collect();
+
+        let selected_index = panel
+            .focused_control
+            .and_then(|focused| controls.iter().position(|(c, _)| c == &focused));
+
+        let title = panel_title(mode);
+
+        (labels, selected_index, title)
+    }
+
+    pub fn process_and_render_ratatui(&mut self, panel: &ControlPanelState) -> io::Result<()> {
+        if self.ratatui_terminal.is_none() {
+            return self.process_and_render();
+        }
+
+        if self.layout_mode() != LayoutMode::Degenerate {
+            if !self.analyzer.process() {
+                return Ok(());
+            }
+            self.history.push(&self.analyzer.data().bands);
+        }
+
+        let layout_mode = self.layout_mode();
+        let is_paused = self.is_paused;
+        let use_unicode = self.config.use_unicode;
+        let bands = self.analyzer.data().bands.clone();
+        let terminal_mode = self.config.mode;
+        let status_info = self.convert_status_info();
+        let committed_text = self.committed_text.clone();
+        let partial_text = self.partial_text.clone();
+        let theme = self.theme;
+        let panel_is_open = panel.is_open;
+
+        let panel_data = if panel_is_open {
+            Some(self.build_panel_data(panel))
+        } else {
+            None
+        };
+
+        let color_scheme = &*self.color_scheme;
+        let charset = self.charset;
+        let history = &self.history;
+
+        self.ratatui_terminal.as_mut().unwrap().draw(|frame| {
+            if layout_mode == LayoutMode::Degenerate {
+                let icon = if is_paused {
+                    if use_unicode {
+                        "‖"
+                    } else {
+                        "="
+                    }
+                } else {
+                    if use_unicode {
+                        "●"
+                    } else {
+                        "*"
+                    }
+                };
+                let paragraph = Paragraph::new(icon).alignment(Alignment::Center);
+                frame.render_widget(paragraph, frame.area());
+                return;
+            }
+
+            let layout = Layout::vertical([
+                Constraint::Length(1),
+                Constraint::Fill(1),
+                Constraint::Length(1),
+            ]);
+            let areas = layout.split(frame.area());
+            let status_area = areas[0];
+            let main_area = areas[1];
+            let transcript_area = areas[2];
+
+            match terminal_mode {
+                TerminalMode::BarMeter => {
+                    let widget = SpectrogramWidget::new(&bands, color_scheme, charset);
+                    frame.render_widget(widget, main_area);
+                }
+                TerminalMode::Waterfall => {
+                    let widget = WaterfallWidget::new(history, color_scheme, charset);
+                    frame.render_widget(widget, main_area);
+                }
+            }
+
+            let status_widget = StatusWidget::new(status_info);
+            frame.render_widget(status_widget, status_area);
+
+            let transcript_widget = TranscriptWidget::new(
+                &committed_text,
+                &partial_text,
+                theme,
+                transcript_area.width as usize,
+            );
+            frame.render_widget(transcript_widget, transcript_area);
+
+            if let Some((labels, selected_index, title)) = panel_data {
+                let items: Vec<ListItem> = labels
+                    .iter()
+                    .map(|label| ListItem::new(Line::raw(label.as_str())))
+                    .collect();
+
+                let mut list_state = ListState::default();
+                list_state.select(selected_index);
+
+                let list = List::new(items)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(Line::raw(title).alignment(Alignment::Center)),
+                    )
+                    .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+                    .highlight_symbol("> ");
+
+                let popup_area = centered_rect(60, 8, frame.area());
+                frame.render_widget(Clear, popup_area);
+                frame.render_stateful_widget(list, popup_area, &mut list_state);
+            }
+        })?;
+
+        Ok(())
+    }
+
+    #[allow(dead_code)]
     fn cursor_to(&mut self, row: usize, col: usize) {
         // Bounds check: skip if out of terminal bounds
         if row >= self.config.term_height || col >= self.config.term_width {
@@ -425,6 +656,7 @@ impl TerminalVisualizer {
         let _ = write!(self.output_buffer, "\x1b[{};{}H", row + 1, col + 1);
     }
 
+    #[allow(dead_code)]
     fn draw_border(&mut self) {
         let width = self.config.width;
         let height = self.config.height;
@@ -482,6 +714,7 @@ impl TerminalVisualizer {
         self.output_buffer.push(self.border.bottom_right);
     }
 
+    #[allow(dead_code)]
     fn draw_status_line(&mut self) {
         let box_width = self.config.width + 2;
         let status_row = self.box_top + self.config.height + 3;
@@ -510,6 +743,7 @@ impl TerminalVisualizer {
         self.render_status_candidate(status_row, box_width, &candidates);
     }
 
+    #[allow(dead_code)]
     fn draw_status_with_rate(&mut self, status_row: usize, box_width: usize, rate: u32, ch: &str) {
         let rate_khz = rate / 1000;
         let candidates = [
@@ -526,6 +760,7 @@ impl TerminalVisualizer {
         self.render_status_candidate(status_row, box_width, &candidates);
     }
 
+    #[allow(dead_code)]
     fn render_status_candidate(
         &mut self,
         status_row: usize,
@@ -550,6 +785,8 @@ impl TerminalVisualizer {
         self.output_buffer.push_str(&status);
         self.output_buffer.push_str("\x1b[0m");
     }
+
+    #[allow(dead_code)]
     fn draw_transcript(&mut self) {
         let transcript_row = self.box_top + self.config.height + 2;
         let max_width = self.config.term_width.saturating_sub(4);
@@ -581,6 +818,7 @@ impl TerminalVisualizer {
         self.output_buffer.push_str(&display_text);
     }
 
+    #[allow(dead_code)]
     fn truncate_with_ansi(&self, text: &str, max_visible_chars: usize) -> String {
         if text.chars().count() <= max_visible_chars {
             return text.to_string();
@@ -613,6 +851,7 @@ impl TerminalVisualizer {
         truncated
     }
 
+    #[allow(dead_code)]
     fn render_bar_meter(&mut self) -> io::Result<()> {
         let bands = self.analyzer.data().bands.clone();
         let width = bands.len().min(self.config.width);
@@ -664,6 +903,7 @@ impl TerminalVisualizer {
         io::stdout().flush()
     }
 
+    #[allow(dead_code)]
     fn render_waterfall(&mut self) -> io::Result<()> {
         let width = self.config.width;
         let height = self.config.height;
