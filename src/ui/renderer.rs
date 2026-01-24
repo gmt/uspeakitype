@@ -401,6 +401,14 @@ impl Renderer {
                 }
             ),
             format!("Color: {}", panel.color_scheme_name),
+            format!(
+                "Injection: {}",
+                if self.audio_state.read().injection_enabled {
+                    "[X]"
+                } else {
+                    "[ ]"
+                }
+            ),
         ];
 
         let title = "Control Panel (click to toggle)";

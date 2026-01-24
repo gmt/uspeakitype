@@ -135,6 +135,7 @@ impl OverlayApp {
             Control::PauseButton,
             Control::VizToggle,
             Control::ColorPicker,
+            Control::InjectionToggle,
         ];
 
         if control_idx < controls.len() {
@@ -143,6 +144,10 @@ impl OverlayApp {
                     self.control_panel.toggle_agc();
                     let mut state = self.audio_state.write();
                     self.control_panel.apply_agc(&mut state);
+                }
+                Control::InjectionToggle => {
+                    let mut state = self.audio_state.write();
+                    self.control_panel.toggle_injection(&mut state);
                 }
                 Control::PauseButton => {
                     self.control_panel.toggle_pause();

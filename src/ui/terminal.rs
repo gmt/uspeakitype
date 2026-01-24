@@ -216,6 +216,7 @@ pub struct TerminalVisualizer {
     partial_text: String,
     is_paused: bool,
     is_speaking: bool,
+    injection_enabled: bool,
     panel_open: bool,
     ratatui_terminal: Option<RatatuiTerminal<CrosstermBackend<std::io::Stdout>>>,
 }
@@ -263,6 +264,7 @@ impl TerminalVisualizer {
             partial_text: String::new(),
             is_paused: false,
             is_speaking: false,
+            injection_enabled: true,
             panel_open: false,
             ratatui_terminal: None,
         }
@@ -363,6 +365,10 @@ impl TerminalVisualizer {
         self.is_speaking = speaking;
     }
 
+    pub fn set_injection_enabled(&mut self, enabled: bool) {
+        self.injection_enabled = enabled;
+    }
+
     pub fn set_panel_open(&mut self, open: bool) {
         self.panel_open = open;
     }
@@ -437,6 +443,7 @@ impl TerminalVisualizer {
             crate::ui::spectrogram::SpectrogramMode::BarMeter => "Bar Meter",
             crate::ui::spectrogram::SpectrogramMode::Waterfall => "Waterfall",
         };
+        let injection_value = if self.injection_enabled { "[X]" } else { "[ ]" };
 
         let controls = [
             (
@@ -462,6 +469,10 @@ impl TerminalVisualizer {
             (
                 Control::ColorPicker,
                 format_control_label(Control::ColorPicker, panel.color_scheme_name, mode),
+            ),
+            (
+                Control::InjectionToggle,
+                format_control_label(Control::InjectionToggle, injection_value, mode),
             ),
         ];
 

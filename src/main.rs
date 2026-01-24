@@ -572,6 +572,7 @@ fn run_terminal_loop(
                                             ui::control_panel::Control::PauseButton,
                                             ui::control_panel::Control::VizToggle,
                                             ui::control_panel::Control::ColorPicker,
+                                            ui::control_panel::Control::InjectionToggle,
                                         ];
                                         let current_idx = control_panel
                                             .focused_control
@@ -592,6 +593,7 @@ fn run_terminal_loop(
                                             ui::control_panel::Control::PauseButton,
                                             ui::control_panel::Control::VizToggle,
                                             ui::control_panel::Control::ColorPicker,
+                                            ui::control_panel::Control::InjectionToggle,
                                         ];
                                         let current_idx = control_panel
                                             .focused_control
@@ -605,6 +607,10 @@ fn run_terminal_loop(
                                             control_panel.toggle_agc();
                                             let mut state = audio_state.write();
                                             control_panel.apply_agc(&mut state);
+                                        }
+                                        Some(ui::control_panel::Control::InjectionToggle) => {
+                                            let mut state = audio_state.write();
+                                            control_panel.toggle_injection(&mut state);
                                         }
                                         Some(ui::control_panel::Control::PauseButton) => {
                                             control_panel.toggle_pause();
@@ -682,13 +688,14 @@ fn run_terminal_loop(
                 }
             }
 
-            let (samples, committed, partial, is_speaking) = {
+            let (samples, committed, partial, is_speaking, injection_enabled) = {
                 let state = audio_state.read();
                 (
                     state.samples.clone(),
                     state.committed.clone(),
                     state.partial.clone(),
                     state.is_speaking,
+                    state.injection_enabled,
                 )
             };
 
@@ -719,6 +726,7 @@ fn run_terminal_loop(
 
             visualizer.set_paused(control_panel.is_paused);
             visualizer.set_speaking(is_speaking);
+            visualizer.set_injection_enabled(injection_enabled);
 
             // Render visualization (unified ratatui draw loop)
             visualizer.process_and_render_ratatui(&control_panel)?;
