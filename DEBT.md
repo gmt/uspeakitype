@@ -1,54 +1,27 @@
 # Technical Debt
 
-## Ratatui Partial Adoption
+## Ratatui Adoption
 
 ### Status
-**Adopted**: 2026-01-21
+**In Progress**: Phase 1 (Spike) Completed 2026-01-24.
+**Verdict**: GO for Phase 2.
 
 ### What Was Ported
 - Control panel rendering (`render_control_panel` in `src/ui/terminal.rs`)
-- Uses ratatui widgets: List, Block, ListItem
-- Eliminates manual coordinate calculations for panel
-- Reduces LOC by 28% (34 lines saved)
+- Spectrogram Bar Meter (validated in `src/ui/spectrogram_widget.rs` via spike)
+- Uses ratatui widgets: List, Block, ListItem, Custom SpectrogramWidget
 
-### What Was NOT Ported
-- Spectrogram rendering (bar meter and waterfall)
-- Status line rendering
-- Transcript text rendering
-- Terminal initialization and cleanup (still uses crossterm directly)
+### Remaining Work (Phase 2)
+1. **Unify Terminal Management**: Remove mixed rendering (manual ANSI + Ratatui).
+2. **Port Status Line**: Use `Paragraph` widget.
+3. **Port Transcript Text**: Use `Paragraph` with styled spans for two-tone (committed/partial) text.
+4. **Port Waterfall Display**: Implement as a Ratatui widget.
 
-## Metrics from Evaluation
-- **LOC reduction**: 34 lines (28% fewer lines in render_control_panel)
-- **Coordinate calculations**: 7 fewer cursor_to() calls (35% reduction)
-- **Manual padding**: Eliminated (100% reduction)
-- **Maintainability**: Significantly improved (declarative vs imperative)
+### Metrics from Spike
+- **Visual Match**: 100% parity with manual ANSI bar meter.
+- **Performance**: 60fps stable in test harness.
+- **Code Quality**: Replaces imperative cursor logic with declarative widgets.
 
-### Remaining Work
-If we decide to complete the ratatui adoption:
-
-1. **Port spectrogram rendering**:
-   - Bar meter: Use ratatui's `BarChart` or custom widget
-   - Waterfall: Use `Canvas` widget with custom drawing
-   - Estimated effort: 4-8 hours
-   - Complexity: High (requires understanding current spectrogram layout)
-
-2. **Port status line**:
-   - Use `Paragraph` widget
-   - Estimated effort: 1 hour
-   - Complexity: Low
-
-3. **Port transcript text**:
-   - Use `Paragraph` with styled spans
-   - Estimated effort: 2 hours
-   - Complexity: Low
-
-4. **Unify terminal management**:
-   - Consolidate ratatui terminal usage
-   - Remove mixed rendering approach (ratatui for panel, manual ANSI for spectrogram)
-   - Estimated effort: 2-4 hours
-   - Complexity: Medium
-
-**Total estimated effort for full port**: 9-15 hours
 
 ### Current Issues
 - **Mixed rendering**: Control panel uses ratatui, spectrogram uses manual ANSI
