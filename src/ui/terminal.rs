@@ -53,33 +53,6 @@ use super::theme::{Theme, DEFAULT_THEME};
 const BLOCK_CHARS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 const ASCII_CHARS: [char; 9] = [' ', '.', ':', '-', '=', '+', '*', '#', '@'];
 
-struct BorderChars {
-    top_left: char,
-    top_right: char,
-    bottom_left: char,
-    bottom_right: char,
-    horizontal: char,
-    vertical: char,
-}
-
-const UNICODE_BORDER: BorderChars = BorderChars {
-    top_left: '┌',
-    top_right: '┐',
-    bottom_left: '└',
-    bottom_right: '┘',
-    horizontal: '─',
-    vertical: '│',
-};
-
-const ASCII_BORDER: BorderChars = BorderChars {
-    top_left: '+',
-    top_right: '+',
-    bottom_left: '+',
-    bottom_right: '+',
-    horizontal: '-',
-    vertical: '|',
-};
-
 #[derive(Clone, Copy, Debug)]
 pub enum StatusInfo {
     Demo,
@@ -229,7 +202,6 @@ pub struct TerminalVisualizer {
     history: WaterfallHistory,
     color_scheme: Box<dyn ColorScheme>,
     charset: &'static [char; 9],
-    border: &'static BorderChars,
     box_left: usize,
     box_top: usize,
     status_info: StatusInfo,
@@ -262,11 +234,6 @@ impl TerminalVisualizer {
         } else {
             &ASCII_CHARS
         };
-        let border = if config.use_unicode {
-            &UNICODE_BORDER
-        } else {
-            &ASCII_BORDER
-        };
 
         let box_width = config.width + 2;
         let box_height = config.height + 2;
@@ -281,7 +248,6 @@ impl TerminalVisualizer {
             history,
             color_scheme: Box::new(FlameScheme),
             charset,
-            border,
             box_left,
             box_top,
             status_info: StatusInfo::Demo,
@@ -390,17 +356,6 @@ impl TerminalVisualizer {
         self.panel_open = open;
     }
 
-    fn is_masked_by_panel(&self, row: usize, col: usize) -> bool {
-        if !self.panel_open {
-            return false;
-        }
-        let (panel_left, panel_top, panel_width, panel_height) = self.panel_geometry();
-        row >= panel_top
-            && row < panel_top + panel_height
-            && col >= panel_left
-            && col < panel_left + panel_width
-    }
-
     pub fn process_and_render(&mut self) -> io::Result<()> {
         if self.layout_mode() == LayoutMode::Degenerate {
             print!("\x1b[2J\x1b[1;1H");
@@ -438,12 +393,10 @@ impl TerminalVisualizer {
             } else {
                 "="
             }
+        } else if self.config.use_unicode {
+            "●"
         } else {
-            if self.config.use_unicode {
-                "●"
-            } else {
-                "*"
-            }
+            "*"
         };
         let paragraph = Paragraph::new(icon).alignment(Alignment::Center);
         frame.render_widget(paragraph, frame.area());
@@ -567,12 +520,10 @@ impl TerminalVisualizer {
                     } else {
                         "="
                     }
+                } else if use_unicode {
+                    "●"
                 } else {
-                    if use_unicode {
-                        "●"
-                    } else {
-                        "*"
-                    }
+                    "*"
                 };
                 let paragraph = Paragraph::new(icon).alignment(Alignment::Center);
                 frame.render_widget(paragraph, frame.area());
