@@ -16,14 +16,13 @@ Barbara is a streaming speech-to-text overlay for Linux that transcribes audio i
 
 ## Input Injection Backends
 
-Barbara automatically selects the best available input injection backend for your compositor/desktop environment. The selection follows a fallback chain: **wrtype** → **kwtype** → **ydotool** → **display-only mode**.
+Barbara automatically selects the best available input injection backend for your compositor/desktop environment. The selection follows a fallback chain: **wrtype** → **ydotool** → **display-only mode**.
 
 ### Backend Comparison
 
 | Backend | Compositor/DE | Requirements | Limitations |
 |---------|---------------|--------------|-------------|
 | **wrtype** | wlroots-based (Sway, Hyprland, River, etc.) | None (built-in) | wlroots compositors only |
-| **kwtype** | KDE Plasma | `kwtype` package | First use requires KDE authorization |
 | **ydotool** | Any Linux compositor | `ydotool` package, `ydotoold` daemon, uinput permissions | Requires daemon setup |
 | **display-only** | Any | None | No text injection (transcription display only) |
 
@@ -31,12 +30,12 @@ Barbara automatically selects the best available input injection backend for you
 
 All backends support UTF-8 and emoji when available. The table shows what happens as you move down the fallback chain:
 
-| Feature | wrtype | kwtype | ydotool | display-only |
-|---------|--------|--------|---------|--------------|
-| Text injection | ✓ | ✓ | ✓ | ✗ |
-| UTF-8 support | ✓ | ✓ | ✓ | N/A |
-| Emoji support | ✓ | ✓ | ✓* | N/A |
-| Setup required | None | Package install | Package + daemon | None |
+| Feature | wrtype | ydotool | display-only |
+|---------|--------|---------|--------------|
+| Text injection | ✓ | ✓ | ✗ |
+| UTF-8 support | ✓ | ✓ | N/A |
+| Emoji support | ✓ | ✓* | N/A |
+| Setup required | None | Package + daemon | None |
 
 *ydotool emoji support depends on application's input handling
 
@@ -44,19 +43,6 @@ All backends support UTF-8 and emoji when available. The table shows what happen
 
 #### wrtype (wlroots compositors)
 No setup required - works out of the box on Sway, Hyprland, River, and other wlroots-based compositors.
-
-#### kwtype (KDE Plasma)
-```bash
-# Arch Linux
-yay -S kwtype
-
-# Or build from source
-git clone https://github.com/sporif/kwtype
-cd kwtype && mkdir build && cd build
-cmake .. && make && sudo make install
-```
-
-**First use**: KDE will show an authorization dialog - click "Allow" to grant permission.
 
 #### ydotool (universal fallback)
 ```bash
@@ -81,17 +67,17 @@ ydotoold &
 Skip specific backends during selection. Useful for testing or working around issues.
 
 ```bash
-# Force kwtype on KDE (skip wrtype)
+# Force ydotool (skip wrtype)
 barbara --backend-disable=wrtype
 
 # Test display-only mode
-barbara --backend-disable=wrtype,kwtype,ydotool
+barbara --backend-disable=wrtype,ydotool
 
 # Case-insensitive, whitespace-tolerant
-barbara --backend-disable="WrType, KwType"
+barbara --backend-disable="WrType, YdoTool"
 ```
 
-Valid backend names: `wrtype`, `kwtype`, `ydotool`
+Valid backend names: `wrtype`, `ydotool`
 
 #### `--autostart-ydotoold`
 Automatically start the ydotoold daemon if the socket is missing. Useful for systems where the daemon isn't running as a service.
