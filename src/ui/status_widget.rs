@@ -34,8 +34,8 @@ impl StatusWidget {
 
         match self.info {
             StatusInfo::Demo => vec![
-                format!("{}  spc:pause  c:settings  w:viz  |  demo  |  q:quit", icon),
-                format!("{} spc:pause c:settings w:viz | demo | q:quit", icon),
+                format!("{}  spc:pause  c:settings  w:viz  demo  q:quit", icon),
+                format!("{} spc:pause c:settings w:viz demo q:quit", icon),
                 format!("{} spc c:set w:viz demo q:quit", icon),
                 format!("{} spc c w q", icon),
             ],
@@ -47,11 +47,11 @@ impl StatusWidget {
                 let rate_khz = sample_rate / 1000;
                 vec![
                     format!(
-                        "{}  spc:pause  c:settings  w:viz  |  {}Hz {}  |  q:quit",
+                        "{}  spc:pause  c:settings  w:viz  {}Hz {}  q:quit",
                         icon, sample_rate, ch
                     ),
                     format!(
-                        "{} spc:pause c:settings w:viz | {}Hz {} | q:quit",
+                        "{} spc:pause c:settings w:viz {}Hz {} q:quit",
                         icon, sample_rate, ch
                     ),
                     format!("{} spc c:set w:viz {}kHz {} q:quit", icon, rate_khz, ch),
