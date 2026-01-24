@@ -29,6 +29,14 @@ enum ColorSchemeName {
     Mono,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum AnsiCharset {
+    Auto,
+    Ascii,
+    #[value(alias = "unicode")]
+    Blocks,
+}
+
 #[derive(Parser)]
 #[command(name = "barbara")]
 #[command(about = "Streaming speech-to-text with live revision")]
@@ -40,42 +48,73 @@ c - Open control panel\n  \
 q/Esc - Quit (GUI mode)\n  \
 q - Quit (TUI mode)")]
 struct Args {
+    /// Text-only output, no visualization
     #[arg(long)]
     headless: bool,
 
+    /// Use synthetic audio instead of microphone
     #[arg(long)]
     demo: bool,
 
+    /// Enable automatic gain control
     #[arg(long)]
     auto_gain: bool,
 
+    /// List available audio sources and exit
     #[arg(long)]
     list_sources: bool,
 
+    /// Terminal UI mode (instead of graphical overlay)
     #[arg(long)]
     ansi: bool,
 
+    /// Spectrogram width in characters
     #[arg(long)]
     ansi_width: Option<usize>,
 
+    /// Spectrogram height in characters
     #[arg(long)]
     ansi_height: Option<usize>,
 
-    #[arg(long, default_value = "auto")]
-    ansi_charset: String,
+    /// Character set: auto, ascii, blocks [default: auto]
+    #[arg(
+        long,
+        value_enum,
+        default_value = "auto",
+        hide_possible_values = true,
+        hide_default_value = true
+    )]
+    ansi_charset: AnsiCharset,
 
+    /// Demo mode with frequency sweep (tests spectrogram)
     #[arg(long)]
     ansi_sweep: bool,
 
-    #[arg(long, value_enum, default_value = "bars")]
+    /// Visualization: bars, waterfall [default: bars]
+    #[arg(
+        long,
+        value_enum,
+        default_value = "bars",
+        hide_possible_values = true,
+        hide_default_value = true
+    )]
     style: SpectrogramStyle,
 
-    #[arg(long, value_enum, default_value = "flame")]
+    /// Color scheme: flame, ice, mono [default: flame]
+    #[arg(
+        long,
+        value_enum,
+        default_value = "flame",
+        hide_possible_values = true,
+        hide_default_value = true
+    )]
     color: ColorSchemeName,
 
+    /// Disable colors in terminal output
     #[arg(long)]
     no_color: bool,
 
+    /// Audio source (use --list-sources to see options)
     #[arg(long)]
     source: Option<String>,
 
@@ -429,10 +468,10 @@ fn run_terminal_loop(
         .max(1)
         .min(term_height.saturating_sub(4));
 
-    let use_unicode = match args.ansi_charset.to_lowercase().as_str() {
-        "ascii" => false,
-        "blocks" | "unicode" => true,
-        _ => supports_unicode::on(Stream::Stdout),
+    let use_unicode = match args.ansi_charset {
+        AnsiCharset::Ascii => false,
+        AnsiCharset::Blocks => true,
+        AnsiCharset::Auto => supports_unicode::on(Stream::Stdout),
     };
 
     let mode = match args.style {
