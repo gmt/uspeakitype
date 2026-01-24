@@ -304,26 +304,46 @@ fn main() -> anyhow::Result<()> {
         std::sync::mpsc::Receiver<String>,
     ) = std::sync::mpsc::channel();
 
+    // Extract before spawn (args used after spawn, can't move)
+    let backend_disable = args.backend_disable.clone();
+    let autostart_ydotoold = args.autostart_ydotoold;
+
     // Spawn injector thread (runs independently, logs errors to stderr)
     std::thread::spawn(move || {
-        use barbara::input::WrtypeInjector;
+        use barbara::input::{find_ydotool_socket, select_backend, TextInjector};
 
-        let mut injector = match WrtypeInjector::new() {
-            Ok(inj) => {
-                eprintln!("Input injection initialized");
+        // 1. Normalize backend-disable list
+        let disabled = normalize_backend_names(&backend_disable);
+
+        // 2. Handle --autostart-ydotoold BEFORE selection
+        if autostart_ydotoold && find_ydotool_socket().is_none() {
+            eprintln!("[barbara] Starting ydotoold daemon...");
+            let _ = std::process::Command::new("ydotoold").spawn();
+            std::thread::sleep(std::time::Duration::from_millis(500));
+
+            // Re-check socket existence once after wait
+            if find_ydotool_socket().is_none() {
+                eprintln!("[barbara] Warning: ydotoold started but socket still not found");
+                eprintln!("[barbara] ydotool backend may fail during probe");
+            }
+        }
+
+        // 3. Select backend with normalized disabled list
+        let mut injector: Box<dyn TextInjector> = match select_backend(&disabled) {
+            Some(inj) => {
+                eprintln!("[barbara] Input injection: {}", inj.name());
                 inj
             }
-            Err(e) => {
-                eprintln!("Input injection unavailable: {}", e);
-                eprintln!("Continuing in display-only mode");
+            None => {
+                eprintln!("[barbara] Input injection: unavailable (display-only mode)");
                 return;
             }
         };
 
+        // 4. Run injection loop (unchanged from current)
         while let Ok(text) = injection_rx.recv() {
-            use barbara::input::TextInjector;
             if let Err(e) = injector.inject(&text) {
-                eprintln!("Injection error: {}", e);
+                eprintln!("[barbara] Injection error: {}", e);
             }
         }
     });
