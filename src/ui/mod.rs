@@ -3,14 +3,19 @@ pub mod control_panel;
 pub mod renderer;
 pub mod spectrogram;
 pub mod spectrogram_widget;
+pub mod status_widget;
 pub mod terminal;
 pub mod text_renderer;
 pub mod theme;
+pub mod transcript_widget;
+pub mod waterfall_widget;
 
 use parking_lot::RwLock;
 use std::sync::Arc;
 
 pub use app::run;
+pub use status_widget::StatusWidget;
+pub use waterfall_widget::WaterfallWidget;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProcessingState {
