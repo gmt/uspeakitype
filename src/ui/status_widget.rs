@@ -14,6 +14,7 @@ pub enum StatusInfo {
 pub struct StatusWidget {
     pub info: StatusInfo,
     pub is_paused: bool,
+    pub is_speaking: bool,
 }
 
 impl StatusWidget {
@@ -21,6 +22,7 @@ impl StatusWidget {
         Self {
             info,
             is_paused: false,
+            is_speaking: false,
         }
     }
 
@@ -29,8 +31,19 @@ impl StatusWidget {
         self
     }
 
+    pub fn speaking(mut self, speaking: bool) -> Self {
+        self.is_speaking = speaking;
+        self
+    }
+
     fn build_candidates(&self) -> Vec<String> {
-        let icon = if self.is_paused { "‖" } else { "▶" };
+        let icon = if self.is_paused {
+            "‖"
+        } else if self.is_speaking {
+            "●"
+        } else {
+            "▶"
+        };
 
         match self.info {
             StatusInfo::Demo => vec![

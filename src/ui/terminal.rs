@@ -210,6 +210,7 @@ pub struct TerminalVisualizer {
     committed_text: String,
     partial_text: String,
     is_paused: bool,
+    is_speaking: bool,
     panel_open: bool,
     ratatui_terminal: Option<RatatuiTerminal<CrosstermBackend<std::io::Stdout>>>,
 }
@@ -256,6 +257,7 @@ impl TerminalVisualizer {
             committed_text: String::new(),
             partial_text: String::new(),
             is_paused: false,
+            is_speaking: false,
             panel_open: false,
             ratatui_terminal: None,
         }
@@ -348,9 +350,12 @@ impl TerminalVisualizer {
         LayoutMode::from_size(self.config.term_width, self.config.term_height)
     }
 
-    /// Set pause state for degenerate mode status indicator
     pub fn set_paused(&mut self, paused: bool) {
         self.is_paused = paused;
+    }
+
+    pub fn set_speaking(&mut self, speaking: bool) {
+        self.is_speaking = speaking;
     }
 
     pub fn set_panel_open(&mut self, open: bool) {
@@ -363,9 +368,12 @@ impl TerminalVisualizer {
             let (icon, color) = if self.is_paused {
                 let i = if self.config.use_unicode { '‖' } else { '=' };
                 (i, "\x1b[33m")
-            } else {
+            } else if self.is_speaking {
                 let i = if self.config.use_unicode { '●' } else { '*' };
                 (i, "\x1b[31m")
+            } else {
+                let i = if self.config.use_unicode { '▶' } else { '>' };
+                (i, "\x1b[32m")
             };
             if self.config.use_color {
                 print!("{}{}\x1b[0m", color, icon);
@@ -477,6 +485,7 @@ impl TerminalVisualizer {
 
         let layout_mode = self.layout_mode();
         let is_paused = self.is_paused;
+        let is_speaking = self.is_speaking;
         let use_unicode = self.config.use_unicode;
         let bands = self.analyzer.data().bands.clone();
         let terminal_mode = self.config.mode;
@@ -504,10 +513,16 @@ impl TerminalVisualizer {
                     } else {
                         "="
                     }
+                } else if is_speaking {
+                    if use_unicode {
+                        "●"
+                    } else {
+                        "*"
+                    }
                 } else if use_unicode {
-                    "●"
+                    "▶"
                 } else {
-                    "*"
+                    ">"
                 };
                 let paragraph = Paragraph::new(icon).alignment(Alignment::Center);
                 frame.render_widget(paragraph, frame.area());
@@ -546,7 +561,9 @@ impl TerminalVisualizer {
                 }
             }
 
-            let status_widget = StatusWidget::new(status_info).paused(is_paused);
+            let status_widget = StatusWidget::new(status_info)
+                .paused(is_paused)
+                .speaking(is_speaking);
             frame.render_widget(status_widget, status_area);
 
             let transcript_widget = TranscriptWidget::new(

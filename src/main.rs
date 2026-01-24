@@ -645,12 +645,13 @@ fn run_terminal_loop(
                 }
             }
 
-            let (samples, committed, partial) = {
+            let (samples, committed, partial, is_speaking) = {
                 let state = audio_state.read();
                 (
                     state.samples.clone(),
                     state.committed.clone(),
                     state.partial.clone(),
+                    state.is_speaking,
                 )
             };
 
@@ -679,8 +680,8 @@ fn run_terminal_loop(
 
             visualizer.push_samples(&samples);
 
-            // Set pause state for degenerate mode indicator
             visualizer.set_paused(control_panel.is_paused);
+            visualizer.set_speaking(is_speaking);
 
             // Render visualization (unified ratatui draw loop)
             visualizer.process_and_render_ratatui(&control_panel)?;
