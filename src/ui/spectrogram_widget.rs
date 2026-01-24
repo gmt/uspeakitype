@@ -95,7 +95,7 @@ impl<'a> Widget for SpectrogramWidget<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::spectrum::FlameScheme;
+    use crate::spectrum::{FlameScheme, IceScheme, MonochromeScheme};
 
     #[test]
     fn spectrogram_widget_creation() {
@@ -103,5 +103,62 @@ mod tests {
         let scheme = FlameScheme;
         let widget = SpectrogramWidget::new(&bands, &scheme, &BLOCK_CHARS);
         assert_eq!(widget.bands.len(), 3);
+    }
+
+    const ASCII_CHARS: [char; 9] = [' ', '.', ':', '-', '=', '+', '*', '#', '@'];
+
+    #[test]
+    fn spectrogram_widget_ascii_charset() {
+        let bands = vec![0.0, 0.25, 0.5, 0.75, 1.0];
+        let scheme = FlameScheme;
+        let widget = SpectrogramWidget::new(&bands, &scheme, &ASCII_CHARS);
+
+        assert_eq!(widget.charset.len(), 9);
+        assert_eq!(widget.charset[0], ' ');
+        assert_eq!(widget.charset[8], '@');
+
+        let mut buf = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 5, 3));
+        widget.render(ratatui::layout::Rect::new(0, 0, 5, 3), &mut buf);
+
+        let unicode_blocks = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+        for y in 0..3 {
+            for x in 0..5 {
+                let cell = buf.cell((x, y)).unwrap();
+                let symbol = cell.symbol();
+                for block in &unicode_blocks {
+                    assert!(
+                        !symbol.contains(*block),
+                        "Buffer should not contain Unicode block at ({}, {})",
+                        x,
+                        y
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn spectrogram_widget_ice_scheme() {
+        let bands = vec![0.0, 0.5, 1.0];
+        let scheme = IceScheme;
+        let widget = SpectrogramWidget::new(&bands, &scheme, &BLOCK_CHARS);
+
+        let mut buf = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 3, 3));
+        widget.render(ratatui::layout::Rect::new(0, 0, 3, 3), &mut buf);
+
+        // Just verify it renders without panic
+        assert!(buf.cell((0, 0)).is_some());
+    }
+
+    #[test]
+    fn spectrogram_widget_mono_scheme() {
+        let bands = vec![0.0, 0.5, 1.0];
+        let scheme = MonochromeScheme;
+        let widget = SpectrogramWidget::new(&bands, &scheme, &BLOCK_CHARS);
+
+        let mut buf = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 3, 3));
+        widget.render(ratatui::layout::Rect::new(0, 0, 3, 3), &mut buf);
+
+        assert!(buf.cell((0, 0)).is_some());
     }
 }

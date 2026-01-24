@@ -336,3 +336,244 @@ fn test_boundary_height_9_10() {
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
 }
+
+// ============================================================================
+// KEYBOARD SHORTCUT TESTS
+// ============================================================================
+
+#[test]
+fn test_viz_mode_toggle() {
+    if !pty_available() {
+        return;
+    }
+
+    let mut harness = TuiTestHarness::new(80, 24).unwrap();
+    harness.spawn(&["--ansi", "--demo"]).unwrap();
+    harness.wait_frames(5).unwrap();
+
+    let initial_screen = harness.screen_contents();
+
+    harness.send_keys("w").unwrap();
+    harness.wait_frames(5).unwrap();
+
+    let toggled_screen = harness.screen_contents();
+    assert_ne!(
+        initial_screen, toggled_screen,
+        "Screen should change after 'w' toggle"
+    );
+
+    harness.send_keys("w").unwrap();
+    harness.wait_frames(5).unwrap();
+
+    harness.send_keys("q").unwrap();
+    let _ = harness.wait_exit(1000);
+}
+
+#[test]
+fn test_pause_resume() {
+    if !pty_available() {
+        return;
+    }
+
+    let mut harness = TuiTestHarness::new(80, 24).unwrap();
+    harness.spawn(&["--ansi", "--demo"]).unwrap();
+    harness.wait_frames(5).unwrap();
+
+    harness.send_keys("c").unwrap();
+    harness.wait_frames(5).unwrap();
+
+    assert!(
+        harness.has_text("[ ]"),
+        "Should show unchecked pause initially"
+    );
+
+    harness.send_keys(" ").unwrap();
+    harness.wait_frames(3).unwrap();
+
+    assert!(
+        harness.has_text("[X]"),
+        "Should show checked pause after spacebar"
+    );
+
+    harness.send_keys(" ").unwrap();
+    harness.wait_frames(3).unwrap();
+
+    assert!(
+        harness.has_text("[ ]"),
+        "Should show unchecked pause after second spacebar"
+    );
+
+    harness.send_keys("q").unwrap();
+    let _ = harness.wait_exit(1000);
+}
+
+#[test]
+fn test_color_scheme_cycling() {
+    if !pty_available() {
+        return;
+    }
+
+    let mut harness = TuiTestHarness::new(80, 24).unwrap();
+    harness.spawn(&["--ansi", "--demo"]).unwrap();
+    harness.wait_frames(5).unwrap();
+
+    harness.send_keys("c").unwrap();
+    harness.wait_frames(5).unwrap();
+
+    assert!(
+        harness.has_text("flame"),
+        "Should show flame scheme initially"
+    );
+
+    // Navigate to ColorPicker (6th control)
+    for _ in 0..5 {
+        harness.send_keys("\x1b[B").unwrap();
+        harness.wait_frames(1).unwrap();
+    }
+    harness.wait_frames(2).unwrap();
+
+    harness.send_keys("\r").unwrap();
+    harness.wait_frames(3).unwrap();
+    assert!(harness.has_text("ice"), "Should show ice after first Enter");
+
+    harness.send_keys("\r").unwrap();
+    harness.wait_frames(3).unwrap();
+    assert!(
+        harness.has_text("mono"),
+        "Should show mono after second Enter"
+    );
+
+    harness.send_keys("\r").unwrap();
+    harness.wait_frames(3).unwrap();
+    assert!(
+        harness.has_text("flame"),
+        "Should show flame after third Enter"
+    );
+
+    harness.send_keys("q").unwrap();
+    let _ = harness.wait_exit(1000);
+}
+
+#[test]
+fn test_ascii_charset_mode() {
+    if !pty_available() {
+        return;
+    }
+
+    let mut harness = TuiTestHarness::new(80, 24).unwrap();
+    harness
+        .spawn(&["--ansi", "--demo", "--ansi-charset", "ascii"])
+        .unwrap();
+    harness.wait_frames(10).unwrap();
+
+    let screen = harness.screen_contents();
+
+    // ASCII charset uses: [' ', '.', ':', '-', '=', '+', '*', '#', '@']
+    // Should NOT contain Unicode block characters
+    let unicode_blocks = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    for block in unicode_blocks {
+        assert!(
+            !screen.contains(block),
+            "Screen should not contain Unicode block '{}' in ASCII mode",
+            block
+        );
+    }
+
+    // Should contain at least some ASCII gradient chars (the spectrogram renders them)
+    let ascii_chars = ['.', ':', '-', '=', '+', '*', '#', '@'];
+    let has_ascii = ascii_chars.iter().any(|&c| screen.contains(c));
+    assert!(has_ascii, "Screen should contain ASCII gradient characters");
+
+    harness.send_keys("q").unwrap();
+    let _ = harness.wait_exit(1000);
+}
+
+#[test]
+fn test_ice_color_scheme() {
+    if !pty_available() {
+        return;
+    }
+
+    let mut harness = TuiTestHarness::new(80, 24).unwrap();
+    harness
+        .spawn(&["--ansi", "--demo", "--color", "ice"])
+        .unwrap();
+    harness.wait_frames(5).unwrap();
+
+    // Open panel to verify scheme name
+    harness.send_keys("c").unwrap();
+    harness.wait_frames(5).unwrap();
+
+    assert!(
+        harness.has_text("ice"),
+        "Should show ice color scheme in panel"
+    );
+
+    harness.send_keys("q").unwrap();
+    let _ = harness.wait_exit(1000);
+}
+
+#[test]
+fn test_mono_color_scheme() {
+    if !pty_available() {
+        return;
+    }
+
+    let mut harness = TuiTestHarness::new(80, 24).unwrap();
+    harness
+        .spawn(&["--ansi", "--demo", "--color", "mono"])
+        .unwrap();
+    harness.wait_frames(5).unwrap();
+
+    harness.send_keys("c").unwrap();
+    harness.wait_frames(5).unwrap();
+
+    assert!(
+        harness.has_text("mono"),
+        "Should show mono color scheme in panel"
+    );
+
+    harness.send_keys("q").unwrap();
+    let _ = harness.wait_exit(1000);
+}
+
+#[test]
+fn test_ascii_ice_combination() {
+    if !pty_available() {
+        return;
+    }
+
+    // Test that ASCII charset and Ice color scheme work together
+    let mut harness = TuiTestHarness::new(80, 24).unwrap();
+    harness
+        .spawn(&[
+            "--ansi",
+            "--demo",
+            "--ansi-charset",
+            "ascii",
+            "--color",
+            "ice",
+        ])
+        .unwrap();
+    harness.wait_frames(10).unwrap();
+
+    let screen = harness.screen_contents();
+
+    // Should NOT contain Unicode blocks (ASCII mode)
+    let unicode_blocks = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    for block in unicode_blocks {
+        assert!(
+            !screen.contains(block),
+            "Screen should not contain Unicode block '{}' in ASCII mode",
+            block
+        );
+    }
+
+    // Open panel to verify ice scheme
+    harness.send_keys("c").unwrap();
+    harness.wait_frames(5).unwrap();
+    assert!(harness.has_text("ice"), "Should show ice color scheme");
+
+    harness.send_keys("q").unwrap();
+    let _ = harness.wait_exit(1000);
+}

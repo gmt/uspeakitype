@@ -113,7 +113,7 @@ impl<'a> Widget for WaterfallWidget<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::spectrum::FlameScheme;
+    use crate::spectrum::{FlameScheme, IceScheme, MonochromeScheme};
 
     #[test]
     fn waterfall_widget_creation() {
@@ -252,5 +252,65 @@ mod tests {
             },
             &mut buf,
         );
+    }
+
+    const ASCII_CHARS: [char; 9] = [' ', '.', ':', '-', '=', '+', '*', '#', '@'];
+
+    #[test]
+    fn waterfall_widget_ascii_charset() {
+        let mut history = WaterfallHistory::new(10, 5);
+        history.push(&[0.2, 0.4, 0.6, 0.8, 1.0]);
+        history.push(&[0.3, 0.5, 0.7, 0.9, 0.5]);
+
+        let scheme = FlameScheme;
+        let widget = WaterfallWidget::new(&history, &scheme, &ASCII_CHARS);
+
+        assert_eq!(widget.charset.len(), 9);
+        assert_eq!(widget.charset[8], '@');
+
+        let mut buf = Buffer::empty(Rect::new(0, 0, 10, 5));
+        widget.render(Rect::new(0, 0, 10, 5), &mut buf);
+
+        let unicode_blocks = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+        for y in 0..5 {
+            for x in 0..10 {
+                let cell = buf.cell((x, y)).unwrap();
+                let symbol = cell.symbol();
+                for block in &unicode_blocks {
+                    assert!(
+                        !symbol.contains(*block),
+                        "Should not contain Unicode blocks"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn waterfall_widget_ice_scheme() {
+        let mut history = WaterfallHistory::new(5, 3);
+        history.push(&[0.5, 0.7, 0.9]);
+
+        let scheme = IceScheme;
+        let widget = WaterfallWidget::new(&history, &scheme, &BLOCK_CHARS);
+
+        let mut buf = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 5, 3));
+        widget.render(ratatui::layout::Rect::new(0, 0, 5, 3), &mut buf);
+
+        assert!(buf.cell((0, 0)).is_some());
+    }
+
+    #[test]
+    fn waterfall_widget_mono_scheme() {
+        let mut history = WaterfallHistory::new(5, 3);
+        history.push(&[0.5, 0.7, 0.9]);
+
+        let scheme = MonochromeScheme;
+        let widget = WaterfallWidget::new(&history, &scheme, &BLOCK_CHARS);
+
+        let mut buf = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 5, 3));
+        widget.render(ratatui::layout::Rect::new(0, 0, 5, 3), &mut buf);
+
+        assert!(buf.cell((0, 0)).is_some());
     }
 }
