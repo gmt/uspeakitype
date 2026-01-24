@@ -29,7 +29,14 @@
 
 use std::io::{self, Write};
 
-use ratatui::{backend::CrosstermBackend, Terminal as RatatuiTerminal};
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::Alignment,
+    style::{Modifier, Style},
+    text::Line,
+    widgets::{Block, Borders, List, ListItem, ListState},
+    Terminal as RatatuiTerminal,
+};
 
 use crate::spectrum::{
     quantize_intensity, ColorScheme, FlameScheme, SpectrumAnalyzer, SpectrumConfig,
@@ -810,53 +817,60 @@ impl TerminalVisualizer {
 
         let title = panel_title(mode);
 
+        let items: Vec<ListItem> = controls
+            .iter()
+            .map(|(_, label)| ListItem::new(Line::raw(label.as_str())))
+            .collect();
+
+        let mut list_state = ListState::default();
+        if let Some(focused_control) = panel.focused_control {
+            if let Some(index) = controls.iter().position(|(c, _)| c == &focused_control) {
+                list_state.select(Some(index));
+            }
+        }
+
+        let list = List::new(items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(Line::raw(title).alignment(Alignment::Center)),
+            )
+            .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+            .highlight_symbol("> ");
+
+        use ratatui::layout::Rect;
+        use ratatui::prelude::Buffer;
+        use ratatui::widgets::StatefulWidget;
+
+        let area = Rect {
+            x: panel_left as u16,
+            y: panel_top as u16,
+            width: panel_width as u16,
+            height: panel_height as u16,
+        };
+
+        let mut buffer = Buffer::empty(area);
+        list.render(area, &mut buffer, &mut list_state);
+
         self.output_buffer.clear();
-        self.cursor_to(panel_top, panel_left);
-        self.output_buffer.push(self.border.top_left);
-        let title_space = panel_width.saturating_sub(2);
-        let title_len = title.chars().count().min(title_space);
-        let padding_left = (title_space - title_len) / 2;
-        let padding_right = title_space - title_len - padding_left;
-        for _ in 0..padding_left {
-            self.output_buffer.push(self.border.horizontal);
-        }
-        self.output_buffer
-            .push_str(&title[..title.chars().take(title_len).map(|c| c.len_utf8()).sum()]);
-        for _ in 0..padding_right {
-            self.output_buffer.push(self.border.horizontal);
-        }
-        self.output_buffer.push(self.border.top_right);
-
-        for (i, (control, label)) in controls.iter().enumerate() {
-            self.cursor_to(panel_top + 1 + i, panel_left);
-            self.output_buffer.push(self.border.vertical);
-
-            let is_focused = panel.focused_control == Some(*control);
-            let content_width = panel_width.saturating_sub(2);
-            let prefix = if is_focused { " > " } else { "   " };
-
-            if is_focused {
-                self.output_buffer.push_str("\x1b[7m");
+        for y in 0..buffer.area.height {
+            self.cursor_to(panel_top + y as usize, panel_left);
+            for x in 0..buffer.area.width {
+                let cell = buffer.cell((panel_left as u16 + x, panel_top as u16 + y));
+                if let Some(cell) = cell {
+                    if cell.modifier.contains(Modifier::REVERSED) {
+                        self.output_buffer.push_str("\x1b[7m");
+                    }
+                    self.output_buffer
+                        .push(cell.symbol().chars().next().unwrap_or(' '));
+                    if cell.modifier.contains(Modifier::REVERSED) {
+                        self.output_buffer.push_str("\x1b[0m");
+                    }
+                } else {
+                    self.output_buffer.push(' ');
+                }
             }
-            self.output_buffer.push_str(prefix);
-            let label_space = content_width.saturating_sub(3);
-            let label_chars: String = label.chars().take(label_space).collect();
-            self.output_buffer.push_str(&label_chars);
-            for _ in label_chars.chars().count()..label_space {
-                self.output_buffer.push(' ');
-            }
-            if is_focused {
-                self.output_buffer.push_str("\x1b[0m");
-            }
-            self.output_buffer.push(self.border.vertical);
         }
-
-        self.cursor_to(panel_top + panel_height - 1, panel_left);
-        self.output_buffer.push(self.border.bottom_left);
-        for _ in 0..(panel_width.saturating_sub(2)) {
-            self.output_buffer.push(self.border.horizontal);
-        }
-        self.output_buffer.push(self.border.bottom_right);
 
         print!("{}", self.output_buffer);
         io::stdout().flush()?;
