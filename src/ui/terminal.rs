@@ -32,8 +32,8 @@ use std::io::{self, Write};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Layout, Rect},
-    style::{Modifier, Style},
-    text::Line,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
     Terminal as RatatuiTerminal,
 };
@@ -227,6 +227,7 @@ pub struct TerminalVisualizer {
     is_paused: bool,
     is_speaking: bool,
     injection_enabled: bool,
+    download_progress: Option<f32>,
     panel_open: bool,
     ratatui_terminal: Option<RatatuiTerminal<CrosstermBackend<std::io::Stdout>>>,
 }
@@ -275,6 +276,7 @@ impl TerminalVisualizer {
             is_paused: false,
             is_speaking: false,
             injection_enabled: true,
+            download_progress: None,
             panel_open: false,
             ratatui_terminal: None,
         }
@@ -377,6 +379,10 @@ impl TerminalVisualizer {
 
     pub fn set_injection_enabled(&mut self, enabled: bool) {
         self.injection_enabled = enabled;
+    }
+
+    pub fn set_download_progress(&mut self, progress: Option<f32>) {
+        self.download_progress = progress;
     }
 
     pub fn set_panel_open(&mut self, open: bool) {
@@ -509,6 +515,7 @@ impl TerminalVisualizer {
         let partial_text = self.partial_text.clone();
         let theme = self.theme;
         let panel_is_open = panel.is_open;
+        let download_progress = self.download_progress;
 
         let panel_data = if panel_is_open {
             Some(self.build_panel_data(panel))
@@ -576,10 +583,18 @@ impl TerminalVisualizer {
                 }
             }
 
-            let status_widget = StatusWidget::new(status_info)
-                .paused(is_paused)
-                .speaking(is_speaking);
-            frame.render_widget(status_widget, status_area);
+            if let Some(progress) = download_progress {
+                let pct = (progress * 100.0).min(100.0);
+                let text = format!("Downloading model... {:.0}%", pct);
+                let line = Line::from(vec![Span::styled(text, Style::default().fg(Color::Cyan))]);
+                let paragraph = Paragraph::new(line).alignment(Alignment::Center);
+                frame.render_widget(paragraph, status_area);
+            } else {
+                let status_widget = StatusWidget::new(status_info)
+                    .paused(is_paused)
+                    .speaking(is_speaking);
+                frame.render_widget(status_widget, status_area);
+            }
 
             let transcript_widget = TranscriptWidget::new(
                 &committed_text,

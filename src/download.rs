@@ -55,7 +55,14 @@ pub struct ModelPaths {
 ///
 /// Uses temp file (`.downloading`) during download, then atomically renames to final path.
 /// This ensures partial downloads don't leave corrupted files.
-async fn download_file(url: &str, dest: &Path) -> Result<()> {
+///
+/// If `progress_callback` is provided, it is called with progress values (0.0..1.0)
+/// instead of printing to stdout.
+async fn download_file(
+    url: &str,
+    dest: &Path,
+    progress_callback: Option<&(dyn Fn(f64) + Send + Sync)>,
+) -> Result<()> {
     // Create parent directories if needed
     if let Some(parent) = dest.parent() {
         if !parent.exists() {
@@ -69,9 +76,10 @@ async fn download_file(url: &str, dest: &Path) -> Result<()> {
     // Get filename for progress display
     let filename = dest.file_name().and_then(|n| n.to_str()).unwrap_or("file");
 
-    println!("Downloading {}...", filename);
+    if progress_callback.is_none() {
+        println!("Downloading {}...", filename);
+    }
 
-    // Perform the download
     let response = reqwest::get(url)
         .await
         .context(format!("Failed to download from {}", url))?;
@@ -100,22 +108,31 @@ async fn download_file(url: &str, dest: &Path) -> Result<()> {
 
         downloaded += chunk.len() as u64;
         if total_size > 0 {
-            let progress = (downloaded as f64 / total_size as f64) * 100.0;
-            print!(
-                "\rDownloading {}... {:.1}% ({}/{} bytes)",
-                filename, progress, downloaded, total_size
-            );
-            std::io::stdout().flush()?;
+            let progress = downloaded as f64 / total_size as f64;
+            if let Some(cb) = &progress_callback {
+                cb(progress);
+            } else {
+                print!(
+                    "\rDownloading {}... {:.1}% ({}/{} bytes)",
+                    filename,
+                    progress * 100.0,
+                    downloaded,
+                    total_size
+                );
+                std::io::stdout().flush()?;
+            }
         }
     }
 
-    if total_size > 0 {
-        println!(
-            "\rDownload complete: {}/{} bytes (100%)    ",
-            downloaded, total_size
-        );
-    } else {
-        println!("\rDownload complete: {} bytes", downloaded);
+    if progress_callback.is_none() {
+        if total_size > 0 {
+            println!(
+                "\rDownload complete: {}/{} bytes (100%)    ",
+                downloaded, total_size
+            );
+        } else {
+            println!("\rDownload complete: {} bytes", downloaded);
+        }
     }
 
     // Close the file before renaming
@@ -137,7 +154,16 @@ async fn download_file(url: &str, dest: &Path) -> Result<()> {
 ///
 /// Uses blocking runtime to handle async downloads from sync context.
 pub fn ensure_models_exist(model_dir: &Path, variant: ModelVariant) -> Result<ModelPaths> {
-    // Build all model paths
+    ensure_models_exist_with_progress(model_dir, variant, None)
+}
+
+/// Like `ensure_models_exist`, but accepts an optional progress callback (0.0..1.0)
+/// for reporting download progress to the UI instead of printing to stdout.
+pub fn ensure_models_exist_with_progress(
+    model_dir: &Path,
+    variant: ModelVariant,
+    progress_callback: Option<Box<dyn Fn(f64) + Send + Sync>>,
+) -> Result<ModelPaths> {
     let silero_vad_path = model_dir.join("silero_vad.onnx");
     let moonshine_dir = model_dir.join(variant.dir_name());
     let moonshine_encoder = moonshine_dir.join("encoder_model.onnx");
@@ -145,12 +171,13 @@ pub fn ensure_models_exist(model_dir: &Path, variant: ModelVariant) -> Result<Mo
     let moonshine_tokenizer = moonshine_dir.join("tokenizer.json");
     let moonshine_config = moonshine_dir.join("preprocessor_config.json");
 
-    // Check if all files exist (tokenizer and config are optional - will use defaults)
     let all_exist =
         silero_vad_path.exists() && moonshine_encoder.exists() && moonshine_decoder.exists();
 
     if all_exist {
-        println!("All models found at {:?}", model_dir);
+        if progress_callback.is_none() {
+            println!("All models found at {:?}", model_dir);
+        }
         return Ok(ModelPaths {
             silero_vad: silero_vad_path,
             moonshine_dir,
@@ -161,32 +188,31 @@ pub fn ensure_models_exist(model_dir: &Path, variant: ModelVariant) -> Result<Mo
         });
     }
 
-    // Create moonshine directory if needed
     if !moonshine_dir.exists() {
         fs::create_dir_all(&moonshine_dir).context("Failed to create moonshine model directory")?;
     }
 
-    // Download missing files using blocking runtime
     let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
+    let cb_ref = progress_callback.as_deref();
 
-    // Download Silero VAD if missing
     if !silero_vad_path.exists() {
-        rt.block_on(async { download_file(SILERO_VAD_URL, &silero_vad_path).await })
+        rt.block_on(async { download_file(SILERO_VAD_URL, &silero_vad_path, cb_ref).await })
             .context("Failed to download Silero VAD model")?;
     }
 
-    // Download Moonshine files if missing
     let base_url = moonshine_url(variant);
     for filename in MOONSHINE_FILES.iter() {
         let file_path = moonshine_dir.join(filename);
         if !file_path.exists() {
             let url = format!("{}/{}", base_url, filename);
-            rt.block_on(async { download_file(&url, &file_path).await })
+            rt.block_on(async { download_file(&url, &file_path, cb_ref).await })
                 .context(format!("Failed to download Moonshine file: {}", filename))?;
         }
     }
 
-    println!("All models ready at {:?}", model_dir);
+    if progress_callback.is_none() {
+        println!("All models ready at {:?}", model_dir);
+    }
 
     Ok(ModelPaths {
         silero_vad: silero_vad_path,

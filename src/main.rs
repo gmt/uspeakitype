@@ -424,8 +424,18 @@ fn main() -> anyhow::Result<()> {
             while let Ok(samples) = audio_rx.recv() {
                 // Check for model swap command (non-blocking, between audio chunks)
                 if let Ok(new_variant) = model_swap_rx.try_recv() {
-                    match download::ensure_models_exist(&model_dir_for_worker, new_variant) {
+                    let progress_state = audio_state_for_worker.clone();
+                    let progress_callback: Box<dyn Fn(f64) + Send + Sync> =
+                        Box::new(move |progress: f64| {
+                            progress_state.write().download_progress = Some(progress as f32);
+                        });
+                    match download::ensure_models_exist_with_progress(
+                        &model_dir_for_worker,
+                        new_variant,
+                        Some(progress_callback),
+                    ) {
                         Ok(model_paths) => {
+                            audio_state_for_worker.write().download_progress = None;
                             match backend::MoonshineStreamer::new(&model_paths.moonshine_dir) {
                                 Ok(new_transcriber) => {
                                     streamer.swap_transcriber(new_transcriber);
@@ -437,6 +447,7 @@ fn main() -> anyhow::Result<()> {
                             }
                         }
                         Err(e) => {
+                            audio_state_for_worker.write().download_progress = None;
                             eprintln!("Failed to swap model: {}", e);
                         }
                     }
@@ -891,7 +902,7 @@ fn run_terminal_loop(
                 }
             }
 
-            let (samples, committed, partial, is_speaking, injection_enabled) = {
+            let (samples, committed, partial, is_speaking, injection_enabled, download_progress) = {
                 let state = audio_state.read();
                 (
                     state.samples.clone(),
@@ -899,6 +910,7 @@ fn run_terminal_loop(
                     state.partial.clone(),
                     state.is_speaking,
                     state.injection_enabled,
+                    state.download_progress,
                 )
             };
 
@@ -907,6 +919,7 @@ fn run_terminal_loop(
             }
 
             visualizer.set_transcript(committed, partial);
+            visualizer.set_download_progress(download_progress);
 
             let status_info = match capture_control {
                 Some(ctrl) => {

@@ -44,6 +44,8 @@ pub struct AudioState {
     pub available_sources: Vec<AudioSourceInfo>,
     pub selected_source_id: Option<u32>,
     pub injection_enabled: bool,
+    /// Download progress: None when not downloading, Some(0.0..1.0) during download
+    pub download_progress: Option<f32>,
 }
 
 impl Default for AudioState {
@@ -60,6 +62,7 @@ impl Default for AudioState {
             available_sources: Vec::new(),
             selected_source_id: None,
             injection_enabled: true,
+            download_progress: None,
         }
     }
 }
