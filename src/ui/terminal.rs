@@ -445,36 +445,21 @@ impl TerminalVisualizer {
         };
         let injection_value = if self.injection_enabled { "[X]" } else { "[ ]" };
 
-        let controls = [
-            (
-                Control::DeviceSelector,
-                format_control_label(Control::DeviceSelector, &device_value, mode),
-            ),
-            (
-                Control::GainSlider,
-                format_control_label(Control::GainSlider, &gain_value, mode),
-            ),
-            (
-                Control::AgcCheckbox,
-                format_control_label(Control::AgcCheckbox, agc_value, mode),
-            ),
-            (
-                Control::PauseButton,
-                format_control_label(Control::PauseButton, pause_value, mode),
-            ),
-            (
-                Control::VizToggle,
-                format_control_label(Control::VizToggle, viz_value, mode),
-            ),
-            (
-                Control::ColorPicker,
-                format_control_label(Control::ColorPicker, panel.color_scheme_name, mode),
-            ),
-            (
-                Control::InjectionToggle,
-                format_control_label(Control::InjectionToggle, injection_value, mode),
-            ),
-        ];
+        let controls: Vec<(Control, String)> = Control::ALL
+            .iter()
+            .map(|&control| {
+                let value = match control {
+                    Control::DeviceSelector => device_value.clone(),
+                    Control::GainSlider => gain_value.clone(),
+                    Control::AgcCheckbox => agc_value.to_string(),
+                    Control::PauseButton => pause_value.to_string(),
+                    Control::VizToggle => viz_value.to_string(),
+                    Control::ColorPicker => panel.color_scheme_name.to_string(),
+                    Control::InjectionToggle => injection_value.to_string(),
+                };
+                (control, format_control_label(control, &value, mode))
+            })
+            .collect();
 
         let labels: Vec<String> = controls.iter().map(|(_, label)| label.clone()).collect();
 

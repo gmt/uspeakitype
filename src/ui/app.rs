@@ -121,22 +121,14 @@ impl OverlayApp {
         let start_y = panel_y + 50.0;
         let relative_y = y - start_y;
 
-        if relative_y < 0.0 || relative_y > control_height * 6.0 {
+        if relative_y < 0.0 || relative_y > control_height * Control::ALL.len() as f64 {
             return;
         }
 
         let control_idx = (relative_y / control_height) as usize;
 
         use super::control_panel::Control;
-        let controls = [
-            Control::DeviceSelector,
-            Control::GainSlider,
-            Control::AgcCheckbox,
-            Control::PauseButton,
-            Control::VizToggle,
-            Control::ColorPicker,
-            Control::InjectionToggle,
-        ];
+        let controls = Control::ALL;
 
         if control_idx < controls.len() {
             match controls[control_idx] {

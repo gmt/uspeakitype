@@ -622,15 +622,7 @@ fn run_terminal_loop(
                                         visualizer.set_panel_open(control_panel.is_open);
                                     }
                                     KeyCode::Up => {
-                                        let controls = [
-                                            ui::control_panel::Control::DeviceSelector,
-                                            ui::control_panel::Control::GainSlider,
-                                            ui::control_panel::Control::AgcCheckbox,
-                                            ui::control_panel::Control::PauseButton,
-                                            ui::control_panel::Control::VizToggle,
-                                            ui::control_panel::Control::ColorPicker,
-                                            ui::control_panel::Control::InjectionToggle,
-                                        ];
+                                        let controls = ui::control_panel::Control::ALL;
                                         let current_idx = control_panel
                                             .focused_control
                                             .and_then(|c| controls.iter().position(|&x| x == c))
@@ -643,15 +635,7 @@ fn run_terminal_loop(
                                         control_panel.set_focused(Some(controls[new_idx]));
                                     }
                                     KeyCode::Down => {
-                                        let controls = [
-                                            ui::control_panel::Control::DeviceSelector,
-                                            ui::control_panel::Control::GainSlider,
-                                            ui::control_panel::Control::AgcCheckbox,
-                                            ui::control_panel::Control::PauseButton,
-                                            ui::control_panel::Control::VizToggle,
-                                            ui::control_panel::Control::ColorPicker,
-                                            ui::control_panel::Control::InjectionToggle,
-                                        ];
+                                        let controls = ui::control_panel::Control::ALL;
                                         let current_idx = control_panel
                                             .focused_control
                                             .and_then(|c| controls.iter().position(|&x| x == c))

@@ -26,6 +26,19 @@ pub enum Control {
     InjectionToggle,
 }
 
+impl Control {
+    /// All 7 controls in order (used for navigation and rendering)
+    pub const ALL: &'static [Control] = &[
+        Control::DeviceSelector,
+        Control::GainSlider,
+        Control::AgcCheckbox,
+        Control::PauseButton,
+        Control::VizToggle,
+        Control::ColorPicker,
+        Control::InjectionToggle,
+    ];
+}
+
 /// State for the control panel UI
 #[derive(Debug, Clone)]
 pub struct ControlPanelState {
@@ -262,5 +275,10 @@ mod tests {
         assert!(!audio_state.injection_enabled);
         state.toggle_injection(&mut audio_state);
         assert!(audio_state.injection_enabled);
+    }
+
+    #[test]
+    fn control_all_has_seven_controls() {
+        assert_eq!(Control::ALL.len(), 7);
     }
 }
