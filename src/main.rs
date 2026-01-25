@@ -788,7 +788,11 @@ fn run_terminal_loop(
                                         visualizer.set_panel_open(control_panel.is_open);
                                     }
                                     KeyCode::Up => {
-                                        let controls = ui::control_panel::Control::ALL;
+                                        let controls: Vec<_> = ui::control_panel::Control::ALL
+                                            .iter()
+                                            .filter(|&&c| !c.is_wgpu_only())
+                                            .copied()
+                                            .collect();
                                         let current_idx = control_panel
                                             .focused_control
                                             .and_then(|c| controls.iter().position(|&x| x == c))
@@ -801,7 +805,11 @@ fn run_terminal_loop(
                                         control_panel.set_focused(Some(controls[new_idx]));
                                     }
                                     KeyCode::Down => {
-                                        let controls = ui::control_panel::Control::ALL;
+                                        let controls: Vec<_> = ui::control_panel::Control::ALL
+                                            .iter()
+                                            .filter(|&&c| !c.is_wgpu_only())
+                                            .copied()
+                                            .collect();
                                         let current_idx = control_panel
                                             .focused_control
                                             .and_then(|c| controls.iter().position(|&x| x == c))

@@ -468,6 +468,7 @@ impl TerminalVisualizer {
 
         let controls: Vec<(Control, String)> = Control::ALL
             .iter()
+            .filter(|&&control| !control.is_wgpu_only())
             .map(|&control| {
                 let value = match control {
                     Control::DeviceSelector => device_value.clone(),
