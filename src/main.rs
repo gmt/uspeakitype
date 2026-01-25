@@ -1,7 +1,7 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use clap::{Parser, ValueEnum};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
@@ -328,6 +328,12 @@ fn main() -> anyhow::Result<()> {
         std::sync::mpsc::Receiver<String>,
     ) = std::sync::mpsc::channel();
 
+    // Model hot-swap channel: TUI sends new ModelVariant, streaming thread receives
+    let (model_swap_tx, model_swap_rx): (
+        std::sync::mpsc::Sender<ModelVariant>,
+        std::sync::mpsc::Receiver<ModelVariant>,
+    ) = std::sync::mpsc::channel();
+
     // Extract before spawn (args used after spawn, can't move)
     let backend_disable = args.backend_disable.clone();
     let autostart_ydotoold = args.autostart_ydotoold;
@@ -412,9 +418,30 @@ fn main() -> anyhow::Result<()> {
         use streaming::StreamEvent;
         let audio_state_for_worker = audio_state.clone();
         let injection_tx_for_worker = injection_tx.clone();
+        let model_dir_for_worker = model_dir.clone();
 
         std::thread::spawn(move || {
             while let Ok(samples) = audio_rx.recv() {
+                // Check for model swap command (non-blocking, between audio chunks)
+                if let Ok(new_variant) = model_swap_rx.try_recv() {
+                    match download::ensure_models_exist(&model_dir_for_worker, new_variant) {
+                        Ok(model_paths) => {
+                            match backend::MoonshineStreamer::new(&model_paths.moonshine_dir) {
+                                Ok(new_transcriber) => {
+                                    streamer.swap_transcriber(new_transcriber);
+                                    eprintln!("[barbara] Model swapped to {}", new_variant);
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to swap model: {}", e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to swap model: {}", e);
+                        }
+                    }
+                }
+
                 match streamer.process(&samples) {
                     Ok(events) => {
                         let mut state = audio_state_for_worker.write();
@@ -450,6 +477,7 @@ fn main() -> anyhow::Result<()> {
             &args,
             &config,
             capture_control.as_ref(),
+            model_swap_tx,
         )?;
     } else {
         let style = args.style;
@@ -570,12 +598,75 @@ fn flush_resize_events(first: (u16, u16)) -> (u16, u16) {
     last
 }
 
+fn build_config_from_state(
+    panel: &ui::control_panel::ControlPanelState,
+    args: &Args,
+    audio_state: &ui::SharedAudioState,
+) -> Config {
+    let state = audio_state.read();
+    Config {
+        model: panel.model,
+        auto_gain: panel.agc_enabled,
+        gain: panel.gain_value,
+        style: match panel.viz_mode {
+            SpectrogramMode::BarMeter => "bars".to_string(),
+            SpectrogramMode::Waterfall => "waterfall".to_string(),
+        },
+        color: panel.color_scheme_name.to_string(),
+        source: args.source.clone(),
+        injection_enabled: state.injection_enabled,
+        auto_save: panel.auto_save,
+        model_dir: args.model_dir.clone(),
+    }
+}
+
+fn maybe_auto_save(
+    panel: &ui::control_panel::ControlPanelState,
+    args: &Args,
+    audio_state: &ui::SharedAudioState,
+    config_path: &Path,
+    last_save_time: &mut Option<Instant>,
+) {
+    if !panel.auto_save {
+        return;
+    }
+
+    let now = Instant::now();
+    if let Some(last) = last_save_time {
+        if now.duration_since(*last) < Duration::from_millis(500) {
+            return;
+        }
+    }
+
+    let config = build_config_from_state(panel, args, audio_state);
+    if let Err(e) = config.save(config_path) {
+        eprintln!("[barbara] Auto-save failed: {}", e);
+    }
+    *last_save_time = Some(now);
+}
+
+fn save_on_exit(
+    panel: &ui::control_panel::ControlPanelState,
+    args: &Args,
+    audio_state: &ui::SharedAudioState,
+    config_path: &Path,
+) {
+    if !panel.auto_save {
+        return;
+    }
+    let config = build_config_from_state(panel, args, audio_state);
+    if let Err(e) = config.save(config_path) {
+        eprintln!("[barbara] Save on exit failed: {}", e);
+    }
+}
+
 fn run_terminal_loop(
     audio_state: ui::SharedAudioState,
     running: Arc<AtomicBool>,
     args: &Args,
     config: &Config,
     capture_control: Option<&Arc<CaptureControl>>,
+    model_swap_tx: std::sync::mpsc::Sender<ModelVariant>,
 ) -> anyhow::Result<()> {
     if !args.ansi {
         return run_headless_text(audio_state, running);
@@ -633,6 +724,12 @@ fn run_terminal_loop(
         TerminalMode::Waterfall => ui::spectrogram::SpectrogramMode::Waterfall,
     };
     control_panel.gain_value = config.gain;
+    control_panel.auto_save = config.auto_save;
+    control_panel.model = config.model;
+    control_panel.agc_enabled = config.auto_gain;
+
+    let config_path = Config::config_path();
+    let mut last_save_time: Option<Instant> = None;
 
     terminal::enable_raw_mode()?;
     visualizer.init_terminal()?;
@@ -645,7 +742,15 @@ fn run_terminal_loop(
                         if key.kind == KeyEventKind::Press {
                             if control_panel.is_open {
                                 match key.code {
-                                    KeyCode::Char('q') => break,
+                                    KeyCode::Char('q') => {
+                                        save_on_exit(
+                                            &control_panel,
+                                            args,
+                                            &audio_state,
+                                            &config_path,
+                                        );
+                                        break;
+                                    }
                                     KeyCode::Char(' ') => {
                                         control_panel.toggle_pause();
                                         if let Some(ctrl) = capture_control {
@@ -721,6 +826,7 @@ fn run_terminal_loop(
                                         }
                                         Some(ui::control_panel::Control::ModelSelector) => {
                                             control_panel.toggle_model();
+                                            let _ = model_swap_tx.send(control_panel.model);
                                         }
                                         Some(ui::control_panel::Control::AutoSaveToggle) => {
                                             control_panel.toggle_auto_save();
@@ -729,9 +835,24 @@ fn run_terminal_loop(
                                     },
                                     _ => {}
                                 }
+                                maybe_auto_save(
+                                    &control_panel,
+                                    args,
+                                    &audio_state,
+                                    &config_path,
+                                    &mut last_save_time,
+                                );
                             } else {
                                 match key.code {
-                                    KeyCode::Char('q') => break,
+                                    KeyCode::Char('q') => {
+                                        save_on_exit(
+                                            &control_panel,
+                                            args,
+                                            &audio_state,
+                                            &config_path,
+                                        );
+                                        break;
+                                    }
                                     KeyCode::Char(' ') => {
                                         control_panel.toggle_pause();
                                         if let Some(ctrl) = capture_control {

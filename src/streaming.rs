@@ -73,6 +73,19 @@ impl<V: VadProcessor, T: Transcriber> StreamingTranscriber<V, T> {
         }
     }
 
+    /// Replace the transcriber with a new instance and reset all internal state.
+    ///
+    /// Used for model hot-swap: clears buffers, resets counters, and installs
+    /// the new transcriber. The VAD is left untouched (same mic, same voice).
+    pub fn swap_transcriber(&mut self, new_transcriber: T) {
+        self.transcriber = new_transcriber;
+        self.transcriber.reset();
+        self.pre_roll.clear();
+        self.transcription_buffer.clear();
+        self.samples_since_update = 0;
+        self.was_speaking = false;
+    }
+
     pub fn is_speaking(&self) -> bool {
         self.vad.is_speaking()
     }
@@ -267,5 +280,32 @@ mod tests {
             0,
             "Buffer should be cleared after commit"
         );
+    }
+
+    #[test]
+    fn test_swap_transcriber() {
+        let vad = MockVad { speaking: false };
+        let transcriber = MockTranscriber { call_count: 0 };
+        let config = StreamingConfig::default();
+        let mut streamer = StreamingTranscriber::new(vad, transcriber, config);
+
+        // Build up state
+        streamer.pre_roll.extend(vec![1.0, 2.0, 3.0]);
+        streamer.transcription_buffer.extend(vec![4.0, 5.0]);
+        streamer.samples_since_update = 100;
+        streamer.was_speaking = true;
+
+        // Swap transcriber
+        let new_transcriber = MockTranscriber { call_count: 42 };
+        streamer.swap_transcriber(new_transcriber);
+
+        // All state must be cleared
+        assert_eq!(streamer.pre_roll.len(), 0);
+        assert_eq!(streamer.transcription_buffer.len(), 0);
+        assert_eq!(streamer.samples_since_update, 0);
+        assert!(!streamer.was_speaking);
+
+        // New transcriber was reset (call_count was 42, reset sets to 0)
+        assert_eq!(streamer.transcriber.call_count, 0);
     }
 }
