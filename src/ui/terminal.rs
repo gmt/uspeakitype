@@ -145,6 +145,16 @@ fn format_control_label(control: Control, value: &str, mode: LayoutMode) -> Stri
         (Control::InjectionToggle, LayoutMode::Full) => "Injection",
         (Control::InjectionToggle, LayoutMode::Compact) => "Inj",
         (Control::InjectionToggle, _) => "I",
+
+        // ModelSelector
+        (Control::ModelSelector, LayoutMode::Full) => "Model",
+        (Control::ModelSelector, LayoutMode::Compact) => "Mdl",
+        (Control::ModelSelector, _) => "M",
+
+        // AutoSaveToggle
+        (Control::AutoSaveToggle, LayoutMode::Full) => "Auto-Save",
+        (Control::AutoSaveToggle, LayoutMode::Compact) => "AS",
+        (Control::AutoSaveToggle, _) => "S",
     };
 
     format!("{}: {}", prefix, value)
@@ -456,6 +466,10 @@ impl TerminalVisualizer {
                     Control::VizToggle => viz_value.to_string(),
                     Control::ColorPicker => panel.color_scheme_name.to_string(),
                     Control::InjectionToggle => injection_value.to_string(),
+                    Control::ModelSelector => panel.model.to_string(),
+                    Control::AutoSaveToggle => {
+                        if panel.auto_save { "[X]" } else { "[ ]" }.to_string()
+                    }
                 };
                 (control, format_control_label(control, &value, mode))
             })

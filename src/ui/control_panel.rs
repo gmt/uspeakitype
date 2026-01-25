@@ -1,6 +1,6 @@
 //! Control panel state management
 //!
-//! Manages the state for the 7 control panel controls:
+//! Manages the state for the 9 control panel controls:
 //! - Device selector
 //! - Gain slider
 //! - AGC checkbox
@@ -8,13 +8,16 @@
 //! - Viz mode toggle
 //! - Color scheme picker
 //! - Input injection toggle
+//! - Model selector
+//! - Auto-save toggle
 
 use crate::audio::CaptureControl;
+use crate::config::ModelVariant;
 use crate::spectrum::{get_color_scheme, ColorScheme};
 use crate::ui::spectrogram::{Spectrogram, SpectrogramMode};
 use crate::ui::{AudioSourceInfo, AudioState};
 
-/// The 7 control panel controls
+/// The 9 control panel controls
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Control {
     DeviceSelector,
@@ -24,10 +27,12 @@ pub enum Control {
     VizToggle,
     ColorPicker,
     InjectionToggle,
+    ModelSelector,
+    AutoSaveToggle,
 }
 
 impl Control {
-    /// All 7 controls in order (used for navigation and rendering)
+    /// All 9 controls in order (used for navigation and rendering)
     pub const ALL: &'static [Control] = &[
         Control::DeviceSelector,
         Control::GainSlider,
@@ -36,6 +41,8 @@ impl Control {
         Control::VizToggle,
         Control::ColorPicker,
         Control::InjectionToggle,
+        Control::ModelSelector,
+        Control::AutoSaveToggle,
     ];
 }
 
@@ -51,6 +58,8 @@ pub struct ControlPanelState {
     pub is_paused: bool,
     pub viz_mode: SpectrogramMode,
     pub color_scheme_name: &'static str, // "flame", "ice", "mono"
+    pub model: ModelVariant,
+    pub auto_save: bool,
 }
 
 impl Default for ControlPanelState {
@@ -65,6 +74,8 @@ impl Default for ControlPanelState {
             is_paused: false,
             viz_mode: SpectrogramMode::BarMeter,
             color_scheme_name: "flame",
+            model: ModelVariant::MoonshineBase,
+            auto_save: true,
         }
     }
 }
@@ -111,6 +122,17 @@ impl ControlPanelState {
 
     pub fn update_device_list(&mut self, devices: Vec<AudioSourceInfo>) {
         self.device_list = devices;
+    }
+
+    pub fn toggle_model(&mut self) {
+        self.model = match self.model {
+            ModelVariant::MoonshineBase => ModelVariant::MoonshineTiny,
+            ModelVariant::MoonshineTiny => ModelVariant::MoonshineBase,
+        };
+    }
+
+    pub fn toggle_auto_save(&mut self) {
+        self.auto_save = !self.auto_save;
     }
 
     // ===== Apply methods to push state to app components =====
@@ -278,7 +300,34 @@ mod tests {
     }
 
     #[test]
-    fn control_all_has_seven_controls() {
-        assert_eq!(Control::ALL.len(), 7);
+    fn control_all_has_nine_controls() {
+        assert_eq!(Control::ALL.len(), 9);
+    }
+
+    #[test]
+    fn toggle_model_cycles_correctly() {
+        let mut state = ControlPanelState::new();
+        assert_eq!(state.model, ModelVariant::MoonshineBase);
+        state.toggle_model();
+        assert_eq!(state.model, ModelVariant::MoonshineTiny);
+        state.toggle_model();
+        assert_eq!(state.model, ModelVariant::MoonshineBase);
+    }
+
+    #[test]
+    fn toggle_auto_save_toggles_correctly() {
+        let mut state = ControlPanelState::new();
+        assert!(state.auto_save);
+        state.toggle_auto_save();
+        assert!(!state.auto_save);
+        state.toggle_auto_save();
+        assert!(state.auto_save);
+    }
+
+    #[test]
+    fn default_values_correct() {
+        let state = ControlPanelState::new();
+        assert_eq!(state.model, ModelVariant::MoonshineBase);
+        assert!(state.auto_save);
     }
 }
