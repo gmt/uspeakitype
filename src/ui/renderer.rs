@@ -461,7 +461,7 @@ impl Renderer {
             .collect();
 
         let controls = [
-            controls_vec.get(0).map(|s| s.as_str()).unwrap_or(""),
+            controls_vec.first().map(|s| s.as_str()).unwrap_or(""),
             controls_vec.get(1).map(|s| s.as_str()).unwrap_or(""),
             controls_vec.get(2).map(|s| s.as_str()).unwrap_or(""),
             controls_vec.get(3).map(|s| s.as_str()).unwrap_or(""),
