@@ -15,7 +15,8 @@ use tokenizers::Tokenizer;
 
 static ORT_INITIALIZED: OnceLock<()> = OnceLock::new();
 
-fn init_ort() {
+/// Initialize ORT runtime globally. Safe to call multiple times (no-op after first).
+pub fn init_ort() {
     ORT_INITIALIZED.get_or_init(|| {
         ort::init().commit();
     });

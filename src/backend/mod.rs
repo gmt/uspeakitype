@@ -9,4 +9,4 @@
 
 pub mod moonshine;
 
-pub use moonshine::MoonshineStreamer;
+pub use moonshine::{init_ort, MoonshineStreamer};

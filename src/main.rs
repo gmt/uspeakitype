@@ -307,6 +307,8 @@ fn main() -> anyhow::Result<()> {
             };
             let model_paths = download::ensure_models_exist(&model_dir, resolved_model)?;
 
+            backend::init_ort();
+
             println!("Initializing VAD...");
             let vad = SileroVad::new(&model_paths.silero_vad, VadConfig::default())?;
 
