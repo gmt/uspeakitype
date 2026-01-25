@@ -149,6 +149,10 @@ struct Args {
     #[arg(long)]
     model_dir: Option<PathBuf>,
 
+    /// Window transparency (0.0-1.0, default: 0.85)
+    #[arg(long, default_value = "0.85")]
+    transparency: f32,
+
     /// Run visual test sequence in tmux (cycles through terminal sizes)
     #[arg(long)]
     test_fireworks: bool,
@@ -637,6 +641,7 @@ fn build_config_from_state(
         injection_enabled: state.injection_enabled,
         auto_save: panel.auto_save,
         model_dir: args.model_dir.clone(),
+        transparency: args.transparency.clamp(0.0, 1.0),
     }
 }
 
