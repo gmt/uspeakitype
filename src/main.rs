@@ -719,6 +719,12 @@ fn run_terminal_loop(
                                             let mut state = audio_state.write();
                                             control_panel.apply_gain(&mut state);
                                         }
+                                        Some(ui::control_panel::Control::ModelSelector) => {
+                                            control_panel.toggle_model();
+                                        }
+                                        Some(ui::control_panel::Control::AutoSaveToggle) => {
+                                            control_panel.toggle_auto_save();
+                                        }
                                         _ => {}
                                     },
                                     _ => {}
