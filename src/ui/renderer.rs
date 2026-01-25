@@ -30,6 +30,7 @@ pub struct Renderer {
     bg_bind_group: wgpu::BindGroup,
     #[allow(dead_code)] // TODO: Will be used for control panel theming
     theme: Theme,
+    transparency: f32,
     text_renderer: TextRenderer,
     spectrogram: Spectrogram,
     audio_state: SharedAudioState,
@@ -99,9 +100,14 @@ impl Renderer {
 
         // Create uniform buffer for theme colors
         let theme_wgpu = DEFAULT_THEME.to_wgpu();
+        let transparency = 0.85f32;
         let bg_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Background Theme Uniform"),
-            contents: bytemuck::cast_slice(&[theme_wgpu.background, theme_wgpu.shadow]),
+            contents: bytemuck::cast_slice(&[
+                theme_wgpu.background,
+                theme_wgpu.shadow,
+                [transparency, 0.0, 0.0, 0.0], // Pad to vec4 for alignment
+            ]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -223,6 +229,7 @@ impl Renderer {
             bg_uniform_buffer,
             bg_bind_group,
             theme: DEFAULT_THEME,
+            transparency: 0.85,
             text_renderer,
             spectrogram,
             audio_state,
@@ -263,6 +270,20 @@ impl Renderer {
         use crate::spectrum::get_color_scheme;
         self.spectrogram
             .set_color_scheme(get_color_scheme(scheme_name));
+    }
+
+    pub fn set_transparency(&mut self, value: f32) {
+        self.transparency = value.clamp(0.0, 1.0);
+        let theme_wgpu = self.theme.to_wgpu();
+        self.queue.write_buffer(
+            &self.bg_uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[
+                theme_wgpu.background,
+                theme_wgpu.shadow,
+                [self.transparency, 0.0, 0.0, 0.0],
+            ]),
+        );
     }
 
     pub fn draw(&mut self) {

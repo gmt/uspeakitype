@@ -1,6 +1,7 @@
 struct ThemeColors {
     background: vec4<f32>,
     shadow: vec4<f32>,
+    transparency: f32,
 }
 
 @group(0) @binding(0)
@@ -46,7 +47,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let edge_width = 0.005;
     let main_alpha = 1.0 - clamp(dist_to_edge / edge_width + 0.5, 0.0, 1.0);
 
-    let main_color = vec4<f32>(theme.background.rgb, main_alpha * 0.85);
+    let main_color = vec4<f32>(theme.background.rgb, main_alpha * theme.transparency);
 
     let result = mix(shadow_color, main_color, main_alpha);
 
