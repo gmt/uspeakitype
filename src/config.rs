@@ -13,21 +13,16 @@ use std::path::{Path, PathBuf};
 ///
 /// Moonshine has two drop-in compatible ONNX models: Base (~120MB) and Tiny (~100MB).
 /// Both use the same encoder/decoder interface; only the model size differs.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
 #[serde(rename_all = "kebab-case")]
 pub enum ModelVariant {
     /// Moonshine Base model (~120MB) - better accuracy
+    #[default]
     #[value(name = "moonshine-base")]
     MoonshineBase,
     /// Moonshine Tiny model (~100MB) - faster, lower memory
     #[value(name = "moonshine-tiny")]
     MoonshineTiny,
-}
-
-impl Default for ModelVariant {
-    fn default() -> Self {
-        ModelVariant::MoonshineBase
-    }
 }
 
 impl fmt::Display for ModelVariant {
