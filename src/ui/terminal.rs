@@ -155,6 +155,11 @@ fn format_control_label(control: Control, value: &str, mode: LayoutMode) -> Stri
         (Control::AutoSaveToggle, LayoutMode::Full) => "Auto-Save",
         (Control::AutoSaveToggle, LayoutMode::Compact) => "AS",
         (Control::AutoSaveToggle, _) => "S",
+
+        // TransparencySlider (WGPU-only, filtered in Task 5)
+        (Control::TransparencySlider, LayoutMode::Full) => "Transparency",
+        (Control::TransparencySlider, LayoutMode::Compact) => "Trn",
+        (Control::TransparencySlider, _) => "T",
     };
 
     format!("{}: {}", prefix, value)
@@ -475,6 +480,9 @@ impl TerminalVisualizer {
                     Control::ModelSelector => panel.model.to_string(),
                     Control::AutoSaveToggle => {
                         if panel.auto_save { "[X]" } else { "[ ]" }.to_string()
+                    }
+                    Control::TransparencySlider => {
+                        format!("{:.0}%", panel.transparency * 100.0)
                     }
                 };
                 (control, format_control_label(control, &value, mode))
