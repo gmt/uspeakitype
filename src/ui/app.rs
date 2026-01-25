@@ -28,11 +28,13 @@ pub fn run(
     running: Arc<AtomicBool>,
     capture_control: Option<Arc<CaptureControl>>,
     mode: SpectrogramMode,
+    transparency: f32,
 ) {
     let event_loop = EventLoop::new().expect("Failed to create event loop");
 
     let mut control_panel = ControlPanelState::new();
     control_panel.viz_mode = mode;
+    control_panel.transparency = transparency;
 
     let app = Box::new(OverlayApp {
         renderers: HashMap::new(),
@@ -229,7 +231,8 @@ impl ApplicationHandler for OverlayApp {
             .create_window(window_attrs)
             .expect("Failed to create window");
 
-        let renderer = Renderer::new(window, self.audio_state.clone(), self.mode);
+        let mut renderer = Renderer::new(window, self.audio_state.clone(), self.mode);
+        renderer.set_transparency(self.control_panel.transparency);
         let window_id = renderer.window.id();
         self.renderers.insert(window_id, renderer);
     }

@@ -509,7 +509,8 @@ fn main() -> anyhow::Result<()> {
             SpectrogramStyle::Bars => SpectrogramMode::BarMeter,
             SpectrogramStyle::Waterfall => SpectrogramMode::Waterfall,
         };
-        ui::run(audio_state, running, capture_control, mode);
+        let transparency = config.transparency;
+        ui::run(audio_state, running, capture_control, mode, transparency);
     }
 
     Ok(())
