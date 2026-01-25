@@ -399,37 +399,78 @@ impl Renderer {
         let panel_x = (self.config.width as f32 - panel_width) / 2.0;
         let panel_y = 100.0;
 
+        use crate::ui::control_panel::Control;
+
+        let controls_vec: Vec<String> = Control::ALL
+            .iter()
+            .map(|&control| {
+                let (label, value) = match control {
+                    Control::DeviceSelector => (
+                        "Device",
+                        panel
+                            .selected_device
+                            .map(|id| format!("#{}", id))
+                            .unwrap_or_else(|| "Default".to_string()),
+                    ),
+                    Control::GainSlider => (
+                        "Gain",
+                        format!(
+                            "{:.1}x{}",
+                            panel.gain_value,
+                            if panel.agc_enabled { " (AGC)" } else { "" }
+                        ),
+                    ),
+                    Control::AgcCheckbox => (
+                        "AGC",
+                        if panel.agc_enabled { "[X]" } else { "[ ]" }.to_string(),
+                    ),
+                    Control::PauseButton => (
+                        "Pause",
+                        if panel.is_paused { "[X]" } else { "[ ]" }.to_string(),
+                    ),
+                    Control::VizToggle => (
+                        "Viz",
+                        match panel.viz_mode {
+                            SpectrogramMode::BarMeter => "Bars",
+                            SpectrogramMode::Waterfall => "Waterfall",
+                        }
+                        .to_string(),
+                    ),
+                    Control::ColorPicker => ("Color", panel.color_scheme_name.to_string()),
+                    Control::InjectionToggle => (
+                        "Injection",
+                        if self.audio_state.read().injection_enabled {
+                            "[X]"
+                        } else {
+                            "[ ]"
+                        }
+                        .to_string(),
+                    ),
+                    Control::ModelSelector => ("Model", panel.model.to_string()),
+                    Control::AutoSaveToggle => (
+                        "Auto-Save",
+                        if panel.auto_save { "[X]" } else { "[ ]" }.to_string(),
+                    ),
+                    Control::TransparencySlider => (
+                        "Transparency",
+                        format!("{:.0}%", panel.transparency * 100.0),
+                    ),
+                };
+                format!("{}: {}", label, value)
+            })
+            .collect();
+
         let controls = [
-            format!(
-                "Device: {}",
-                panel
-                    .selected_device
-                    .map(|id| format!("#{}", id))
-                    .unwrap_or_else(|| "Default".to_string())
-            ),
-            format!(
-                "Gain: {:.1}x {}",
-                panel.gain_value,
-                if panel.agc_enabled { "(AGC)" } else { "" }
-            ),
-            format!("AGC: {}", if panel.agc_enabled { "[X]" } else { "[ ]" }),
-            format!("Pause: {}", if panel.is_paused { "[X]" } else { "[ ]" }),
-            format!(
-                "Viz: {}",
-                match panel.viz_mode {
-                    SpectrogramMode::BarMeter => "Bars",
-                    SpectrogramMode::Waterfall => "Waterfall",
-                }
-            ),
-            format!("Color: {}", panel.color_scheme_name),
-            format!(
-                "Injection: {}",
-                if self.audio_state.read().injection_enabled {
-                    "[X]"
-                } else {
-                    "[ ]"
-                }
-            ),
+            controls_vec.get(0).map(|s| s.as_str()).unwrap_or(""),
+            controls_vec.get(1).map(|s| s.as_str()).unwrap_or(""),
+            controls_vec.get(2).map(|s| s.as_str()).unwrap_or(""),
+            controls_vec.get(3).map(|s| s.as_str()).unwrap_or(""),
+            controls_vec.get(4).map(|s| s.as_str()).unwrap_or(""),
+            controls_vec.get(5).map(|s| s.as_str()).unwrap_or(""),
+            controls_vec.get(6).map(|s| s.as_str()).unwrap_or(""),
+            controls_vec.get(7).map(|s| s.as_str()).unwrap_or(""),
+            controls_vec.get(8).map(|s| s.as_str()).unwrap_or(""),
+            controls_vec.get(9).map(|s| s.as_str()).unwrap_or(""),
         ];
 
         let title = "Control Panel (click to toggle)";

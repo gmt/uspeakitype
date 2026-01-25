@@ -175,6 +175,18 @@ impl OverlayApp {
                     let mut state = self.audio_state.write();
                     self.control_panel.apply_gain(&mut state);
                 }
+                Control::ModelSelector => {
+                    self.control_panel.toggle_model();
+                }
+                Control::AutoSaveToggle => {
+                    self.control_panel.toggle_auto_save();
+                }
+                Control::TransparencySlider => {
+                    self.control_panel.adjust_transparency();
+                    for renderer in self.renderers.values_mut() {
+                        renderer.set_transparency(self.control_panel.transparency);
+                    }
+                }
                 _ => {}
             }
         }
