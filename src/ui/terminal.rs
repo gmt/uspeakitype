@@ -607,7 +607,7 @@ impl TerminalVisualizer {
                     .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
                     .highlight_symbol("> ");
 
-                let popup_area = centered_rect(60, 8, frame.area());
+                let popup_area = centered_rect(60, Control::ALL.len() as u16 + 2, frame.area());
                 frame.render_widget(Clear, popup_area);
                 frame.render_stateful_widget(list, popup_area, &mut list_state);
             }
