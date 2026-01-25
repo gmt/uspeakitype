@@ -4,10 +4,11 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, TextureView};
 
-const GEAR_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-  <circle cx="12" cy="12" r="3"/>
-  <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-</svg>"#;
+// Single gear - style derived from gears.svg (OpenClipart, public domain)
+const GEAR_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <path fill="#E0E0E0" d="M10 1h4v2.3a7 7 0 0 1 2.5 1l1.6-1.6 2.8 2.8-1.6 1.6a7 7 0 0 1 1 2.5H23v4h-2.3a7 7 0 0 1-1 2.5l1.6 1.6-2.8 2.8-1.6-1.6a7 7 0 0 1-2.5 1V23h-4v-2.3a7 7 0 0 1-2.5-1l-1.6 1.6-2.8-2.8 1.6-1.6a7 7 0 0 1-1-2.5H1v-4h2.3a7 7 0 0 1 1-2.5L2.7 4.7l2.8-2.8 1.6 1.6a7 7 0 0 1 2.5-1V1z"/>
+  <circle cx="12" cy="12" r="3.5" fill="#1A1A1A"/>
+</svg>"##;
 
 pub struct IconRenderer {
     texture_bind_group: wgpu::BindGroup,
