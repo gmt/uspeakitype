@@ -334,6 +334,9 @@ fn main() -> anyhow::Result<()> {
         std::sync::mpsc::Receiver<ModelVariant>,
     ) = std::sync::mpsc::channel();
 
+    let download_cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let download_cancel_for_worker = download_cancel.clone();
+
     // Extract before spawn (args used after spawn, can't move)
     let backend_disable = args.backend_disable.clone();
     let autostart_ydotoold = args.autostart_ydotoold;
@@ -425,6 +428,7 @@ fn main() -> anyhow::Result<()> {
                 // Check for model swap command (non-blocking, between audio chunks)
                 if let Ok(new_variant) = model_swap_rx.try_recv() {
                     let progress_state = audio_state_for_worker.clone();
+                    download_cancel_for_worker.store(false, std::sync::atomic::Ordering::Relaxed);
                     let progress_callback: Box<dyn Fn(f64) + Send + Sync> =
                         Box::new(move |progress: f64| {
                             progress_state.write().download_progress = Some(progress as f32);
@@ -433,6 +437,7 @@ fn main() -> anyhow::Result<()> {
                         &model_dir_for_worker,
                         new_variant,
                         Some(progress_callback),
+                        Some(&download_cancel_for_worker),
                     ) {
                         Ok(model_paths) => {
                             audio_state_for_worker.write().download_progress = None;
@@ -448,7 +453,10 @@ fn main() -> anyhow::Result<()> {
                         }
                         Err(e) => {
                             audio_state_for_worker.write().download_progress = None;
-                            eprintln!("Failed to swap model: {}", e);
+                            let msg = e.to_string();
+                            if !msg.contains("cancelled") {
+                                eprintln!("Failed to swap model: {}", e);
+                            }
                         }
                     }
                 }
@@ -489,6 +497,7 @@ fn main() -> anyhow::Result<()> {
             &config,
             capture_control.as_ref(),
             model_swap_tx,
+            download_cancel,
         )?;
     } else {
         let style = args.style;
@@ -678,6 +687,7 @@ fn run_terminal_loop(
     config: &Config,
     capture_control: Option<&Arc<CaptureControl>>,
     model_swap_tx: std::sync::mpsc::Sender<ModelVariant>,
+    download_cancel: Arc<std::sync::atomic::AtomicBool>,
 ) -> anyhow::Result<()> {
     if !args.ansi {
         return run_headless_text(audio_state, running);
@@ -836,8 +846,17 @@ fn run_terminal_loop(
                                             control_panel.apply_gain(&mut state);
                                         }
                                         Some(ui::control_panel::Control::ModelSelector) => {
-                                            control_panel.toggle_model();
-                                            let _ = model_swap_tx.send(control_panel.model);
+                                            let is_downloading =
+                                                audio_state.read().download_progress.is_some();
+                                            if is_downloading {
+                                                download_cancel.store(
+                                                    true,
+                                                    std::sync::atomic::Ordering::Relaxed,
+                                                );
+                                            } else {
+                                                control_panel.toggle_model();
+                                                let _ = model_swap_tx.send(control_panel.model);
+                                            }
                                         }
                                         Some(ui::control_panel::Control::AutoSaveToggle) => {
                                             control_panel.toggle_auto_save();

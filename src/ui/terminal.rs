@@ -33,8 +33,8 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
+    text::Line,
+    widgets::{Block, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph},
     Terminal as RatatuiTerminal,
 };
 
@@ -584,11 +584,14 @@ impl TerminalVisualizer {
             }
 
             if let Some(progress) = download_progress {
-                let pct = (progress * 100.0).min(100.0);
-                let text = format!("Downloading model... {:.0}%", pct);
-                let line = Line::from(vec![Span::styled(text, Style::default().fg(Color::Cyan))]);
-                let paragraph = Paragraph::new(line).alignment(Alignment::Center);
-                frame.render_widget(paragraph, status_area);
+                let ratio = progress.clamp(0.0, 1.0) as f64;
+                let pct = (ratio * 100.0) as u16;
+                let gauge = Gauge::default()
+                    .block(Block::default())
+                    .gauge_style(Style::default().fg(Color::Cyan).bg(Color::DarkGray))
+                    .ratio(ratio)
+                    .label(format!("Downloading model... {}%", pct));
+                frame.render_widget(gauge, status_area);
             } else {
                 let status_widget = StatusWidget::new(status_info)
                     .paused(is_paused)

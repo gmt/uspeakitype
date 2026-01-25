@@ -58,10 +58,14 @@ pub struct ModelPaths {
 ///
 /// If `progress_callback` is provided, it is called with progress values (0.0..1.0)
 /// instead of printing to stdout.
+///
+/// If `cancel_token` is provided and set to `true`, the download is aborted and the
+/// temp file is deleted.
 async fn download_file(
     url: &str,
     dest: &Path,
     progress_callback: Option<&(dyn Fn(f64) + Send + Sync)>,
+    cancel_token: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<()> {
     // Create parent directories if needed
     if let Some(parent) = dest.parent() {
@@ -101,6 +105,15 @@ async fn download_file(
     let mut downloaded: u64 = 0;
 
     while let Some(item) = stream.next().await {
+        if cancel_token
+            .map(|t| t.load(std::sync::atomic::Ordering::Relaxed))
+            .unwrap_or(false)
+        {
+            drop(file);
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err(anyhow::anyhow!("Download cancelled"));
+        }
+
         let chunk = item.context("Error while downloading file")?;
         file.write_all(&chunk)
             .await
@@ -154,7 +167,7 @@ async fn download_file(
 ///
 /// Uses blocking runtime to handle async downloads from sync context.
 pub fn ensure_models_exist(model_dir: &Path, variant: ModelVariant) -> Result<ModelPaths> {
-    ensure_models_exist_with_progress(model_dir, variant, None)
+    ensure_models_exist_with_progress(model_dir, variant, None, None)
 }
 
 /// Like `ensure_models_exist`, but accepts an optional progress callback (0.0..1.0)
@@ -163,6 +176,7 @@ pub fn ensure_models_exist_with_progress(
     model_dir: &Path,
     variant: ModelVariant,
     progress_callback: Option<Box<dyn Fn(f64) + Send + Sync>>,
+    cancel_token: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<ModelPaths> {
     let silero_vad_path = model_dir.join("silero_vad.onnx");
     let moonshine_dir = model_dir.join(variant.dir_name());
@@ -196,7 +210,7 @@ pub fn ensure_models_exist_with_progress(
     let cb_ref = progress_callback.as_deref();
 
     if !silero_vad_path.exists() {
-        rt.block_on(async { download_file(SILERO_VAD_URL, &silero_vad_path, cb_ref).await })
+        rt.block_on(async { download_file(SILERO_VAD_URL, &silero_vad_path, cb_ref, cancel_token).await })
             .context("Failed to download Silero VAD model")?;
     }
 
@@ -205,7 +219,7 @@ pub fn ensure_models_exist_with_progress(
         let file_path = moonshine_dir.join(filename);
         if !file_path.exists() {
             let url = format!("{}/{}", base_url, filename);
-            rt.block_on(async { download_file(&url, &file_path, cb_ref).await })
+            rt.block_on(async { download_file(&url, &file_path, cb_ref, cancel_token).await })
                 .context(format!("Failed to download Moonshine file: {}", filename))?;
         }
     }
