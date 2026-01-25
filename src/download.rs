@@ -10,16 +10,29 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 
+use crate::config::ModelVariant;
+
 /// Silero VAD model URL (GitHub)
 const SILERO_VAD_URL: &str =
     "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx";
 
-/// Base URL for Moonshine merged ONNX models on HuggingFace
-const MOONSHINE_BASE_URL: &str =
-    "https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/float";
-
 /// Moonshine model files to download
 const MOONSHINE_FILES: [&str; 2] = ["encoder_model.onnx", "decoder_model_merged.onnx"];
+
+/// Construct HuggingFace URL for Moonshine model variant
+///
+/// Returns the base URL for downloading Moonshine ONNX files for the given variant.
+/// URL pattern: `https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/{variant}/float`
+fn moonshine_url(variant: ModelVariant) -> String {
+    let variant_name = match variant {
+        ModelVariant::MoonshineBase => "base",
+        ModelVariant::MoonshineTiny => "tiny",
+    };
+    format!(
+        "https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/{}/float",
+        variant_name
+    )
+}
 
 /// Paths to all required model files
 #[derive(Debug, Clone)]
@@ -123,10 +136,10 @@ async fn download_file(url: &str, dest: &Path) -> Result<()> {
 /// downloads them from GitHub (Silero VAD) and HuggingFace (Moonshine).
 ///
 /// Uses blocking runtime to handle async downloads from sync context.
-pub fn ensure_models_exist(model_dir: &Path) -> Result<ModelPaths> {
+pub fn ensure_models_exist(model_dir: &Path, variant: ModelVariant) -> Result<ModelPaths> {
     // Build all model paths
     let silero_vad_path = model_dir.join("silero_vad.onnx");
-    let moonshine_dir = model_dir.join("moonshine-base");
+    let moonshine_dir = model_dir.join(variant.dir_name());
     let moonshine_encoder = moonshine_dir.join("encoder_model.onnx");
     let moonshine_decoder = moonshine_dir.join("decoder_model_merged.onnx");
     let moonshine_tokenizer = moonshine_dir.join("tokenizer.json");
@@ -163,10 +176,11 @@ pub fn ensure_models_exist(model_dir: &Path) -> Result<ModelPaths> {
     }
 
     // Download Moonshine files if missing
+    let base_url = moonshine_url(variant);
     for filename in MOONSHINE_FILES.iter() {
         let file_path = moonshine_dir.join(filename);
         if !file_path.exists() {
-            let url = format!("{}/{}", MOONSHINE_BASE_URL, filename);
+            let url = format!("{}/{}", base_url, filename);
             rt.block_on(async { download_file(&url, &file_path).await })
                 .context(format!("Failed to download Moonshine file: {}", filename))?;
         }
@@ -184,6 +198,28 @@ pub fn ensure_models_exist(model_dir: &Path) -> Result<ModelPaths> {
     })
 }
 
+/// Check if a specific model variant is downloaded
+pub fn is_model_downloaded(model_dir: &Path, variant: ModelVariant) -> bool {
+    let moonshine_dir = model_dir.join(variant.dir_name());
+    let encoder = moonshine_dir.join("encoder_model.onnx");
+    let decoder = moonshine_dir.join("decoder_model_merged.onnx");
+    encoder.exists() && decoder.exists()
+}
+
+/// List all available model variants in the model directory
+pub fn available_models(model_dir: &Path) -> Vec<ModelVariant> {
+    let mut available = Vec::new();
+    
+    if is_model_downloaded(model_dir, ModelVariant::MoonshineBase) {
+        available.push(ModelVariant::MoonshineBase);
+    }
+    if is_model_downloaded(model_dir, ModelVariant::MoonshineTiny) {
+        available.push(ModelVariant::MoonshineTiny);
+    }
+    
+    available
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,13 +227,14 @@ mod tests {
     #[test]
     fn test_model_paths_struct() {
         let model_dir = PathBuf::from("/tmp/models");
+        let variant = ModelVariant::MoonshineBase;
         let paths = ModelPaths {
             silero_vad: model_dir.join("silero_vad.onnx"),
-            moonshine_dir: model_dir.join("moonshine-base"),
-            moonshine_encoder: model_dir.join("moonshine-base/encoder_model.onnx"),
-            moonshine_decoder: model_dir.join("moonshine-base/decoder_model_merged.onnx"),
-            moonshine_tokenizer: model_dir.join("moonshine-base/tokenizer.json"),
-            moonshine_config: model_dir.join("moonshine-base/preprocessor_config.json"),
+            moonshine_dir: model_dir.join(variant.dir_name()),
+            moonshine_encoder: model_dir.join(variant.dir_name()).join("encoder_model.onnx"),
+            moonshine_decoder: model_dir.join(variant.dir_name()).join("decoder_model_merged.onnx"),
+            moonshine_tokenizer: model_dir.join(variant.dir_name()).join("tokenizer.json"),
+            moonshine_config: model_dir.join(variant.dir_name()).join("preprocessor_config.json"),
         };
 
         // Verify all fields are populated
@@ -230,5 +267,85 @@ mod tests {
         // Verify content
         let content = fs::read_to_string(&dest).expect("Failed to read file");
         assert_eq!(content, "test content");
+    }
+
+    #[test]
+    fn test_moonshine_url_construction() {
+        let base_url = moonshine_url(ModelVariant::MoonshineBase);
+        assert_eq!(
+            base_url,
+            "https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/float"
+        );
+
+        let tiny_url = moonshine_url(ModelVariant::MoonshineTiny);
+        assert_eq!(
+            tiny_url,
+            "https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/tiny/float"
+        );
+    }
+
+    #[test]
+    fn test_is_model_downloaded() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let model_dir = temp_dir.path();
+
+        // No models downloaded initially
+        assert!(!is_model_downloaded(model_dir, ModelVariant::MoonshineBase));
+        assert!(!is_model_downloaded(model_dir, ModelVariant::MoonshineTiny));
+
+        // Create Base model files
+        let base_dir = model_dir.join("moonshine-base");
+        fs::create_dir_all(&base_dir).expect("Failed to create base dir");
+        fs::write(base_dir.join("encoder_model.onnx"), b"").expect("Failed to write encoder");
+        fs::write(base_dir.join("decoder_model_merged.onnx"), b"").expect("Failed to write decoder");
+
+        // Base should be detected
+        assert!(is_model_downloaded(model_dir, ModelVariant::MoonshineBase));
+        assert!(!is_model_downloaded(model_dir, ModelVariant::MoonshineTiny));
+
+        // Create Tiny model files
+        let tiny_dir = model_dir.join("moonshine-tiny");
+        fs::create_dir_all(&tiny_dir).expect("Failed to create tiny dir");
+        fs::write(tiny_dir.join("encoder_model.onnx"), b"").expect("Failed to write encoder");
+        fs::write(tiny_dir.join("decoder_model_merged.onnx"), b"").expect("Failed to write decoder");
+
+        // Both should be detected
+        assert!(is_model_downloaded(model_dir, ModelVariant::MoonshineBase));
+        assert!(is_model_downloaded(model_dir, ModelVariant::MoonshineTiny));
+    }
+
+    #[test]
+    fn test_available_models() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let model_dir = temp_dir.path();
+
+        // No models available initially
+        let available = available_models(model_dir);
+        assert!(available.is_empty());
+
+        // Create Base model
+        let base_dir = model_dir.join("moonshine-base");
+        fs::create_dir_all(&base_dir).expect("Failed to create base dir");
+        fs::write(base_dir.join("encoder_model.onnx"), b"").expect("Failed to write encoder");
+        fs::write(base_dir.join("decoder_model_merged.onnx"), b"").expect("Failed to write decoder");
+
+        let available = available_models(model_dir);
+        assert_eq!(available.len(), 1);
+        assert_eq!(available[0], ModelVariant::MoonshineBase);
+
+        // Create Tiny model
+        let tiny_dir = model_dir.join("moonshine-tiny");
+        fs::create_dir_all(&tiny_dir).expect("Failed to create tiny dir");
+        fs::write(tiny_dir.join("encoder_model.onnx"), b"").expect("Failed to write encoder");
+        fs::write(tiny_dir.join("decoder_model_merged.onnx"), b"").expect("Failed to write decoder");
+
+        let available = available_models(model_dir);
+        assert_eq!(available.len(), 2);
+        assert_eq!(available[0], ModelVariant::MoonshineBase);
+        assert_eq!(available[1], ModelVariant::MoonshineTiny);
     }
 }

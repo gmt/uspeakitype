@@ -277,7 +277,7 @@ fn main() -> anyhow::Result<()> {
             use streaming::{StreamingConfig, StreamingTranscriber};
 
             println!("Loading models from {:?}...", model_dir);
-            let model_paths = download::ensure_models_exist(&model_dir)?;
+            let model_paths = download::ensure_models_exist(&model_dir, Default::default())?;
 
             println!("Initializing VAD...");
             let vad = SileroVad::new(&model_paths.silero_vad, VadConfig::default())?;
