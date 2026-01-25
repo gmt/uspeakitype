@@ -10,6 +10,7 @@ use supports_unicode::Stream;
 use terminal_size::{terminal_size, Height, Width};
 
 use barbara::audio::{self, AudioCapture, CaptureConfig, CaptureControl};
+use barbara::config::{Config, ModelVariant};
 use barbara::spectrum::get_color_scheme;
 use barbara::ui;
 use barbara::ui::spectrogram::SpectrogramMode;
@@ -126,6 +127,16 @@ struct Args {
     )]
     color: ColorSchemeName,
 
+    /// ASR model: moonshine-base, moonshine-tiny [default: moonshine-base]
+    #[arg(
+        long,
+        value_enum,
+        default_value = "moonshine-base",
+        hide_possible_values = true,
+        hide_default_value = true
+    )]
+    model: ModelVariant,
+
     /// Disable colors in terminal output
     #[arg(long)]
     no_color: bool,
@@ -237,16 +248,21 @@ fn run_fireworks_test() -> anyhow::Result<()> {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    let config = Config::load_or_default();
 
     if args.test_fireworks {
         return run_fireworks_test();
     }
 
-    let model_dir = args.model_dir.clone().unwrap_or_else(|| {
-        dirs::cache_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("barbara/models")
-    });
+    let model_dir = args
+        .model_dir
+        .clone()
+        .or(config.model_dir.clone())
+        .unwrap_or_else(|| {
+            dirs::cache_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("barbara/models")
+        });
 
     if args.list_sources {
         println!("Available audio sources:");
@@ -268,6 +284,9 @@ fn main() -> anyhow::Result<()> {
     let running = Arc::new(AtomicBool::new(true));
     let audio_state = ui::new_shared_state();
 
+    // Apply config: injection_enabled
+    audio_state.write().injection_enabled = config.injection_enabled;
+
     let streaming_transcriber: Option<streaming::DefaultStreamingTranscriber> =
         if args.demo || args.ansi_sweep {
             None
@@ -277,7 +296,12 @@ fn main() -> anyhow::Result<()> {
             use streaming::{StreamingConfig, StreamingTranscriber};
 
             println!("Loading models from {:?}...", model_dir);
-            let model_paths = download::ensure_models_exist(&model_dir, Default::default())?;
+            let resolved_model = if args.model != ModelVariant::default() {
+                args.model
+            } else {
+                config.model
+            };
+            let model_paths = download::ensure_models_exist(&model_dir, resolved_model)?;
 
             println!("Initializing VAD...");
             let vad = SileroVad::new(&model_paths.silero_vad, VadConfig::default())?;
@@ -356,10 +380,12 @@ fn main() -> anyhow::Result<()> {
         }
         None
     } else {
-        let config = CaptureConfig {
-            auto_gain_enabled: args.auto_gain,
+        let auto_gain = args.auto_gain || config.auto_gain;
+        let source = args.source.clone().or(config.source.clone());
+        let capture_config = CaptureConfig {
+            auto_gain_enabled: auto_gain,
             agc: Default::default(),
-            source: args.source.clone(),
+            source,
         };
 
         let state = audio_state.clone();
@@ -369,12 +395,12 @@ fn main() -> anyhow::Result<()> {
                 state.write().update_samples(samples);
                 if tx.try_send(samples.to_vec()).is_err() {}
             }),
-            config,
+            capture_config,
         )?;
 
         let control = capture.control().clone();
 
-        if args.auto_gain {
+        if auto_gain {
             audio_state.write().auto_gain_enabled = true;
         }
 
@@ -418,9 +444,16 @@ fn main() -> anyhow::Result<()> {
     }
 
     if args.headless || args.ansi {
-        run_terminal_loop(audio_state, running, &args, capture_control.as_ref())?;
+        run_terminal_loop(
+            audio_state,
+            running,
+            &args,
+            &config,
+            capture_control.as_ref(),
+        )?;
     } else {
-        let mode = match args.style {
+        let style = args.style;
+        let mode = match style {
             SpectrogramStyle::Bars => SpectrogramMode::BarMeter,
             SpectrogramStyle::Waterfall => SpectrogramMode::Waterfall,
         };
@@ -541,6 +574,7 @@ fn run_terminal_loop(
     audio_state: ui::SharedAudioState,
     running: Arc<AtomicBool>,
     args: &Args,
+    config: &Config,
     capture_control: Option<&Arc<CaptureControl>>,
 ) -> anyhow::Result<()> {
     if !args.ansi {
@@ -573,7 +607,7 @@ fn run_terminal_loop(
         SpectrogramStyle::Waterfall => TerminalMode::Waterfall,
     };
 
-    let config = TerminalConfig {
+    let terminal_config = TerminalConfig {
         width,
         height,
         mode,
@@ -583,7 +617,7 @@ fn run_terminal_loop(
         term_height,
     };
 
-    let mut visualizer = TerminalVisualizer::new(config);
+    let mut visualizer = TerminalVisualizer::new(terminal_config);
 
     let color_name = match args.color {
         ColorSchemeName::Flame => "flame",
@@ -598,6 +632,7 @@ fn run_terminal_loop(
         TerminalMode::BarMeter => ui::spectrogram::SpectrogramMode::BarMeter,
         TerminalMode::Waterfall => ui::spectrogram::SpectrogramMode::Waterfall,
     };
+    control_panel.gain_value = config.gain;
 
     terminal::enable_raw_mode()?;
     visualizer.init_terminal()?;
