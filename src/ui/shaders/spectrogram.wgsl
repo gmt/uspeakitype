@@ -23,8 +23,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // SDF clipping to rounded rectangle corners
-    let corner_radius = 0.08;
+    let corner_radius = 0.015;
     let center = vec2<f32>(0.5, 0.5);
     let half_size = vec2<f32>(0.5, 0.5);
     

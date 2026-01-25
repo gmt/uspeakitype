@@ -28,7 +28,7 @@ fn vs_main(vertex: VertexInput) -> VertexOutput {
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let center = vec2<f32>(0.5, 0.5);
     let size = vec2<f32>(1.0, 1.0);
-    let corner_radius = 0.08;
+    let corner_radius = 0.015;
 
     let shadow_offset = vec2<f32>(0.004, -0.004);
     let shadow_blur = 0.015;

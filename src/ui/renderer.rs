@@ -6,6 +6,7 @@ use wgpu::util::DeviceExt;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
+use super::icon::IconRenderer;
 use super::spectrogram::{Spectrogram, SpectrogramMode};
 use super::text_renderer::TextRenderer;
 use super::theme::{Theme, DEFAULT_THEME};
@@ -13,7 +14,7 @@ use super::SharedAudioState;
 
 const WINDOW_WIDTH: u32 = 400;
 const TEXT_HEIGHT: u32 = 80;
-const SPECTROGRAM_HEIGHT: u32 = 70;
+const SPECTROGRAM_HEIGHT: u32 = 120;
 const GAP: u32 = 10;
 const PADDING: f32 = 12.0;
 
@@ -32,6 +33,7 @@ pub struct Renderer {
     theme: Theme,
     transparency: f32,
     text_renderer: TextRenderer,
+    icon_renderer: IconRenderer,
     spectrogram: Spectrogram,
     audio_state: SharedAudioState,
     mode: SpectrogramMode,
@@ -206,7 +208,7 @@ impl Renderer {
         let text_renderer = TextRenderer::new(
             device.clone(),
             queue.clone(),
-            PhysicalSize::new(WINDOW_WIDTH, TEXT_HEIGHT),
+            PhysicalSize::new(win_size.width, win_size.height),
             format,
         );
 
@@ -214,9 +216,12 @@ impl Renderer {
             device.clone(),
             queue.clone(),
             PhysicalSize::new(WINDOW_WIDTH, SPECTROGRAM_HEIGHT),
+            win_size.height,
             format,
             mode,
         );
+
+        let icon_renderer = IconRenderer::new(device.clone(), queue.clone(), format);
 
         Self {
             window,
@@ -231,6 +236,7 @@ impl Renderer {
             theme: DEFAULT_THEME,
             transparency: 0.85,
             text_renderer,
+            icon_renderer,
             spectrogram,
             audio_state,
             mode,
@@ -247,10 +253,9 @@ impl Renderer {
         self.config.width = width;
         self.config.height = height;
         self.surface.configure(&self.device, &self.config);
-        self.text_renderer
-            .resize(PhysicalSize::new(width, TEXT_HEIGHT));
+        self.text_renderer.resize(PhysicalSize::new(width, height));
         self.spectrogram
-            .resize(PhysicalSize::new(width, SPECTROGRAM_HEIGHT));
+            .resize(PhysicalSize::new(width, SPECTROGRAM_HEIGHT), height);
     }
 
     pub fn toggle_mode(&mut self) {
@@ -344,7 +349,8 @@ impl Renderer {
         };
 
         self.spectrogram.update(&samples);
-        self.spectrogram.render(&mut encoder, &view);
+        self.spectrogram
+            .render(&mut encoder, &view, self.config.height);
 
         self.text_renderer.render(
             &view,
@@ -374,21 +380,19 @@ impl Renderer {
         encoder: &mut wgpu::CommandEncoder,
         panel: &super::control_panel::ControlPanelState,
     ) {
-        let gear_text = "⚙️";
-        let gear_x = self.config.width as f32 - 50.0;
+        // Render gear icon using SVG renderer (avoids glyphon vertex buffer conflict)
+        let gear_size = 32.0;
+        let gear_x = self.config.width as f32 - gear_size - 10.0;
         let gear_y = 10.0;
 
-        self.text_renderer.render(
-            view,
+        self.icon_renderer.render_gear(
             encoder,
-            gear_text,
-            "",
+            view,
             gear_x,
             gear_y,
-            1.5,
-            self.config.width,
-            40,
-            5.0,
+            gear_size,
+            self.config.width as f32,
+            self.config.height as f32,
         );
 
         if !panel.is_open {

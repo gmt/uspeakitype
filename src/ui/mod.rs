@@ -1,5 +1,6 @@
 pub mod app;
 pub mod control_panel;
+pub mod icon;
 pub mod renderer;
 pub mod spectrogram;
 pub mod spectrogram_widget;

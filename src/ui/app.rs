@@ -270,6 +270,9 @@ impl ApplicationHandler for OverlayApp {
                                 renderer.toggle_mode();
                             }
                         }
+                        Key::Character(ref c) if c == "c" || c == "C" => {
+                            self.control_panel.toggle_open();
+                        }
                         Key::Character(ref c) if c == "q" || c == "Q" => {
                             self.running.store(false, Ordering::Relaxed);
                             if let Some(ref control) = self.capture_control {
@@ -334,7 +337,7 @@ fn create_window_attributes(
 ) -> WindowAttributes {
     let monitor_size = mode.size();
     let window_width = (monitor_size.width as f32 * 0.25) as u32;
-    let window_height = 160u32;
+    let window_height = 210u32;
 
     let size = PhysicalSize::new(window_width.max(300), window_height.max(80));
 

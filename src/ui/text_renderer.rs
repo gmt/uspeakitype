@@ -137,16 +137,10 @@ impl TextRenderer {
         self.buffer_partial
             .set_metrics(&mut self.font_system, metrics);
 
-        self.buffer.set_size(
-            &mut self.font_system,
-            Some(area_width as f32 - padding * 2.0),
-            None,
-        );
-        self.buffer_partial.set_size(
-            &mut self.font_system,
-            Some(area_width as f32 - padding * 2.0),
-            None,
-        );
+        self.buffer
+            .set_size(&mut self.font_system, Some(area_width as f32), None);
+        self.buffer_partial
+            .set_size(&mut self.font_system, Some(area_width as f32), None);
 
         let mut text_areas = Vec::new();
 
@@ -167,10 +161,10 @@ impl TextRenderer {
                 top: y + padding,
                 scale: 1.0,
                 bounds: TextBounds {
-                    left: 0,
-                    top: 0,
-                    right: area_width as i32,
-                    bottom: area_height as i32,
+                    left: i32::MIN,
+                    top: i32::MIN,
+                    right: i32::MAX,
+                    bottom: i32::MAX,
                 },
                 default_color: committed_color,
                 custom_glyphs: &[],
@@ -209,10 +203,10 @@ impl TextRenderer {
                 top: y + padding,
                 scale: 1.0,
                 bounds: TextBounds {
-                    left: 0,
-                    top: 0,
-                    right: area_width as i32,
-                    bottom: area_height as i32,
+                    left: i32::MIN,
+                    top: i32::MIN,
+                    right: i32::MAX,
+                    bottom: i32::MAX,
                 },
                 default_color: partial_color,
                 custom_glyphs: &[],
@@ -227,7 +221,17 @@ impl TextRenderer {
             },
         );
 
-        {
+        let prepare_result = self.renderer.prepare(
+            &self.device,
+            &self.queue,
+            &mut self.font_system,
+            &mut self.atlas,
+            &self.viewport,
+            text_areas,
+            &mut self.swash_cache,
+        );
+
+        if prepare_result.is_ok() {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Text Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -243,25 +247,9 @@ impl TextRenderer {
                 occlusion_query_set: None,
             });
 
-            render_pass.set_scissor_rect(0, 0, area_width, area_height);
-
-            if self
+            let _ = self
                 .renderer
-                .prepare(
-                    &self.device,
-                    &self.queue,
-                    &mut self.font_system,
-                    &mut self.atlas,
-                    &self.viewport,
-                    text_areas,
-                    &mut self.swash_cache,
-                )
-                .is_ok()
-            {
-                let _ = self
-                    .renderer
-                    .render(&self.atlas, &self.viewport, &mut render_pass);
-            }
+                .render(&self.atlas, &self.viewport, &mut render_pass);
         }
 
         self.atlas.trim();

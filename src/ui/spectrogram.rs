@@ -25,6 +25,7 @@ pub struct Spectrogram {
     vertex_buffer: wgpu::Buffer,
     instance_buffer: wgpu::Buffer,
     size: PhysicalSize<u32>,
+    window_height: u32,
     last_update: Instant,
 
     mode: SpectrogramMode,
@@ -55,12 +56,14 @@ impl Spectrogram {
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
         size: PhysicalSize<u32>,
+        window_height: u32,
         surface_format: wgpu::TextureFormat,
     ) -> Self {
         Self::with_mode(
             device,
             queue,
             size,
+            window_height,
             surface_format,
             SpectrogramMode::BarMeter,
         )
@@ -70,6 +73,7 @@ impl Spectrogram {
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
         size: PhysicalSize<u32>,
+        window_height: u32,
         surface_format: wgpu::TextureFormat,
         mode: SpectrogramMode,
     ) -> Self {
@@ -189,7 +193,8 @@ impl Spectrogram {
             SpectrogramMode::Waterfall => (size.width as usize) * num_bands,
         };
 
-        let instances = Self::create_bar_instances(&bar_data, size, color_scheme.as_ref());
+        let instances =
+            Self::create_bar_instances(&bar_data, size, window_height, color_scheme.as_ref());
         let buffer_size = (max_instances * std::mem::size_of::<BarInstance>()) as u64;
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Spectrogram Instances"),
@@ -205,6 +210,7 @@ impl Spectrogram {
             vertex_buffer,
             instance_buffer,
             size,
+            window_height,
             last_update: Instant::now(),
             mode,
             analyzer,
@@ -249,9 +255,10 @@ impl Spectrogram {
         self.update_instance_buffer();
     }
 
-    pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
+    pub fn resize(&mut self, new_size: PhysicalSize<u32>, window_height: u32) {
         let size_changed = self.size.width != new_size.width || self.size.height != new_size.height;
         self.size = new_size;
+        self.window_height = window_height;
 
         if size_changed {
             if matches!(self.mode, SpectrogramMode::Waterfall) {
@@ -310,12 +317,16 @@ impl Spectrogram {
 
     fn update_instance_buffer(&self) {
         let instances = match self.mode {
-            SpectrogramMode::BarMeter => {
-                Self::create_bar_instances(&self.bar_data, self.size, self.color_scheme.as_ref())
-            }
+            SpectrogramMode::BarMeter => Self::create_bar_instances(
+                &self.bar_data,
+                self.size,
+                self.window_height,
+                self.color_scheme.as_ref(),
+            ),
             SpectrogramMode::Waterfall => Self::create_waterfall_instances(
                 &self.history,
                 self.size,
+                self.window_height,
                 self.color_scheme.as_ref(),
             ),
         };
@@ -326,13 +337,17 @@ impl Spectrogram {
     fn create_bar_instances(
         bar_data: &[f32],
         size: PhysicalSize<u32>,
+        window_height: u32,
         color_scheme: &dyn ColorScheme,
     ) -> Vec<BarInstance> {
         let num_bars = bar_data.len();
         let bar_width = 2.0 / num_bars as f32;
         let spacing = bar_width * 0.1;
         let actual_width = bar_width - spacing;
-        let max_height = 2.0 * (size.height as f32 / size.height.max(1) as f32).min(1.0);
+
+        let spec_ratio = size.height as f32 / window_height.max(1) as f32;
+        let base_y = 1.0 - 2.0 * spec_ratio;
+        let max_height = 2.0 * spec_ratio;
 
         bar_data
             .iter()
@@ -340,7 +355,6 @@ impl Spectrogram {
             .map(|(i, &intensity)| {
                 let x = -1.0 + i as f32 * bar_width;
                 let height = intensity_to_height(intensity, max_height);
-                let y = -1.0;
 
                 let edge_factor = {
                     let pos = i as f32 / (num_bars - 1).max(1) as f32;
@@ -351,7 +365,7 @@ impl Spectrogram {
                 let alpha = (intensity * edge_factor).max(MIN_OPACITY);
 
                 BarInstance {
-                    position: [x, y],
+                    position: [x, base_y],
                     size: [actual_width, height * edge_factor],
                     color: [color.r, color.g, color.b, alpha],
                 }
@@ -362,14 +376,19 @@ impl Spectrogram {
     fn create_waterfall_instances(
         history: &WaterfallHistory,
         size: PhysicalSize<u32>,
+        window_height: u32,
         color_scheme: &dyn ColorScheme,
     ) -> Vec<BarInstance> {
         let width = size.width as usize;
         let num_bands = history.num_bands();
         let history_len = history.len();
 
+        let spec_ratio = size.height as f32 / window_height.max(1) as f32;
+        let base_y = 1.0 - 2.0 * spec_ratio;
+        let spec_height = 2.0 * spec_ratio;
+
         let cell_width = 2.0 / width as f32;
-        let cell_height = 2.0 / num_bands as f32;
+        let cell_height = spec_height / num_bands as f32;
 
         let mut instances = Vec::with_capacity(width * num_bands);
 
@@ -389,7 +408,7 @@ impl Spectrogram {
                 }
 
                 let x = -1.0 + col as f32 * cell_width;
-                let y = -1.0 + band as f32 * cell_height;
+                let y = base_y + band as f32 * cell_height;
                 let color = color_scheme.color_for_intensity(intensity);
 
                 instances.push(BarInstance {
@@ -403,7 +422,12 @@ impl Spectrogram {
         instances
     }
 
-    pub fn render(&self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
+    pub fn render(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        window_height: u32,
+    ) {
         let instance_count = match self.mode {
             SpectrogramMode::BarMeter => self.bar_data.len(),
             SpectrogramMode::Waterfall => self.history.len() * self.history.num_bands(),
