@@ -38,30 +38,30 @@ pub use ydotool::{find_ydotool_socket, YdotoolInjector};
 pub fn select_backend(disabled: &[String]) -> Option<Box<dyn TextInjector>> {
     // Probe wrtype
     if !disabled.iter().any(|s| s == "wrtype") {
-        eprint!("[barbara] Probing wrtype... ");
+        log::debug!("Probing wrtype...");
         match WrtypeInjector::new() {
             Ok(inj) => {
-                eprintln!("active");
+                log::info!("wrtype: active");
                 return Some(Box::new(inj));
             }
-            Err(e) => eprintln!("unavailable ({})", e),
+            Err(e) => log::debug!("wrtype: unavailable ({})", e),
         }
     } else {
-        eprintln!("[barbara] Probing wrtype... skipped (disabled)");
+        log::debug!("wrtype: skipped (disabled)");
     }
 
     // Probe ydotool
     if !disabled.iter().any(|s| s == "ydotool") {
-        eprint!("[barbara] Probing ydotool... ");
+        log::debug!("Probing ydotool...");
         match YdotoolInjector::new() {
             Ok(inj) => {
-                eprintln!("active");
+                log::info!("ydotool: active");
                 return Some(Box::new(inj));
             }
-            Err(e) => eprintln!("unavailable ({})", e),
+            Err(e) => log::debug!("ydotool: unavailable ({})", e),
         }
     } else {
-        eprintln!("[barbara] Probing ydotool... skipped (disabled)");
+        log::debug!("ydotool: skipped (disabled)");
     }
 
     // All backends failed or disabled

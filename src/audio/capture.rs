@@ -160,7 +160,7 @@ impl AudioCapture {
 
         let thread = thread::spawn(move || {
             if let Err(e) = run_capture_loop(control_clone, callback, sources_clone, config) {
-                eprintln!("Audio capture error: {e}");
+                log::error!("Audio capture error: {e}");
             }
         });
 

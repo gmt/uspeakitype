@@ -193,7 +193,7 @@ pub fn parse_tag_from_argv(argv: &[&str]) -> Option<String> {
 fn warn_proc_unavailable() {
     static PROC_WARN_ONCE: Once = Once::new();
     PROC_WARN_ONCE.call_once(|| {
-        eprintln!("[barbara] Warning: /proc unavailable, instance detection disabled");
+        log::warn!("/proc unavailable, instance detection disabled");
     });
 }
 

@@ -69,7 +69,7 @@ impl OverlayApp {
         if let Some(ref control) = self.capture_control {
             let now_paused = control.toggle_pause();
             self.audio_state.write().is_paused = now_paused;
-            eprintln!("Capture {}", if now_paused { "paused" } else { "resumed" });
+            log::debug!("Capture {}", if now_paused { "paused" } else { "resumed" });
         }
     }
 
@@ -78,7 +78,7 @@ impl OverlayApp {
             let new_state = !control.is_auto_gain_enabled();
             control.set_auto_gain(new_state);
             self.audio_state.write().auto_gain_enabled = new_state;
-            eprintln!(
+            log::debug!(
                 "Auto-gain {}",
                 if new_state { "enabled" } else { "disabled" }
             );
@@ -220,12 +220,12 @@ impl ApplicationHandler for OverlayApp {
 
     fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
         let Some((_, monitor)) = event_loop.available_monitors().enumerate().next() else {
-            eprintln!("No monitors available");
+            log::warn!("No monitors available");
             return;
         };
 
         let Some(mode) = monitor.current_video_mode() else {
-            eprintln!("No video mode available");
+            log::warn!("No video mode available");
             return;
         };
 

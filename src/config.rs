@@ -135,8 +135,8 @@ impl Config {
         match toml::from_str::<Self>(&content) {
             Ok(config) => Ok(config),
             Err(e) => {
-                eprintln!("Warning: Invalid config file {:?}: {}", path, e);
-                eprintln!("Using defaults");
+                log::warn!("Invalid config file {:?}: {}", path, e);
+                log::warn!("Using defaults");
                 Ok(Self::default())
             }
         }

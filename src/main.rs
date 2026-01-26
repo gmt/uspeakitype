@@ -269,6 +269,8 @@ fn run_fireworks_test() -> anyhow::Result<()> {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    let is_tui = args.ansi || args.ansi_sweep;
+    barbara::logging::init(is_tui)?;
     let config = Config::load_or_default();
 
     if args.test_fireworks {
@@ -428,25 +430,25 @@ fn main() -> anyhow::Result<()> {
 
         // 2. Handle --autostart-ydotoold BEFORE selection
         if autostart_ydotoold && find_ydotool_socket().is_none() {
-            eprintln!("[barbara] Starting ydotoold daemon...");
+            log::info!("Starting ydotoold daemon...");
             let _ = std::process::Command::new("ydotoold").spawn();
             std::thread::sleep(std::time::Duration::from_millis(500));
 
             // Re-check socket existence once after wait
             if find_ydotool_socket().is_none() {
-                eprintln!("[barbara] Warning: ydotoold started but socket still not found");
-                eprintln!("[barbara] ydotool backend may fail during probe");
+                log::warn!("ydotoold started but socket still not found");
+                log::warn!("ydotool backend may fail during probe");
             }
         }
 
         // 3. Select backend with normalized disabled list
         let mut injector: Box<dyn TextInjector> = match select_backend(&disabled) {
             Some(inj) => {
-                eprintln!("[barbara] Input injection: {}", inj.name());
+                log::info!("Input injection: {}", inj.name());
                 inj
             }
             None => {
-                eprintln!("[barbara] Input injection: unavailable (display-only mode)");
+                log::info!("Input injection: unavailable (display-only mode)");
                 return;
             }
         };
@@ -454,7 +456,7 @@ fn main() -> anyhow::Result<()> {
         // 4. Run injection loop (unchanged from current)
         while let Ok(text) = injection_rx.recv() {
             if let Err(e) = injector.inject(&text) {
-                eprintln!("[barbara] Injection error: {}", e);
+                log::error!("Injection error: {}", e);
             }
         }
     });
@@ -522,10 +524,10 @@ fn main() -> anyhow::Result<()> {
                             match backend::MoonshineStreamer::new(&model_paths.moonshine_dir) {
                                 Ok(new_transcriber) => {
                                     streamer.swap_transcriber(new_transcriber);
-                                    eprintln!("[barbara] Model swapped to {}", new_variant);
+                                    log::info!("Model swapped to {}", new_variant);
                                 }
                                 Err(e) => {
-                                    eprintln!("Failed to swap model: {}", e);
+                                    log::error!("Failed to swap model: {}", e);
                                 }
                             }
                         }
@@ -533,7 +535,7 @@ fn main() -> anyhow::Result<()> {
                             audio_state_for_worker.write().download_progress = None;
                             let msg = e.to_string();
                             if !msg.contains("cancelled") {
-                                eprintln!("Failed to swap model: {}", e);
+                                log::error!("Failed to swap model: {}", e);
                             }
                         }
                     }
@@ -560,7 +562,7 @@ fn main() -> anyhow::Result<()> {
                         }
                     }
                     Err(e) => {
-                        eprintln!("Streaming transcription error: {}", e);
+                        log::error!("Streaming transcription error: {}", e);
                     }
                 }
             }
@@ -747,7 +749,7 @@ fn maybe_auto_save(
 
     let config = build_config_from_state(panel, args, audio_state);
     if let Err(e) = config.save(config_path) {
-        eprintln!("[barbara] Auto-save failed: {}", e);
+        log::warn!("Auto-save failed: {}", e);
     }
     *last_save_time = Some(now);
 }
@@ -763,7 +765,7 @@ fn save_on_exit(
     }
     let config = build_config_from_state(panel, args, audio_state);
     if let Err(e) = config.save(config_path) {
-        eprintln!("[barbara] Save on exit failed: {}", e);
+        log::warn!("Save on exit failed: {}", e);
     }
 }
 
