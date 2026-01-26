@@ -11,6 +11,7 @@ use terminal_size::{terminal_size, Height, Width};
 
 use barbara::audio::{self, AudioCapture, CaptureConfig, CaptureControl};
 use barbara::config::{Config, ModelVariant};
+use barbara::instance::find_duplicate_tag;
 use barbara::spectrum::get_color_scheme;
 use barbara::ui;
 use barbara::ui::spectrogram::SpectrogramMode;
@@ -297,6 +298,24 @@ fn main() -> anyhow::Result<()> {
             }
         }
         return Ok(());
+    }
+
+    // Check for duplicate tag
+    if let Some(ref tag) = args.tag {
+        if let Some(pid) = find_duplicate_tag(tag) {
+            if args.no_duplicate_tag {
+                eprintln!(
+                    "Error: Barbara with tag '{}' already running (PID {})",
+                    tag, pid
+                );
+                std::process::exit(1);
+            } else {
+                eprintln!(
+                    "Warning: Barbara with tag '{}' may already be running (PID {})",
+                    tag, pid
+                );
+            }
+        }
     }
 
     println!("barbara v{}", env!("CARGO_PKG_VERSION"));
