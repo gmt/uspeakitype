@@ -289,3 +289,40 @@ User should not see AGC fighting their manual adjustments.
 - a build succeeds and advice from rust is either implemented or the compiler is appeased
 - the executable runs in ansi and opengl demo mode without crashing
 - the testing will continue until morale improves! but if you are sure it's a dead-end test, document why and mark it as a skip.
+
+## Agent Execution Patterns
+
+### Visual Agent Observation (tmux environments)
+
+When running in a tmux-enabled environment (oh-my-opencode with `tmux.enabled: true`), subagents spawn in **visible tmux panes**. This provides real-time observability of agent work.
+
+**Benefits:**
+- See agents thinking and working in parallel
+- Monitor progress without waiting for completion
+- Debug issues by watching agent output live
+- Understand what agents are actually doing
+
+**How it works:**
+- `delegate_task()` calls automatically spawn new tmux panes
+- Panes arrange in a grid (main pane left, agents right)
+- Panes auto-close when agent completes or times out
+- Multiple agents can run in parallel with visible progress
+
+**Best Practices:**
+
+1. **Prefer parallel exploration**: When gathering information, fire multiple explore/librarian agents simultaneously:
+   ```
+   delegate_task(subagent_type="explore", prompt="Find X...", run_in_background=true)
+   delegate_task(subagent_type="explore", prompt="Find Y...", run_in_background=true)
+   delegate_task(subagent_type="librarian", prompt="Lookup Z...", run_in_background=true)
+   ```
+   You'll see 3 panes appear and work in parallel.
+
+2. **Use interactive_bash for TUI apps**: For apps needing ongoing interaction (vim, htop, debuggers):
+   ```
+   interactive_bash(tmux_command="split-window -h 'htop'")
+   ```
+
+3. **Background vs foreground**: Use `run_in_background=true` for exploration while continuing conversation. Use `run_in_background=false` when you need the result before proceeding.
+
+**Note for non-tmux environments**: If tmux is not available (Cursor, VS Code, non-tmux terminal), agents still work but run invisibly. The same `delegate_task` patterns apply - you just won't see the visual panes.
