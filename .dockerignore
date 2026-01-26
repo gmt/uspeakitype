@@ -1,0 +1,17 @@
+# Build artifacts
+target/
+
+# Git
+.git/
+
+# IDE
+.idea/
+.vscode/
+
+# Test outputs
+test-output/
+
+# Sisyphus state
+.sisyphus/notepads/
+.sisyphus/drafts/
+.sisyphus/boulder.json

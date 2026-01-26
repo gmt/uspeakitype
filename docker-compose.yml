@@ -1,0 +1,28 @@
+services:
+  visual-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      # Mount source for faster iteration (optional)
+      # - .:/app
+      # Output directory for screenshots/artifacts
+      - ./test-output:/app/test-output
+    # Resource limits (visual tests are CPU-intensive with software rendering)
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+
+  # Optional: Interactive shell for debugging
+  shell:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+      - ./test-output:/app/test-output
+    entrypoint: /bin/bash
+    stdin_open: true
+    tty: true
