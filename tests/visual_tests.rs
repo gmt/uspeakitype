@@ -1,7 +1,80 @@
 mod visual;
 
+use std::path::PathBuf;
+
+fn fixtures_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("visual")
+        .join("fixtures")
+}
+
 #[test]
 #[ignore]
 fn test_compositor_detection() {
     println!("Compositor: {:?}", visual::screenshot::compositor_type());
+}
+
+#[test]
+#[ignore]
+fn test_hash_identical() {
+    let baseline = fixtures_dir().join("baseline.png");
+    let result = visual::comparison::compare_images(&baseline, &baseline)
+        .expect("Should compare images successfully");
+
+    assert_eq!(result.distance, 0, "Identical images must have distance 0");
+    assert!(result.passed, "Identical images must pass comparison");
+
+    println!(
+        "test_hash_identical: distance={}, passed={}",
+        result.distance, result.passed
+    );
+}
+
+#[test]
+#[ignore]
+fn test_hash_similar() {
+    let baseline = fixtures_dir().join("baseline.png");
+    let similar = fixtures_dir().join("baseline_similar.png");
+
+    let result = visual::comparison::compare_images(&baseline, &similar)
+        .expect("Should compare images successfully");
+
+    assert!(
+        result.distance > 0,
+        "Similar images should have non-zero distance"
+    );
+    assert!(
+        result.distance < visual::comparison::HASH_PASS_THRESHOLD,
+        "Similar images should have distance < {}",
+        visual::comparison::HASH_PASS_THRESHOLD
+    );
+    assert!(result.passed, "Similar images should pass comparison");
+
+    println!(
+        "test_hash_similar: distance={}, passed={}",
+        result.distance, result.passed
+    );
+}
+
+#[test]
+#[ignore]
+fn test_hash_different() {
+    let baseline = fixtures_dir().join("baseline.png");
+    let different = fixtures_dir().join("completely_different.png");
+
+    let result = visual::comparison::compare_images(&baseline, &different)
+        .expect("Should compare images successfully");
+
+    assert!(
+        result.distance > visual::comparison::HASH_PASS_THRESHOLD,
+        "Different images should have distance > {}",
+        visual::comparison::HASH_PASS_THRESHOLD
+    );
+    assert!(!result.passed, "Different images should fail comparison");
+
+    println!(
+        "test_hash_different: distance={}, passed={}",
+        result.distance, result.passed
+    );
 }
