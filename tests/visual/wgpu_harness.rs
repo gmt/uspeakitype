@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
+use std::sync::Once;
 use std::thread;
 use std::time::Duration;
 
@@ -13,6 +14,9 @@ use tempfile::TempDir;
 
 use crate::visual::comparison::{compare_images, CompareResult};
 use crate::visual::screenshot::capture_screenshot;
+use barbara::instance::find_instances;
+
+static CLEANUP_ONCE: Once = Once::new();
 
 pub struct WgpuTestHarness {
     child: Child,
@@ -21,20 +25,78 @@ pub struct WgpuTestHarness {
 
 impl WgpuTestHarness {
     /// Spawn Barbara with given args, isolated from user config
-    pub fn spawn(args: &[&str]) -> Result<Self> {
+    ///
+    /// # Arguments
+    /// * `args` - Command-line arguments (must not include `--tag`)
+    /// * `test_tag` - Unique tag for this test instance (e.g., "harness_spawn_capture")
+    ///
+    /// # Behavior
+    /// - Validates that `args` does not contain `--tag` (caller must use `test_tag` parameter)
+    /// - Runs cleanup once per process to kill stale test instances
+    /// - Adds `--tag visual-test-{test_tag}` and `--no-duplicate-tag` to args
+    pub fn spawn(args: &[&str], test_tag: &str) -> Result<Self> {
+        // Validate no --tag in args
+        for arg in args {
+            if arg.starts_with("--tag") {
+                panic!(
+                    "WgpuTestHarness::spawn: caller must not pass --tag; use test_tag parameter"
+                );
+            }
+        }
+
+        // Run cleanup once per process
+        CLEANUP_ONCE.call_once(|| {
+            Self::cleanup_all_test_instances();
+        });
+
         let temp_dir = tempfile::TempDir::new()?;
 
         // Isolate from user config
         let config_dir = temp_dir.path().join("config");
         std::fs::create_dir_all(&config_dir)?;
 
+        let tag = format!("visual-test-{}", test_tag);
+        let mut cmd_args = vec!["--tag", &tag, "--no-duplicate-tag"];
+        cmd_args.extend(args.iter());
+
         let child = Command::new(env!("CARGO_BIN_EXE_barbara"))
-            .args(args)
+            .args(&cmd_args)
             .env("XDG_CONFIG_HOME", &config_dir)
             .spawn()
             .context("failed to spawn barbara")?;
 
         Ok(Self { child, temp_dir })
+    }
+
+    /// Clean up all test instances with tags starting with "visual-test-"
+    ///
+    /// Kills processes and waits for /proc/{pid} to disappear (anti-flake).
+    fn cleanup_all_test_instances() {
+        let instances = find_instances(None);
+        let mut killed_pids = Vec::new();
+
+        for inst in instances {
+            if let Some(tag) = &inst.tag {
+                if tag.starts_with("visual-test-") {
+                    let _ = std::process::Command::new("kill")
+                        .args(["-9", &inst.pid.to_string()])
+                        .status();
+                    killed_pids.push(inst.pid);
+                }
+            }
+        }
+
+        // Wait for /proc/{pid} to disappear (anti-flake)
+        let deadline = std::time::Instant::now() + Duration::from_millis(500);
+        for pid in killed_pids {
+            let proc_path = format!("/proc/{}", pid);
+            while Path::new(&proc_path).exists() {
+                if std::time::Instant::now() > deadline {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
     }
 
     /// Wait for demo milestone (sleep exactly `seconds` - margin already included)

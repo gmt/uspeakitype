@@ -86,7 +86,8 @@ fn test_harness_spawn_and_capture() {
         eprintln!("Skipping: {}", visual::screenshot::skip_reason());
         return;
     }
-    let harness = visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"]).unwrap();
+    let harness =
+        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"], "harness_spawn_capture").unwrap();
     harness.wait_demo_milestone(3.0);
     let path = harness.capture("test_capture").unwrap();
     println!("Captured to: {:?}", path);
@@ -128,7 +129,7 @@ fn test_demo_partial_listening() {
     }
 
     let harness = try_or_skip!(
-        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"]),
+        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"], "demo_partial_listening"),
         "spawn"
     );
 
@@ -172,7 +173,7 @@ fn test_demo_committed_hello() {
     }
 
     let harness = try_or_skip!(
-        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"]),
+        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"], "demo_committed_hello"),
         "spawn"
     );
 
@@ -216,7 +217,7 @@ fn test_demo_twotone_streaming() {
     }
 
     let harness = try_or_skip!(
-        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"]),
+        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"], "demo_twotone_streaming"),
         "spawn"
     );
 
@@ -261,7 +262,10 @@ fn test_wgpu_transparency_half() {
 
     // Spawn with --transparency 0.5
     let harness = try_or_skip!(
-        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo", "--transparency", "0.5"]),
+        visual::wgpu_harness::WgpuTestHarness::spawn(
+            &["--demo", "--transparency", "0.5"],
+            "wgpu_transparency_half"
+        ),
         "spawn"
     );
 
@@ -305,7 +309,7 @@ fn test_wgpu_control_panel_full() {
     }
 
     let harness = try_or_skip!(
-        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"]),
+        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"], "wgpu_control_panel_full"),
         "spawn"
     );
 
