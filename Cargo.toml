@@ -58,6 +58,8 @@ resvg = "0.44"
 tempfile = "3.10"
 portable-pty = "0.8"
 vt100 = "0.15"
+image_hasher = "3.1"
+image = "0.25"
 
 [features]
 default = []
