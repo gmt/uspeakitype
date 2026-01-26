@@ -4,6 +4,7 @@ pub mod config;
 pub mod download;
 pub mod input;
 pub mod instance;
+pub mod logging;
 pub mod spectrum;
 pub mod streaming;
 pub mod ui;
