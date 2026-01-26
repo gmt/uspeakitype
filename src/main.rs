@@ -164,6 +164,22 @@ struct Args {
     /// Auto-start ydotoold daemon if needed
     #[arg(long)]
     autostart_ydotoold: bool,
+
+    /// Tag this instance for identification (shown in title, used for cleanup)
+    #[arg(long)]
+    tag: Option<String>,
+
+    /// Error and exit if another instance with same tag is running
+    #[arg(long)]
+    no_duplicate_tag: bool,
+
+    /// List running Barbara instances and exit
+    #[arg(long)]
+    list_instances: bool,
+
+    /// Use human-readable format for --list-instances
+    #[arg(long, short = 'H', requires = "list_instances")]
+    human: bool,
 }
 
 /// RAII guard to restore tmux pane size on drop
