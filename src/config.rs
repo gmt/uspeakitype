@@ -94,9 +94,9 @@ pub struct Config {
     #[serde(default)]
     pub model_dir: Option<PathBuf>,
 
-    /// Window transparency (0.0-1.0, default: 0.85)
-    #[serde(default = "default_transparency")]
-    pub transparency: f32,
+    /// Window opacity (0.0-1.0, default: 0.85)
+    #[serde(default = "default_opacity")]
+    pub opacity: f32,
 }
 
 impl Default for Config {
@@ -111,12 +111,12 @@ impl Default for Config {
             injection_enabled: true,
             auto_save: true,
             model_dir: None,
-            transparency: 0.85,
+            opacity: 0.85,
         }
     }
 }
 
-fn default_transparency() -> f32 {
+fn default_opacity() -> f32 {
     0.85
 }
 
@@ -222,7 +222,7 @@ mod tests {
             injection_enabled: false,
             auto_save: false,
             model_dir: Some(PathBuf::from("/tmp/models")),
-            transparency: 0.75,
+            opacity: 0.75,
         };
 
         // Save

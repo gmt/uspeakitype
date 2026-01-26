@@ -150,9 +150,9 @@ struct Args {
     #[arg(long)]
     model_dir: Option<PathBuf>,
 
-    /// Window transparency (0.0-1.0, default: 0.85)
+    /// Window opacity (0.0-1.0, default: 0.85)
     #[arg(long, default_value = "0.85")]
-    transparency: f32,
+    opacity: f32,
 
     /// Run visual test sequence in tmux (cycles through terminal sizes)
     #[arg(long)]
@@ -585,13 +585,13 @@ fn main() -> anyhow::Result<()> {
             SpectrogramStyle::Bars => SpectrogramMode::BarMeter,
             SpectrogramStyle::Waterfall => SpectrogramMode::Waterfall,
         };
-        let transparency = args.transparency.clamp(0.0, 1.0);
+        let opacity = args.opacity.clamp(0.0, 1.0);
         ui::run(
             audio_state,
             running,
             capture_control,
             mode,
-            transparency,
+            opacity,
             args.tag.clone(),
         );
     }
@@ -725,7 +725,7 @@ fn build_config_from_state(
         injection_enabled: state.injection_enabled,
         auto_save: panel.auto_save,
         model_dir: args.model_dir.clone(),
-        transparency: args.transparency.clamp(0.0, 1.0),
+        opacity: args.opacity.clamp(0.0, 1.0),
     }
 }
 

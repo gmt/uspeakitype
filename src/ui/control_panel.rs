@@ -10,7 +10,7 @@
 //! - Input injection toggle
 //! - Model selector
 //! - Auto-save toggle
-//! - Transparency slider (WGPU only)
+//! - Opacity slider (WGPU only)
 
 use crate::audio::CaptureControl;
 use crate::config::ModelVariant;
@@ -30,7 +30,7 @@ pub enum Control {
     InjectionToggle,
     ModelSelector,
     AutoSaveToggle,
-    TransparencySlider,
+    OpacitySlider,
 }
 
 impl Control {
@@ -45,12 +45,12 @@ impl Control {
         Control::InjectionToggle,
         Control::ModelSelector,
         Control::AutoSaveToggle,
-        Control::TransparencySlider,
+        Control::OpacitySlider,
     ];
 
     /// Returns true if this control is WGPU-only (not available in TUI)
     pub fn is_wgpu_only(&self) -> bool {
-        matches!(self, Control::TransparencySlider)
+        matches!(self, Control::OpacitySlider)
     }
 }
 
@@ -68,7 +68,7 @@ pub struct ControlPanelState {
     pub color_scheme_name: &'static str, // "flame", "ice", "mono"
     pub model: ModelVariant,
     pub auto_save: bool,
-    pub transparency: f32, // 0.5 to 1.0 (WGPU overlay only)
+    pub opacity: f32, // 0.5 to 1.0 (WGPU overlay only)
 }
 
 impl Default for ControlPanelState {
@@ -85,7 +85,7 @@ impl Default for ControlPanelState {
             color_scheme_name: "flame",
             model: ModelVariant::MoonshineBase,
             auto_save: true,
-            transparency: 0.85,
+            opacity: 0.85,
         }
     }
 }
@@ -145,8 +145,8 @@ impl ControlPanelState {
         self.auto_save = !self.auto_save;
     }
 
-    pub fn adjust_transparency(&mut self) {
-        self.transparency = match self.transparency {
+    pub fn adjust_opacity(&mut self) {
+        self.opacity = match self.opacity {
             t if t < 0.6 => 0.7,
             t if t < 0.8 => 0.85,
             t if t < 0.95 => 1.0,

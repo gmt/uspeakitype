@@ -28,14 +28,14 @@ pub fn run(
     running: Arc<AtomicBool>,
     capture_control: Option<Arc<CaptureControl>>,
     mode: SpectrogramMode,
-    transparency: f32,
+    opacity: f32,
     tag: Option<String>,
 ) {
     let event_loop = EventLoop::new().expect("Failed to create event loop");
 
     let mut control_panel = ControlPanelState::new();
     control_panel.viz_mode = mode;
-    control_panel.transparency = transparency;
+    control_panel.opacity = opacity;
 
     let app = Box::new(OverlayApp {
         renderers: HashMap::new(),
@@ -186,10 +186,10 @@ impl OverlayApp {
                 Control::AutoSaveToggle => {
                     self.control_panel.toggle_auto_save();
                 }
-                Control::TransparencySlider => {
-                    self.control_panel.adjust_transparency();
+                Control::OpacitySlider => {
+                    self.control_panel.adjust_opacity();
                     for renderer in self.renderers.values_mut() {
-                        renderer.set_transparency(self.control_panel.transparency);
+                        renderer.set_opacity(self.control_panel.opacity);
                     }
                 }
                 _ => {}
@@ -236,7 +236,7 @@ impl ApplicationHandler for OverlayApp {
             .expect("Failed to create window");
 
         let mut renderer = Renderer::new(window, self.audio_state.clone(), self.mode);
-        renderer.set_transparency(self.control_panel.transparency);
+        renderer.set_opacity(self.control_panel.opacity);
         let window_id = renderer.window.id();
         self.renderers.insert(window_id, renderer);
     }

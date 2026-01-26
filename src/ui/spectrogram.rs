@@ -35,6 +35,7 @@ pub struct Spectrogram {
 
     bar_data: Vec<f32>,
     target_bar_data: Vec<f32>,
+    opacity: f32,
 }
 
 #[repr(C)]
@@ -194,7 +195,7 @@ impl Spectrogram {
         };
 
         let instances =
-            Self::create_bar_instances(&bar_data, size, window_height, color_scheme.as_ref());
+            Self::create_bar_instances(&bar_data, size, window_height, color_scheme.as_ref(), 0.85);
         let buffer_size = (max_instances * std::mem::size_of::<BarInstance>()) as u64;
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Spectrogram Instances"),
@@ -218,6 +219,7 @@ impl Spectrogram {
             color_scheme,
             bar_data,
             target_bar_data,
+            opacity: 0.85,
         }
     }
 
@@ -252,6 +254,11 @@ impl Spectrogram {
         self.bar_data = vec![MIN_AMPLITUDE; num_bands];
         self.target_bar_data = vec![MIN_AMPLITUDE; num_bands];
 
+        self.update_instance_buffer();
+    }
+
+    pub fn set_opacity(&mut self, opacity: f32) {
+        self.opacity = opacity.clamp(0.0, 1.0);
         self.update_instance_buffer();
     }
 
@@ -322,12 +329,14 @@ impl Spectrogram {
                 self.size,
                 self.window_height,
                 self.color_scheme.as_ref(),
+                self.opacity,
             ),
             SpectrogramMode::Waterfall => Self::create_waterfall_instances(
                 &self.history,
                 self.size,
                 self.window_height,
                 self.color_scheme.as_ref(),
+                self.opacity,
             ),
         };
         self.queue
@@ -339,6 +348,7 @@ impl Spectrogram {
         size: PhysicalSize<u32>,
         window_height: u32,
         color_scheme: &dyn ColorScheme,
+        opacity: f32,
     ) -> Vec<BarInstance> {
         let num_bars = bar_data.len();
         let bar_width = 2.0 / num_bars as f32;
@@ -362,7 +372,7 @@ impl Spectrogram {
                 };
 
                 let color = color_scheme.color_for_intensity(intensity);
-                let alpha = (intensity * edge_factor).max(MIN_OPACITY);
+                let alpha = (intensity * edge_factor).max(MIN_OPACITY) * opacity;
 
                 BarInstance {
                     position: [x, base_y],
@@ -378,6 +388,7 @@ impl Spectrogram {
         size: PhysicalSize<u32>,
         window_height: u32,
         color_scheme: &dyn ColorScheme,
+        opacity: f32,
     ) -> Vec<BarInstance> {
         let width = size.width as usize;
         let num_bands = history.num_bands();
@@ -414,7 +425,7 @@ impl Spectrogram {
                 instances.push(BarInstance {
                     position: [x, y],
                     size: [cell_width, cell_height],
-                    color: [color.r, color.g, color.b, intensity.max(0.3)],
+                    color: [color.r, color.g, color.b, intensity.max(0.3) * opacity],
                 });
             }
         }

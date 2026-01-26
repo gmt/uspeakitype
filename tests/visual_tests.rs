@@ -140,11 +140,11 @@ fn measure_pink_bleedthrough(image: &image::RgbaImage, region: (u32, u32, u32, u
     pink_score / count as f32
 }
 
-/// Test that transparency CLI flag actually affects rendering
+/// Test that opacity CLI flag actually affects rendering
 /// and verify directional semantics (higher = more opaque)
 #[test]
 #[ignore] // Visual test - requires compositor
-fn test_transparency_directional() {
+fn test_opacity_directional() {
     if !visual::screenshot::screenshot_available() {
         if is_canonical() {
             panic!("CANONICAL: {}", visual::screenshot::skip_reason());
@@ -159,36 +159,27 @@ fn test_transparency_directional() {
         .args(["output", "*", "background", "#FF1493", "solid_color"])
         .status();
 
-    // Capture at three transparency levels
+    // Capture at three opacity levels
     let harness_75 = try_or_skip!(
-        visual::wgpu_harness::WgpuTestHarness::spawn(
-            &["--demo", "--transparency", "0.75"],
-            "trans_75"
-        ),
+        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo", "--opacity", "0.75"], "opac_75"),
         "spawn 0.75"
     );
     harness_75.wait_demo_milestone(3.0);
-    let capture_75 = try_or_skip!(harness_75.capture("trans_75"), "capture 0.75");
+    let capture_75 = try_or_skip!(harness_75.capture("opac_75"), "capture 0.75");
 
     let harness_85 = try_or_skip!(
-        visual::wgpu_harness::WgpuTestHarness::spawn(
-            &["--demo", "--transparency", "0.85"],
-            "trans_85"
-        ),
+        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo", "--opacity", "0.85"], "opac_85"),
         "spawn 0.85"
     );
     harness_85.wait_demo_milestone(3.0);
-    let capture_85 = try_or_skip!(harness_85.capture("trans_85"), "capture 0.85");
+    let capture_85 = try_or_skip!(harness_85.capture("opac_85"), "capture 0.85");
 
     let harness_95 = try_or_skip!(
-        visual::wgpu_harness::WgpuTestHarness::spawn(
-            &["--demo", "--transparency", "0.95"],
-            "trans_95"
-        ),
+        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo", "--opacity", "0.95"], "opac_95"),
         "spawn 0.95"
     );
     harness_95.wait_demo_milestone(3.0);
-    let capture_95 = try_or_skip!(harness_95.capture("trans_95"), "capture 0.95");
+    let capture_95 = try_or_skip!(harness_95.capture("opac_95"), "capture 0.95");
 
     // Load images for pink measurement
     let image_75 = try_or_skip!(
@@ -213,12 +204,12 @@ fn test_transparency_directional() {
     let pink_95 = measure_pink_bleedthrough(&image_95, region);
 
     println!("Pink bleedthrough measurements:");
-    println!("  75% transparency: {:.4}", pink_75);
-    println!("  85% transparency: {:.4}", pink_85);
-    println!("  95% transparency: {:.4}", pink_95);
+    println!("  75% opacity: {:.4}", pink_75);
+    println!("  85% opacity: {:.4}", pink_85);
+    println!("  95% opacity: {:.4}", pink_95);
 
     // Directional assertions:
-    // Lower transparency value = more transparent = MORE pink visible
+    // Lower opacity value = more transparent = MORE pink visible
     assert!(
         pink_75 > pink_85,
         "75% should show MORE pink than 85% (more transparent)\n\
@@ -243,14 +234,14 @@ fn test_transparency_directional() {
         diff_75_95
     );
 
-    println!("PASS: Transparency directional test");
+    println!("PASS: Opacity directional test");
     println!("  Semantics confirmed: higher value = more opaque = less pink");
 }
 
 /// Test extreme transparency - should show almost all background
 #[test]
 #[ignore] // Visual test - requires compositor
-fn test_transparency_extreme_transparent() {
+fn test_opacity_extreme_transparent() {
     if !visual::screenshot::screenshot_available() {
         if is_canonical() {
             panic!("CANONICAL: {}", visual::screenshot::skip_reason());
@@ -265,16 +256,13 @@ fn test_transparency_extreme_transparent() {
         .args(["output", "*", "background", "#FF1493", "solid_color"])
         .status();
 
-    // 0.1% transparency = nearly invisible overlay
+    // 0.1% opacity = nearly invisible overlay
     let harness = try_or_skip!(
-        visual::wgpu_harness::WgpuTestHarness::spawn(
-            &["--demo", "--transparency", "0.001"],
-            "trans_001"
-        ),
+        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo", "--opacity", "0.001"], "opac_001"),
         "spawn 0.001"
     );
     harness.wait_demo_milestone(3.0);
-    let capture = try_or_skip!(harness.capture("trans_001"), "capture 0.001");
+    let capture = try_or_skip!(harness.capture("opac_001"), "capture 0.001");
 
     let image = try_or_skip!(
         image::open(&capture).map(|img| img.to_rgba8()),
@@ -284,14 +272,14 @@ fn test_transparency_extreme_transparent() {
     let region = (100, 800, 1720, 200);
     let pink = measure_pink_bleedthrough(&image, region);
 
-    println!("Extreme transparency (0.1%):");
+    println!("Extreme opacity (0.1%):");
     println!("  Pink bleedthrough: {:.4}", pink);
 
     // Should be very high - almost pure pink showing through
     // Threshold: at least 70% pink visible
     assert!(
         pink > 0.70,
-        "0.1% transparency should show mostly background (>70% pink)\n\
+        "0.1% opacity should show mostly background (>70% pink)\n\
          Got: {:.4}",
         pink
     );
@@ -305,7 +293,7 @@ fn test_transparency_extreme_transparent() {
 /// Test extreme opacity - should show almost no background
 #[test]
 #[ignore] // Visual test - requires compositor
-fn test_transparency_extreme_opaque() {
+fn test_opacity_extreme_opaque() {
     if !visual::screenshot::screenshot_available() {
         if is_canonical() {
             panic!("CANONICAL: {}", visual::screenshot::skip_reason());
@@ -320,16 +308,13 @@ fn test_transparency_extreme_opaque() {
         .args(["output", "*", "background", "#FF1493", "solid_color"])
         .status();
 
-    // 99.9% transparency = nearly solid overlay
+    // 99.9% opacity = nearly solid overlay
     let harness = try_or_skip!(
-        visual::wgpu_harness::WgpuTestHarness::spawn(
-            &["--demo", "--transparency", "0.999"],
-            "trans_999"
-        ),
+        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo", "--opacity", "0.999"], "opac_999"),
         "spawn 0.999"
     );
     harness.wait_demo_milestone(3.0);
-    let capture = try_or_skip!(harness.capture("trans_999"), "capture 0.999");
+    let capture = try_or_skip!(harness.capture("opac_999"), "capture 0.999");
 
     let image = try_or_skip!(
         image::open(&capture).map(|img| img.to_rgba8()),
@@ -346,7 +331,7 @@ fn test_transparency_extreme_opaque() {
     // Threshold: less than 10% pink visible
     assert!(
         pink < 0.10,
-        "99.9% transparency should show almost no background (<10% pink)\n\
+        "99.9% opacity should show almost no background (<10% pink)\n\
          Got: {:.4}",
         pink
     );
@@ -488,7 +473,7 @@ fn test_demo_twotone_streaming() {
 
 #[test]
 #[ignore]
-fn test_wgpu_transparency_half() {
+fn test_wgpu_opacity_half() {
     if !visual::screenshot::screenshot_available() {
         if is_canonical() {
             panic!("CANONICAL: {}", visual::screenshot::skip_reason());
@@ -498,21 +483,21 @@ fn test_wgpu_transparency_half() {
         }
     }
 
-    // Spawn with --transparency 0.5
+    // Spawn with --opacity 0.5
     let harness = try_or_skip!(
         visual::wgpu_harness::WgpuTestHarness::spawn(
-            &["--demo", "--transparency", "0.5"],
-            "wgpu_transparency_half"
+            &["--demo", "--opacity", "0.5"],
+            "wgpu_opacity_half"
         ),
         "spawn"
     );
 
     harness.wait_demo_milestone(3.0); // Wait for stable render
 
-    let capture = try_or_skip!(harness.capture("transparency_half"), "capture");
+    let capture = try_or_skip!(harness.capture("opacity_half"), "capture");
 
     let result = try_or_skip!(
-        harness.compare_golden(&capture, "wgpu_transparency_half.png"),
+        harness.compare_golden(&capture, "wgpu_opacity_half.png"),
         "golden comparison"
     );
 
@@ -531,7 +516,7 @@ fn test_wgpu_transparency_half() {
         }
     }
 
-    println!("PASS: transparency test distance={}", result.distance);
+    println!("PASS: opacity test distance={}", result.distance);
 }
 
 #[test]
