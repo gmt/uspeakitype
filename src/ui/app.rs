@@ -29,6 +29,7 @@ pub fn run(
     capture_control: Option<Arc<CaptureControl>>,
     mode: SpectrogramMode,
     transparency: f32,
+    tag: Option<String>,
 ) {
     let event_loop = EventLoop::new().expect("Failed to create event loop");
 
@@ -44,6 +45,7 @@ pub fn run(
         mouse_position: None,
         mode,
         control_panel,
+        tag,
     });
 
     event_loop
@@ -59,6 +61,7 @@ struct OverlayApp {
     mouse_position: Option<(f64, f64)>,
     mode: SpectrogramMode,
     control_panel: ControlPanelState,
+    tag: Option<String>,
 }
 
 impl OverlayApp {
@@ -226,7 +229,8 @@ impl ApplicationHandler for OverlayApp {
             return;
         };
 
-        let window_attrs = create_window_attributes(event_loop, &mode, &monitor);
+        let window_attrs =
+            create_window_attributes(event_loop, &mode, &monitor, self.tag.as_deref());
         let window = event_loop
             .create_window(window_attrs)
             .expect("Failed to create window");
@@ -334,6 +338,7 @@ fn create_window_attributes(
     event_loop: &dyn ActiveEventLoop,
     mode: &VideoMode,
     monitor: &winit::monitor::MonitorHandle,
+    tag: Option<&str>,
 ) -> WindowAttributes {
     let monitor_size = mode.size();
     let window_width = (monitor_size.width as f32 * 0.25) as u32;
@@ -341,11 +346,16 @@ fn create_window_attributes(
 
     let size = PhysicalSize::new(window_width.max(300), window_height.max(80));
 
+    let title = match tag {
+        Some(t) => format!("Barbara [{}]", t),
+        None => "Barbara".to_string(),
+    };
+
     let mut attrs = WindowAttributes::default()
         .with_decorations(false)
         .with_transparent(true)
         .with_surface_size(size)
-        .with_title("Barbara")
+        .with_title(title)
         .with_resizable(false);
 
     if event_loop.is_wayland() {

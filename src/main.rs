@@ -584,7 +584,14 @@ fn main() -> anyhow::Result<()> {
             SpectrogramStyle::Waterfall => SpectrogramMode::Waterfall,
         };
         let transparency = config.transparency;
-        ui::run(audio_state, running, capture_control, mode, transparency);
+        ui::run(
+            audio_state,
+            running,
+            capture_control,
+            mode,
+            transparency,
+            args.tag.clone(),
+        );
     }
 
     Ok(())
