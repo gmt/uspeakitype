@@ -212,8 +212,42 @@ jobs:
           cargo test --release --test visual_tests -- --ignored --nocapture --test-threads=1
           
           # Cleanup
-          kill $SWAY_PID 2>/dev/null || true
-          rm -rf "$XDG_CONFIG_HOME"
+           kill $SWAY_PID 2>/dev/null || true
+           rm -rf "$XDG_CONFIG_HOME"
+```
+
+## Docker Testing (Recommended for CI)
+
+The Docker environment provides reproducible visual testing with software rendering.
+
+### Quick Start
+
+```bash
+# Build and run all visual tests
+docker compose run visual-tests
+
+# Interactive shell for debugging
+docker compose run shell
+
+# Run specific test
+docker compose run visual-tests cargo test --release --test visual_tests test_demo_partial_listening -- --ignored --nocapture
+```
+
+### Environment
+
+The Docker image uses:
+- Debian Bookworm (slim)
+- Headless Sway compositor
+- Software rendering (pixman + lavapipe)
+- Fixed fonts (DejaVu, Liberation)
+- 1920x1080 @ 1x scale
+
+### Regenerating Golden Images
+
+If golden images need updating for the Docker environment:
+
+```bash
+docker compose run shell bash tests/visual/scripts/capture_goldens.sh
 ```
 
 ## How to Update Golden Images
