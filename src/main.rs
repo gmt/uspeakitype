@@ -11,7 +11,7 @@ use terminal_size::{terminal_size, Height, Width};
 
 use barbara::audio::{self, AudioCapture, CaptureConfig, CaptureControl};
 use barbara::config::{Config, ModelVariant};
-use barbara::instance::find_duplicate_tag;
+use barbara::instance::{find_duplicate_tag, find_instances};
 use barbara::spectrum::get_color_scheme;
 use barbara::ui;
 use barbara::ui::spectrogram::SpectrogramMode;
@@ -273,6 +273,43 @@ fn main() -> anyhow::Result<()> {
 
     if args.test_fireworks {
         return run_fireworks_test();
+    }
+
+    if args.list_instances {
+        let instances = find_instances(None);
+        if instances.is_empty() {
+            if !args.human {
+                // Machine: no output for empty
+            } else {
+                println!("No Barbara instances running");
+            }
+        } else if args.human {
+            println!("{:<10} {}", "PID", "TAG");
+            for inst in &instances {
+                let tag_display = match &inst.tag {
+                    None => "(untagged)",
+                    Some(t) if t.is_empty() => "(empty)",
+                    Some(t) => t.as_str(),
+                };
+                println!("{:<10} {}", inst.pid, tag_display);
+            }
+        } else {
+            for inst in &instances {
+                let tag = inst
+                    .tag
+                    .as_deref()
+                    .map(|t| {
+                        // Escape control characters
+                        t.replace('\\', "\\\\")
+                            .replace('\t', "\\t")
+                            .replace('\n', "\\n")
+                            .replace('\r', "\\r")
+                    })
+                    .unwrap_or_default(); // None and Some("") both become ""
+                println!("{}\t{}", inst.pid, tag);
+            }
+        }
+        std::process::exit(0);
     }
 
     let model_dir = args
