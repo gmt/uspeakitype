@@ -234,13 +234,14 @@ pub struct TerminalVisualizer {
     injection_enabled: bool,
     download_progress: Option<f32>,
     panel_open: bool,
+    tag: Option<String>,
     ratatui_terminal: Option<RatatuiTerminal<CrosstermBackend<std::io::Stdout>>>,
 }
 
 const BOTTOM_MARGIN: usize = 2;
 
 impl TerminalVisualizer {
-    pub fn new(config: TerminalConfig) -> Self {
+    pub fn new(config: TerminalConfig, tag: Option<String>) -> Self {
         let num_bands = match config.mode {
             TerminalMode::BarMeter => config.width,
             TerminalMode::Waterfall => config.height,
@@ -283,6 +284,7 @@ impl TerminalVisualizer {
             injection_enabled: true,
             download_progress: None,
             panel_open: false,
+            tag,
             ratatui_terminal: None,
         }
     }
@@ -602,7 +604,7 @@ impl TerminalVisualizer {
                     .label(format!("Downloading model... {}%", pct));
                 frame.render_widget(gauge, status_area);
             } else {
-                let status_widget = StatusWidget::new(status_info)
+                let status_widget = StatusWidget::new(status_info, self.tag.clone())
                     .paused(is_paused)
                     .speaking(is_speaking);
                 frame.render_widget(status_widget, status_area);
@@ -752,7 +754,7 @@ mod tests {
             term_width: 80,
             term_height: 24,
         };
-        let mut visualizer = TerminalVisualizer::new(config);
+        let mut visualizer = TerminalVisualizer::new(config, None);
 
         // Resize from 80x24 to 120x40
         visualizer.resize(120, 40);
@@ -773,7 +775,7 @@ mod tests {
             term_width: 80,
             term_height: 24,
         };
-        let mut visualizer = TerminalVisualizer::new(config);
+        let mut visualizer = TerminalVisualizer::new(config, None);
 
         // Save original box_left value
         let original_box_left = visualizer.box_left;
@@ -796,7 +798,7 @@ mod tests {
             term_width: 80,
             term_height: 24,
         };
-        let mut visualizer = TerminalVisualizer::new(config);
+        let mut visualizer = TerminalVisualizer::new(config, None);
 
         // Resize to degenerate dimensions (20x6 is below threshold: 25 cols or 8 rows)
         visualizer.resize(20, 6);

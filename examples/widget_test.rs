@@ -221,10 +221,13 @@ fn main() -> io::Result<()> {
                 f.render_widget(waterfall_widget, inner2);
             }
 
-            let status_widget = StatusWidget::new(StatusInfo::Live {
-                sample_rate: 16000,
-                channels: 1,
-            })
+            let status_widget = StatusWidget::new(
+                StatusInfo::Live {
+                    sample_rate: 16000,
+                    channels: 1,
+                },
+                None,
+            )
             .paused(app.paused);
             f.render_widget(status_widget, chunks[2]);
 

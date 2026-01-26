@@ -18,14 +18,16 @@ pub struct StatusWidget {
     pub info: StatusInfo,
     pub is_paused: bool,
     pub is_speaking: bool,
+    pub tag: Option<String>,
 }
 
 impl StatusWidget {
-    pub fn new(info: StatusInfo) -> Self {
+    pub fn new(info: StatusInfo, tag: Option<String>) -> Self {
         Self {
             info,
             is_paused: false,
             is_speaking: false,
+            tag,
         }
     }
 
@@ -46,6 +48,14 @@ impl StatusWidget {
             ("●", Color::Red)
         } else {
             ("▶", Color::Green)
+        }
+    }
+
+    fn build_prefix(&self) -> String {
+        match &self.tag {
+            Some(t) if !t.is_empty() => format!("Barbara [{}] ", t),
+            Some(_) => "Barbara [] ".to_string(),
+            None => "Barbara ".to_string(),
         }
     }
 
@@ -96,18 +106,46 @@ impl Widget for StatusWidget {
         }
 
         let (icon, color) = self.icon_and_color();
-        let candidates = self.build_candidates();
-        let rest = self.select_candidate(&candidates, icon.chars().count(), area.width as usize);
+        let icon_len = icon.chars().count();
+        let prefix = self.build_prefix();
+        let prefix_len = prefix.chars().count();
+        let max_width = area.width as usize;
 
-        if rest.is_empty() {
+        // Try full prefix + icon + best candidate
+        let candidates = self.build_candidates();
+        let rest = self.select_candidate(&candidates, icon_len + prefix_len, max_width);
+
+        if !rest.is_empty() {
+            // Full prefix fits
+            let line = Line::from(vec![
+                Span::raw(prefix),
+                Span::styled(icon, Style::default().fg(color)),
+                Span::styled(rest, Style::default().fg(Color::DarkGray)),
+            ]);
+            let paragraph = Paragraph::new(line).alignment(Alignment::Center);
+            paragraph.render(area, buf);
             return;
         }
 
-        let line = Line::from(vec![
-            Span::styled(icon, Style::default().fg(color)),
-            Span::styled(rest, Style::default().fg(Color::DarkGray)),
-        ]);
+        // Full prefix doesn't fit, try without tag (just "Barbara ")
+        let fallback_prefix = "Barbara ";
+        let fallback_prefix_len = fallback_prefix.chars().count();
+        let rest = self.select_candidate(&candidates, icon_len + fallback_prefix_len, max_width);
 
+        if !rest.is_empty() {
+            // Fallback prefix fits
+            let line = Line::from(vec![
+                Span::raw(fallback_prefix),
+                Span::styled(icon, Style::default().fg(color)),
+                Span::styled(rest, Style::default().fg(Color::DarkGray)),
+            ]);
+            let paragraph = Paragraph::new(line).alignment(Alignment::Center);
+            paragraph.render(area, buf);
+            return;
+        }
+
+        // Minimum: just icon
+        let line = Line::from(vec![Span::styled(icon, Style::default().fg(color))]);
         let paragraph = Paragraph::new(line).alignment(Alignment::Center);
         paragraph.render(area, buf);
     }

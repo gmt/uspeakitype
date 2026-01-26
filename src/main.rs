@@ -254,7 +254,7 @@ fn run_fireworks_test() -> anyhow::Result<()> {
             term_height: *height as usize,
         };
 
-        let mut visualizer = TerminalVisualizer::new(config);
+        let mut visualizer = TerminalVisualizer::new(config, None);
         visualizer.init_terminal()?;
         visualizer.process_and_render()?;
 
@@ -816,7 +816,7 @@ fn run_terminal_loop(
         term_height,
     };
 
-    let mut visualizer = TerminalVisualizer::new(terminal_config);
+    let mut visualizer = TerminalVisualizer::new(terminal_config, args.tag.clone());
 
     let color_name = match args.color {
         ColorSchemeName::Flame => "flame",
