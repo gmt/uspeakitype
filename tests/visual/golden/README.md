@@ -63,11 +63,20 @@ The CI pipeline will capture goldens automatically in a headless environment.
 
 ## Current Golden Files
 
+### Demo Mode Goldens
+
 | File | Capture Time | Expected Content | Status |
 |------|--------------|------------------|--------|
 | `demo_partial_listening.png` | t=3.0s | Gray "Listening..." text | ✓ Captured (5120x1440, KDE) |
 | `demo_committed_hello.png` | t=5.5s | White "Hello world" text | ✓ Captured (5120x1440, KDE) |
 | `demo_twotone_streaming.png` | t=7.5s | White committed + Gray partial text | ✓ Captured (5120x1440, KDE) |
+
+### WGPU Enhancement Goldens
+
+| File | Capture Time | Expected Content | Status |
+|------|--------------|------------------|--------|
+| `wgpu_transparency_half.png` | t=3.0s | Window at 50% transparency | ✓ Captured (5120x1440, KDE) |
+| `wgpu_control_panel_full.png` | t=3.0s | Control panel with all 10 controls | ✓ Captured (5120x1440, KDE) |
 
 ### Capture Details
 
@@ -86,15 +95,23 @@ For canonical CI goldens at 1920x1080, use the headless Sway capture script (see
 Current images:
 ```bash
 $ file tests/visual/golden/*.png
-demo_committed_hello.png:   PNG image data, 5120 x 1440, 8-bit/color RGBA, non-interlaced
-demo_partial_listening.png: PNG image data, 5120 x 1440, 8-bit/color RGBA, non-interlaced
-demo_twotone_streaming.png: PNG image data, 5120 x 1440, 8-bit/color RGBA, non-interlaced
+demo_committed_hello.png:        PNG image data, 5120 x 1440, 8-bit/color RGBA, non-interlaced
+demo_partial_listening.png:      PNG image data, 5120 x 1440, 8-bit/color RGBA, non-interlaced
+demo_twotone_streaming.png:      PNG image data, 5120 x 1440, 8-bit/color RGBA, non-interlaced
+wgpu_control_panel_full.png:     PNG image data, 5120 x 1440, 8-bit/color RGBA, non-interlaced
+wgpu_transparency_half.png:      PNG image data, 5120 x 1440, 8-bit/color RGBA, non-interlaced
 ```
 
 Visual inspection should show:
+
+**Demo mode goldens:**
 - Barbara's overlay window with spectrogram at bottom
 - Text in correct color (gray for partial, white for committed)
 - Transparent background (overlay composited over desktop)
+
+**WGPU enhancement goldens:**
+- `wgpu_transparency_half.png`: Window at 50% transparency (more background visible)
+- `wgpu_control_panel_full.png`: Control panel visible with all 10 controls including TransparencySlider
 
 **Note:** For canonical CI goldens, expect:
 - Resolution: 1920 x 1080
