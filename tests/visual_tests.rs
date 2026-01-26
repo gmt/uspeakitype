@@ -116,6 +116,137 @@ macro_rules! try_or_skip {
     };
 }
 
+/// Measure "pinkness" of an image region
+/// Hot pink is RGB(255, 20, 147) - high R, low G, high B
+/// Returns average pink score (0.0 = no pink, 1.0 = pure hot pink)
+fn measure_pink_bleedthrough(image: &image::RgbaImage, region: (u32, u32, u32, u32)) -> f32 {
+    let (x, y, w, h) = region;
+    let mut pink_score = 0.0;
+    let mut count = 0;
+
+    for py in y..(y + h) {
+        for px in x..(x + w) {
+            let pixel = image.get_pixel(px, py);
+            let r = pixel[0] as f32 / 255.0;
+            let g = pixel[1] as f32 / 255.0;
+            let b = pixel[2] as f32 / 255.0;
+
+            let score = ((r - g) + (b - g)).max(0.0) / 2.0;
+            pink_score += score;
+            count += 1;
+        }
+    }
+
+    pink_score / count as f32
+}
+
+/// Test that transparency CLI flag actually affects rendering
+/// and verify directional semantics (higher = more opaque)
+#[test]
+#[ignore] // Visual test - requires compositor
+fn test_transparency_directional() {
+    if !visual::screenshot::screenshot_available() {
+        if is_canonical() {
+            panic!("CANONICAL: {}", visual::screenshot::skip_reason());
+        } else {
+            eprintln!("Skipping: {}", visual::screenshot::skip_reason());
+            return;
+        }
+    }
+
+    // Set hot pink background (in Docker/headless Sway)
+    let _ = std::process::Command::new("swaymsg")
+        .args(["output", "*", "background", "#FF1493", "solid_color"])
+        .status();
+
+    // Capture at three transparency levels
+    let harness_75 = try_or_skip!(
+        visual::wgpu_harness::WgpuTestHarness::spawn(
+            &["--demo", "--transparency", "0.75"],
+            "trans_75"
+        ),
+        "spawn 0.75"
+    );
+    harness_75.wait_demo_milestone(3.0);
+    let capture_75 = try_or_skip!(harness_75.capture("trans_75"), "capture 0.75");
+
+    let harness_85 = try_or_skip!(
+        visual::wgpu_harness::WgpuTestHarness::spawn(
+            &["--demo", "--transparency", "0.85"],
+            "trans_85"
+        ),
+        "spawn 0.85"
+    );
+    harness_85.wait_demo_milestone(3.0);
+    let capture_85 = try_or_skip!(harness_85.capture("trans_85"), "capture 0.85");
+
+    let harness_95 = try_or_skip!(
+        visual::wgpu_harness::WgpuTestHarness::spawn(
+            &["--demo", "--transparency", "0.95"],
+            "trans_95"
+        ),
+        "spawn 0.95"
+    );
+    harness_95.wait_demo_milestone(3.0);
+    let capture_95 = try_or_skip!(harness_95.capture("trans_95"), "capture 0.95");
+
+    // Load images for pink measurement
+    let image_75 = try_or_skip!(
+        image::open(&capture_75).map(|img| img.to_rgba8()),
+        "load image 0.75"
+    );
+    let image_85 = try_or_skip!(
+        image::open(&capture_85).map(|img| img.to_rgba8()),
+        "load image 0.85"
+    );
+    let image_95 = try_or_skip!(
+        image::open(&capture_95).map(|img| img.to_rgba8()),
+        "load image 0.95"
+    );
+
+    // Measure pink in Barbara's window region
+    // (adjust region based on actual window position)
+    let region = (100, 800, 1720, 200); // x, y, w, h - bottom overlay area
+
+    let pink_75 = measure_pink_bleedthrough(&image_75, region);
+    let pink_85 = measure_pink_bleedthrough(&image_85, region);
+    let pink_95 = measure_pink_bleedthrough(&image_95, region);
+
+    println!("Pink bleedthrough measurements:");
+    println!("  75% transparency: {:.4}", pink_75);
+    println!("  85% transparency: {:.4}", pink_85);
+    println!("  95% transparency: {:.4}", pink_95);
+
+    // Directional assertions:
+    // Lower transparency value = more transparent = MORE pink visible
+    assert!(
+        pink_75 > pink_85,
+        "75% should show MORE pink than 85% (more transparent)\n\
+         Got: 75%={:.4}, 85%={:.4}",
+        pink_75,
+        pink_85
+    );
+    assert!(
+        pink_85 > pink_95,
+        "85% should show MORE pink than 95% (95% is more opaque)\n\
+         Got: 85%={:.4}, 95%={:.4}",
+        pink_85,
+        pink_95
+    );
+
+    // Verify they're actually different (not all same due to bug)
+    let diff_75_95 = (pink_75 - pink_95).abs();
+    assert!(
+        diff_75_95 > 0.05,
+        "75% and 95% should be measurably different\n\
+         Got difference: {:.4} (expected > 0.05)",
+        diff_75_95
+    );
+
+    println!("PASS: Transparency directional test");
+    println!("  Semantics confirmed: higher value = more opaque = less pink");
+}
+
 #[test]
 #[ignore]
 fn test_demo_partial_listening() {
