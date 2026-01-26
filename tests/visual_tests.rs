@@ -78,3 +78,17 @@ fn test_hash_different() {
         result.distance, result.passed
     );
 }
+
+#[test]
+#[ignore]
+fn test_harness_spawn_and_capture() {
+    if !visual::screenshot::screenshot_available() {
+        eprintln!("Skipping: {}", visual::screenshot::skip_reason());
+        return;
+    }
+    let harness = visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"]).unwrap();
+    harness.wait_demo_milestone(3.0);
+    let path = harness.capture("test_capture").unwrap();
+    println!("Captured to: {:?}", path);
+    assert!(path.exists(), "Screenshot file should exist");
+}
