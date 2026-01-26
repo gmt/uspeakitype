@@ -246,3 +246,92 @@ fn test_demo_twotone_streaming() {
 
     println!("PASS: distance={}", result.distance);
 }
+
+#[test]
+#[ignore]
+fn test_wgpu_transparency_half() {
+    if !visual::screenshot::screenshot_available() {
+        if is_canonical() {
+            panic!("CANONICAL: {}", visual::screenshot::skip_reason());
+        } else {
+            eprintln!("Skipping: {}", visual::screenshot::skip_reason());
+            return;
+        }
+    }
+
+    // Spawn with --transparency 0.5
+    let harness = try_or_skip!(
+        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo", "--transparency", "0.5"]),
+        "spawn"
+    );
+
+    harness.wait_demo_milestone(3.0); // Wait for stable render
+
+    let capture = try_or_skip!(harness.capture("transparency_half"), "capture");
+
+    let result = try_or_skip!(
+        harness.compare_golden(&capture, "wgpu_transparency_half.png"),
+        "golden comparison"
+    );
+
+    if !result.passed {
+        if is_canonical() {
+            panic!(
+                "CANONICAL: screenshot differs: distance={}",
+                result.distance
+            );
+        } else {
+            eprintln!(
+                "Skipping: hash mismatch (non-canonical): distance={}",
+                result.distance
+            );
+            return;
+        }
+    }
+
+    println!("PASS: transparency test distance={}", result.distance);
+}
+
+#[test]
+#[ignore]
+fn test_wgpu_control_panel_full() {
+    if !visual::screenshot::screenshot_available() {
+        if is_canonical() {
+            panic!("CANONICAL: {}", visual::screenshot::skip_reason());
+        } else {
+            eprintln!("Skipping: {}", visual::screenshot::skip_reason());
+            return;
+        }
+    }
+
+    let harness = try_or_skip!(
+        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"]),
+        "spawn"
+    );
+
+    harness.wait_demo_milestone(3.0); // Wait for control panel render
+
+    let capture = try_or_skip!(harness.capture("control_panel_full"), "capture");
+
+    let result = try_or_skip!(
+        harness.compare_golden(&capture, "wgpu_control_panel_full.png"),
+        "golden comparison"
+    );
+
+    if !result.passed {
+        if is_canonical() {
+            panic!(
+                "CANONICAL: screenshot differs: distance={}",
+                result.distance
+            );
+        } else {
+            eprintln!(
+                "Skipping: hash mismatch (non-canonical): distance={}",
+                result.distance
+            );
+            return;
+        }
+    }
+
+    println!("PASS: control panel test distance={}", result.distance);
+}
