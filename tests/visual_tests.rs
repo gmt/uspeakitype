@@ -92,3 +92,157 @@ fn test_harness_spawn_and_capture() {
     println!("Captured to: {:?}", path);
     assert!(path.exists(), "Screenshot file should exist");
 }
+
+/// Check if running in canonical test environment
+fn is_canonical() -> bool {
+    std::env::var("BARBARA_CANONICAL_TEST_ENV").is_ok()
+}
+
+/// Handle errors: fail in canonical, skip in non-canonical
+macro_rules! try_or_skip {
+    ($expr:expr, $msg:expr) => {
+        match $expr {
+            Ok(v) => v,
+            Err(e) => {
+                if is_canonical() {
+                    panic!("CANONICAL: {} failed: {}", $msg, e);
+                } else {
+                    eprintln!("Skipping: {} failed: {}", $msg, e);
+                    return;
+                }
+            }
+        }
+    };
+}
+
+#[test]
+#[ignore]
+fn test_demo_partial_listening() {
+    if !visual::screenshot::screenshot_available() {
+        if is_canonical() {
+            panic!("CANONICAL: {}", visual::screenshot::skip_reason());
+        } else {
+            eprintln!("Skipping: {}", visual::screenshot::skip_reason());
+            return;
+        }
+    }
+
+    let harness = try_or_skip!(
+        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"]),
+        "spawn"
+    );
+
+    harness.wait_demo_milestone(3.0);
+
+    let capture = try_or_skip!(harness.capture("partial_listening"), "capture");
+
+    let result = try_or_skip!(
+        harness.compare_golden(&capture, "demo_partial_listening.png"),
+        "golden comparison"
+    );
+
+    if !result.passed {
+        if is_canonical() {
+            panic!(
+                "CANONICAL: screenshot differs: distance={}",
+                result.distance
+            );
+        } else {
+            eprintln!(
+                "Skipping: hash mismatch (non-canonical): distance={}",
+                result.distance
+            );
+            return;
+        }
+    }
+
+    println!("PASS: distance={}", result.distance);
+}
+
+#[test]
+#[ignore]
+fn test_demo_committed_hello() {
+    if !visual::screenshot::screenshot_available() {
+        if is_canonical() {
+            panic!("CANONICAL: {}", visual::screenshot::skip_reason());
+        } else {
+            eprintln!("Skipping: {}", visual::screenshot::skip_reason());
+            return;
+        }
+    }
+
+    let harness = try_or_skip!(
+        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"]),
+        "spawn"
+    );
+
+    harness.wait_demo_milestone(5.5);
+
+    let capture = try_or_skip!(harness.capture("committed_hello"), "capture");
+
+    let result = try_or_skip!(
+        harness.compare_golden(&capture, "demo_committed_hello.png"),
+        "golden comparison"
+    );
+
+    if !result.passed {
+        if is_canonical() {
+            panic!(
+                "CANONICAL: screenshot differs: distance={}",
+                result.distance
+            );
+        } else {
+            eprintln!(
+                "Skipping: hash mismatch (non-canonical): distance={}",
+                result.distance
+            );
+            return;
+        }
+    }
+
+    println!("PASS: distance={}", result.distance);
+}
+
+#[test]
+#[ignore]
+fn test_demo_twotone_streaming() {
+    if !visual::screenshot::screenshot_available() {
+        if is_canonical() {
+            panic!("CANONICAL: {}", visual::screenshot::skip_reason());
+        } else {
+            eprintln!("Skipping: {}", visual::screenshot::skip_reason());
+            return;
+        }
+    }
+
+    let harness = try_or_skip!(
+        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"]),
+        "spawn"
+    );
+
+    harness.wait_demo_milestone(7.5);
+
+    let capture = try_or_skip!(harness.capture("twotone_streaming"), "capture");
+
+    let result = try_or_skip!(
+        harness.compare_golden(&capture, "demo_twotone_streaming.png"),
+        "golden comparison"
+    );
+
+    if !result.passed {
+        if is_canonical() {
+            panic!(
+                "CANONICAL: screenshot differs: distance={}",
+                result.distance
+            );
+        } else {
+            eprintln!(
+                "Skipping: hash mismatch (non-canonical): distance={}",
+                result.distance
+            );
+            return;
+        }
+    }
+
+    println!("PASS: distance={}", result.distance);
+}
