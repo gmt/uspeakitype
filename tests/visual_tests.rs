@@ -247,6 +247,113 @@ fn test_transparency_directional() {
     println!("  Semantics confirmed: higher value = more opaque = less pink");
 }
 
+/// Test extreme transparency - should show almost all background
+#[test]
+#[ignore] // Visual test - requires compositor
+fn test_transparency_extreme_transparent() {
+    if !visual::screenshot::screenshot_available() {
+        if is_canonical() {
+            panic!("CANONICAL: {}", visual::screenshot::skip_reason());
+        } else {
+            eprintln!("Skipping: {}", visual::screenshot::skip_reason());
+            return;
+        }
+    }
+
+    // Set hot pink background
+    let _ = std::process::Command::new("swaymsg")
+        .args(["output", "*", "background", "#FF1493", "solid_color"])
+        .status();
+
+    // 0.1% transparency = nearly invisible overlay
+    let harness = try_or_skip!(
+        visual::wgpu_harness::WgpuTestHarness::spawn(
+            &["--demo", "--transparency", "0.001"],
+            "trans_001"
+        ),
+        "spawn 0.001"
+    );
+    harness.wait_demo_milestone(3.0);
+    let capture = try_or_skip!(harness.capture("trans_001"), "capture 0.001");
+
+    let image = try_or_skip!(
+        image::open(&capture).map(|img| img.to_rgba8()),
+        "load image 0.001"
+    );
+
+    let region = (100, 800, 1720, 200);
+    let pink = measure_pink_bleedthrough(&image, region);
+
+    println!("Extreme transparency (0.1%):");
+    println!("  Pink bleedthrough: {:.4}", pink);
+
+    // Should be very high - almost pure pink showing through
+    // Threshold: at least 70% pink visible
+    assert!(
+        pink > 0.70,
+        "0.1% transparency should show mostly background (>70% pink)\n\
+         Got: {:.4}",
+        pink
+    );
+
+    println!(
+        "PASS: Near-transparent shows ~{:.0}% background",
+        pink * 100.0
+    );
+}
+
+/// Test extreme opacity - should show almost no background
+#[test]
+#[ignore] // Visual test - requires compositor
+fn test_transparency_extreme_opaque() {
+    if !visual::screenshot::screenshot_available() {
+        if is_canonical() {
+            panic!("CANONICAL: {}", visual::screenshot::skip_reason());
+        } else {
+            eprintln!("Skipping: {}", visual::screenshot::skip_reason());
+            return;
+        }
+    }
+
+    // Set hot pink background
+    let _ = std::process::Command::new("swaymsg")
+        .args(["output", "*", "background", "#FF1493", "solid_color"])
+        .status();
+
+    // 99.9% transparency = nearly solid overlay
+    let harness = try_or_skip!(
+        visual::wgpu_harness::WgpuTestHarness::spawn(
+            &["--demo", "--transparency", "0.999"],
+            "trans_999"
+        ),
+        "spawn 0.999"
+    );
+    harness.wait_demo_milestone(3.0);
+    let capture = try_or_skip!(harness.capture("trans_999"), "capture 0.999");
+
+    let image = try_or_skip!(
+        image::open(&capture).map(|img| img.to_rgba8()),
+        "load image 0.999"
+    );
+
+    let region = (100, 800, 1720, 200);
+    let pink = measure_pink_bleedthrough(&image, region);
+
+    println!("Extreme opacity (99.9%):");
+    println!("  Pink bleedthrough: {:.4}", pink);
+
+    // Should be very low - almost no pink showing through
+    // Threshold: less than 10% pink visible
+    assert!(
+        pink < 0.10,
+        "99.9% transparency should show almost no background (<10% pink)\n\
+         Got: {:.4}",
+        pink
+    );
+
+    println!("PASS: Near-opaque shows ~{:.0}% background", pink * 100.0);
+}
+
 #[test]
 #[ignore]
 fn test_demo_partial_listening() {
