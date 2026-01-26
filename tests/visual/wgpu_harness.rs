@@ -126,7 +126,33 @@ impl WgpuTestHarness {
 
 impl Drop for WgpuTestHarness {
     fn drop(&mut self) {
+        // NOTE: Child::kill() sends SIGKILL on Unix (immediate termination)
+        // This is fine for test cleanup - we don't need graceful SIGTERM
         let _ = self.child.kill();
+
+        // Poll with timeout to reap zombie - 2 second deadline
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            match self.child.try_wait() {
+                Ok(Some(_status)) => {
+                    // Child exited, zombie reaped
+                    break;
+                }
+                Ok(None) => {
+                    // Process still showing as running (shouldn't happen after SIGKILL)
+                    if std::time::Instant::now() > deadline {
+                        // Timeout: give up, final wait attempt
+                        let _ = self.child.wait();
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                Err(_) => {
+                    // Error checking status - process likely already gone
+                    break;
+                }
+            }
+        }
     }
 }
 
