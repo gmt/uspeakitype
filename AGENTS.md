@@ -300,6 +300,10 @@ User should not see AGC fighting their manual adjustments.
 
 ## Agent Execution Patterns
 
+## Versioning
+- Bump **patch version** when a Sisyphus boulder is complete (e.g., 0.2.5 → 0.2.6)
+- Version lives in `Cargo.toml` - update it as part of the final commit
+
 ### Visual Agent Observation (tmux environments)
 
 When running in a tmux-enabled environment (oh-my-opencode with `tmux.enabled: true`), subagents spawn in **visible tmux panes**. This provides real-time observability of agent work.
