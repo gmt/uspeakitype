@@ -44,7 +44,7 @@ impl TuiTestHarness {
 
     /// Spawn barbara binary with given arguments
     pub fn spawn(&mut self, args: &[&str]) -> anyhow::Result<()> {
-        let exe_path = env!("CARGO_BIN_EXE_barbara");
+        let exe_path = env!("CARGO_BIN_EXE_usit");
         let mut cmd = CommandBuilder::new(exe_path);
 
         for arg in args {
