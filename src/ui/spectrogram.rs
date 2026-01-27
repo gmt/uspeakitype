@@ -451,7 +451,7 @@ impl Spectrogram {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
-        window_height: u32,
+        _window_height: u32,
     ) {
         let instance_count = match self.mode {
             SpectrogramMode::BarMeter => self.bar_data.len(),

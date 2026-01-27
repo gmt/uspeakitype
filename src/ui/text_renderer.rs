@@ -104,7 +104,7 @@ impl TextRenderer {
         y: f32,
         scale: f32,
         area_width: u32,
-        area_height: u32,
+        _area_height: u32,
         padding: f32,
     ) {
         if committed.is_empty() && partial.is_empty() {
