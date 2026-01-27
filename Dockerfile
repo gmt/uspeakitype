@@ -47,6 +47,9 @@ WORKDIR /app
 # Copy source (or mount via docker-compose)
 COPY . .
 
+# Store Cargo.lock hash for staleness detection
+RUN sha256sum Cargo.lock | cut -d' ' -f1 > /app/.cargo-lock-hash
+
 # Build usit
 RUN cargo build --release
 

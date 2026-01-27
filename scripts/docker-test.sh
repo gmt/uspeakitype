@@ -2,6 +2,26 @@
 set -e
 
 echo "=== usit Docker Visual Tests ==="
+
+# Check for Cargo.lock staleness
+if [ -n "$HOST_CARGO_LOCK_HASH" ] && [ -f /app/.cargo-lock-hash ]; then
+    IMAGE_HASH=$(cat /app/.cargo-lock-hash)
+    if [ "$HOST_CARGO_LOCK_HASH" != "$IMAGE_HASH" ]; then
+        echo ""
+        echo "WARNING: Docker image has stale dependencies!"
+        echo "  Host Cargo.lock:  ${HOST_CARGO_LOCK_HASH:0:16}..."
+        echo "  Image Cargo.lock: ${IMAGE_HASH:0:16}..."
+        echo "  Run: docker compose build visual-tests"
+        echo ""
+        if [ "$USIT_STRICT_SYNC" = "1" ]; then
+            echo "ERROR: USIT_STRICT_SYNC=1, aborting due to stale image"
+            exit 1
+        fi
+    else
+        echo "Cargo.lock: in sync"
+    fi
+fi
+
 echo "Environment:"
 echo "  XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
 echo "  WLR_BACKENDS=$WLR_BACKENDS"
