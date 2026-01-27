@@ -1,6 +1,6 @@
 //! TUI test harness using portable-pty and vt100
 //!
-//! Provides infrastructure for testing Barbara's ANSI terminal UI
+//! Provides infrastructure for testing usit's ANSI terminal UI
 //! at various terminal sizes.
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
@@ -42,7 +42,7 @@ impl TuiTestHarness {
         })
     }
 
-    /// Spawn barbara binary with given arguments
+    /// Spawn usit binary with given arguments
     pub fn spawn(&mut self, args: &[&str]) -> anyhow::Result<()> {
         let exe_path = env!("CARGO_BIN_EXE_usit");
         let mut cmd = CommandBuilder::new(exe_path);

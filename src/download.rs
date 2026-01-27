@@ -1,4 +1,4 @@
-//! Model download infrastructure for Barbara
+//! Model download infrastructure for usit
 //!
 //! Handles automatic downloading of Silero VAD and Moonshine models from GitHub and HuggingFace.
 //! Uses atomic write pattern (temp file → rename) to ensure partial downloads don't corrupt files.

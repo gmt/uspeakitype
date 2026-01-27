@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libegl1 libgl1-mesa-dri mesa-utils \
     # Fonts (must match golden images)
     fonts-dejavu-core fonts-liberation fontconfig \
-    # Audio libs (Barbara dependency)
+    # Audio libs (usit dependency)
     libasound2-dev libpipewire-0.3-dev \
     # Misc
     procps \
@@ -40,14 +40,14 @@ ENV XDG_RUNTIME_DIR=/run/user/0 \
     WLR_RENDERER_ALLOW_SOFTWARE=1 \
     LIBGL_ALWAYS_SOFTWARE=1 \
     VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json \
-    BARBARA_CANONICAL_TEST_ENV=1
+    USIT_CANONICAL_TEST_ENV=1
 
 WORKDIR /app
 
 # Copy source (or mount via docker-compose)
 COPY . .
 
-# Build Barbara
+# Build usit
 RUN cargo build --release
 
 # Test entrypoint

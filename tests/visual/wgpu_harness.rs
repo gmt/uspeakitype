@@ -1,6 +1,6 @@
 //! WGPU test harness for visual regression testing
 //!
-//! Spawns Barbara with isolated config, captures screenshots at demo milestones,
+//! Spawns usit with isolated config, captures screenshots at demo milestones,
 //! and compares against golden images.
 
 use std::path::{Path, PathBuf};
@@ -24,7 +24,7 @@ pub struct WgpuTestHarness {
 }
 
 impl WgpuTestHarness {
-    /// Spawn Barbara with given args, isolated from user config
+    /// Spawn usit with given args, isolated from user config
     ///
     /// # Arguments
     /// * `args` - Command-line arguments (must not include `--tag`)
@@ -117,9 +117,9 @@ impl WgpuTestHarness {
         compare_images(capture, &golden)
     }
 
-    /// Kill Barbara process
+    /// Kill usit process
     pub fn shutdown(&mut self) -> Result<()> {
-        self.child.kill().context("failed to kill barbara")?;
+        self.child.kill().context("failed to kill usit")?;
         Ok(())
     }
 }

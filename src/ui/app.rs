@@ -347,8 +347,8 @@ fn create_window_attributes(
     let size = PhysicalSize::new(window_width.max(300), window_height.max(80));
 
     let title = match tag {
-        Some(t) => format!("Barbara [{}]", t),
-        None => "Barbara".to_string(),
+        Some(t) => format!("usit [{}]", t),
+        None => "usit".to_string(),
     };
 
     let mut attrs = WindowAttributes::default()

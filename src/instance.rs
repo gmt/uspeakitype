@@ -1,7 +1,7 @@
 //! Instance detection via /proc filesystem
 //!
-//! Detects running Barbara instances by scanning /proc for processes with
-//! argv[0] ending in `/barbara` or equal to `barbara`, then parsing tags
+//! Detects running usit instances by scanning /proc for processes with
+//! argv[0] ending in `/usit` or equal to `usit`, then parsing tags
 //! from command-line arguments.
 //!
 //! Key insight: VAD is for COMMIT DETECTION, not batching.
@@ -9,10 +9,10 @@
 use std::fs;
 use std::sync::Once;
 
-/// Information about a running Barbara instance
+/// Information about a running usit instance
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstanceInfo {
-    /// Process ID of the Barbara instance
+    /// Process ID of the usit instance
     pub pid: u32,
     /// Tag from `--tag` argument, if present
     /// - `None` = no `--tag` argument
@@ -21,7 +21,7 @@ pub struct InstanceInfo {
     pub tag: Option<String>,
 }
 
-/// Find all running Barbara instances, optionally filtered by tag
+/// Find all running usit instances, optionally filtered by tag
 ///
 /// # Arguments
 /// * `tag_filter` - Optional tag to filter by (exact match only)
@@ -36,7 +36,7 @@ pub struct InstanceInfo {
 ///
 /// # Examples
 /// ```ignore
-/// // Find all Barbara instances
+/// // Find all usit instances
 /// let all = find_instances(None);
 ///
 /// // Find instances with specific tag
@@ -95,11 +95,11 @@ pub fn find_instances(tag_filter: Option<&str>) -> Vec<InstanceInfo> {
             continue;
         }
 
-        // Check if argv[0] is barbara (ends with /barbara or equals barbara)
+        // Check if argv[0] is usit (ends with /usit or equals usit)
         let argv0 = argv[0];
-        let is_barbara = argv0.ends_with("/barbara") || argv0 == "barbara";
+        let is_usit = argv0.ends_with("/usit") || argv0 == "usit";
 
-        if !is_barbara {
+        if !is_usit {
             continue;
         }
 
@@ -119,18 +119,18 @@ pub fn find_instances(tag_filter: Option<&str>) -> Vec<InstanceInfo> {
     instances
 }
 
-/// Find any Barbara instance with the given tag (excluding self)
+/// Find any usit instance with the given tag (excluding self)
 ///
 /// # Arguments
 /// * `tag` - The tag to search for (exact match)
 ///
 /// # Returns
-/// PID of a Barbara instance with this tag, or `None` if not found.
+/// PID of a usit instance with this tag, or `None` if not found.
 ///
 /// # Examples
 /// ```ignore
 /// if let Some(pid) = find_duplicate_tag("my session") {
-///     eprintln!("Barbara already running with tag 'my session' (PID {})", pid);
+///     eprintln!("usit already running with tag 'my session' (PID {})", pid);
 /// }
 /// ```
 pub fn find_duplicate_tag(tag: &str) -> Option<u32> {
@@ -152,10 +152,10 @@ pub fn find_duplicate_tag(tag: &str) -> Option<u32> {
 ///
 /// # Examples
 /// ```ignore
-/// assert_eq!(parse_tag_from_argv(&["barbara", "--demo"]), None);
-/// assert_eq!(parse_tag_from_argv(&["barbara", "--tag", "foo"]), Some("foo".to_string()));
-/// assert_eq!(parse_tag_from_argv(&["barbara", "--tag=foo"]), Some("foo".to_string()));
-/// assert_eq!(parse_tag_from_argv(&["barbara", "--tag"]), Some("".to_string()));
+/// assert_eq!(parse_tag_from_argv(&["usit", "--demo"]), None);
+/// assert_eq!(parse_tag_from_argv(&["usit", "--tag", "foo"]), Some("foo".to_string()));
+/// assert_eq!(parse_tag_from_argv(&["usit", "--tag=foo"]), Some("foo".to_string()));
+/// assert_eq!(parse_tag_from_argv(&["usit", "--tag"]), Some("".to_string()));
 /// ```
 pub fn parse_tag_from_argv(argv: &[&str]) -> Option<String> {
     let mut tag: Option<String> = None;
@@ -203,13 +203,13 @@ mod tests {
 
     #[test]
     fn test_parse_tag_from_argv_no_tag() {
-        assert_eq!(parse_tag_from_argv(&["barbara", "--demo"]), None);
+        assert_eq!(parse_tag_from_argv(&["usit", "--demo"]), None);
     }
 
     #[test]
     fn test_parse_tag_from_argv_with_value() {
         assert_eq!(
-            parse_tag_from_argv(&["barbara", "--tag", "foo", "--demo"]),
+            parse_tag_from_argv(&["usit", "--tag", "foo", "--demo"]),
             Some("foo".to_string())
         );
     }
@@ -217,7 +217,7 @@ mod tests {
     #[test]
     fn test_parse_tag_from_argv_equals_format() {
         assert_eq!(
-            parse_tag_from_argv(&["barbara", "--tag=foo", "--demo"]),
+            parse_tag_from_argv(&["usit", "--tag=foo", "--demo"]),
             Some("foo".to_string())
         );
     }
@@ -225,7 +225,7 @@ mod tests {
     #[test]
     fn test_parse_tag_from_argv_with_spaces() {
         assert_eq!(
-            parse_tag_from_argv(&["barbara", "--tag", "my session"]),
+            parse_tag_from_argv(&["usit", "--tag", "my session"]),
             Some("my session".to_string())
         );
     }
@@ -233,7 +233,7 @@ mod tests {
     #[test]
     fn test_parse_tag_from_argv_empty_value() {
         assert_eq!(
-            parse_tag_from_argv(&["barbara", "--tag", ""]),
+            parse_tag_from_argv(&["usit", "--tag", ""]),
             Some("".to_string())
         );
     }
@@ -241,7 +241,7 @@ mod tests {
     #[test]
     fn test_parse_tag_from_argv_trailing_tag() {
         assert_eq!(
-            parse_tag_from_argv(&["barbara", "--tag"]),
+            parse_tag_from_argv(&["usit", "--tag"]),
             Some("".to_string())
         );
     }
@@ -249,7 +249,7 @@ mod tests {
     #[test]
     fn test_parse_tag_from_argv_last_wins() {
         assert_eq!(
-            parse_tag_from_argv(&["barbara", "--tag", "a", "--tag", "b"]),
+            parse_tag_from_argv(&["usit", "--tag", "a", "--tag", "b"]),
             Some("b".to_string())
         );
     }
@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn test_parse_tag_from_argv_with_equals() {
         assert_eq!(
-            parse_tag_from_argv(&["barbara", "--tag=with=equals"]),
+            parse_tag_from_argv(&["usit", "--tag=with=equals"]),
             Some("with=equals".to_string())
         );
     }
@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn test_parse_tag_from_argv_unicode() {
         assert_eq!(
-            parse_tag_from_argv(&["barbara", "--tag", "unicode: 日本語"]),
+            parse_tag_from_argv(&["usit", "--tag", "unicode: 日本語"]),
             Some("unicode: 日本語".to_string())
         );
     }

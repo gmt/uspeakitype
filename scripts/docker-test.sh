@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "=== Barbara Docker Visual Tests ==="
+echo "=== usit Docker Visual Tests ==="
 echo "Environment:"
 echo "  XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
 echo "  WLR_BACKENDS=$WLR_BACKENDS"

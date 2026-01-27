@@ -174,7 +174,7 @@ struct Args {
     #[arg(long)]
     no_duplicate_tag: bool,
 
-    /// List running Barbara instances and exit
+    /// List running usit instances and exit
     #[arg(long)]
     list_instances: bool,
 
@@ -283,7 +283,7 @@ fn main() -> anyhow::Result<()> {
             if !args.human {
                 // Machine: no output for empty
             } else {
-                println!("No Barbara instances running");
+                println!("No usit instances running");
             }
         } else if args.human {
             println!("{:<10} {}", "PID", "TAG");
@@ -344,13 +344,13 @@ fn main() -> anyhow::Result<()> {
         if let Some(pid) = find_duplicate_tag(tag) {
             if args.no_duplicate_tag {
                 eprintln!(
-                    "Error: Barbara with tag '{}' already running (PID {})",
+                    "Error: usit with tag '{}' already running (PID {})",
                     tag, pid
                 );
                 std::process::exit(1);
             } else {
                 eprintln!(
-                    "Warning: Barbara with tag '{}' may already be running (PID {})",
+                    "Warning: usit with tag '{}' may already be running (PID {})",
                     tag, pid
                 );
             }

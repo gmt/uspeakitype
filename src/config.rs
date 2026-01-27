@@ -1,4 +1,4 @@
-//! Configuration management for Barbara
+//! Configuration management for usit
 //!
 //! Handles TOML-based persistent configuration with atomic writes.
 //! Supports partial TOML files with sensible defaults for missing fields.
@@ -52,7 +52,7 @@ impl ModelVariant {
     }
 }
 
-/// Barbara configuration
+/// usit configuration
 ///
 /// All fields support `#[serde(default)]` for partial TOML loading.
 /// Missing fields use their Default implementations.

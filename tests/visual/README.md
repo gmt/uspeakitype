@@ -1,6 +1,6 @@
-# Visual Testing Infrastructure for Barbara
+# Visual Testing Infrastructure for usit
 
-This directory contains the visual regression testing infrastructure for Barbara's WGPU overlay mode. Tests capture screenshots via compositor tools and compare them against golden images using perceptual hashing.
+This directory contains the visual regression testing infrastructure for usit's WGPU overlay mode. Tests capture screenshots via compositor tools and compare them against golden images using perceptual hashing.
 
 ## Prerequisites
 
@@ -117,7 +117,7 @@ swaymsg -t get_outputs | grep -q '"width": 1920' || { echo "ERROR: Resolution no
 export XDG_CONFIG_HOME=$(mktemp -d)
 
 # 7. Mark as canonical environment
-export BARBARA_CANONICAL_TEST_ENV=1
+export USIT_CANONICAL_TEST_ENV=1
 
 # 8. Run tests
 cargo test --release --test visual_tests -- --ignored --nocapture --test-threads=1
@@ -134,7 +134,7 @@ rm -rf "$XDG_CONFIG_HOME"
 | `WAYLAND_DISPLAY` | Wayland socket name | `wayland-0` |
 | `SWAYSOCK` | Sway IPC socket path | `/run/user/1000/sway-ipc.1000.123.sock` |
 | `XDG_CONFIG_HOME` | Config directory (set to temp for defaults) | `/tmp/tmpXXXXXX` |
-| `BARBARA_CANONICAL_TEST_ENV` | Mark as canonical environment (CI) | `1` |
+| `USIT_CANONICAL_TEST_ENV` | Mark as canonical environment (CI) | `1` |
 | `WLR_BACKENDS` | Force headless compositor | `headless` |
 | `WLR_HEADLESS_OUTPUTS` | Number of headless outputs | `1` |
 
@@ -183,7 +183,7 @@ jobs:
             libvulkan1 vulkan-tools
           fc-cache -f -v
       
-      - name: Build Barbara
+      - name: Build usit
         run: cargo build --release
       
       - name: Run visual tests (headless)
@@ -202,7 +202,7 @@ jobs:
           export WAYLAND_DISPLAY="$WAYLAND"
           export SWAYSOCK="$XDG_RUNTIME_DIR/$SWAYSOCK"
           export XDG_CONFIG_HOME=$(mktemp -d)
-          export BARBARA_CANONICAL_TEST_ENV=1
+          export USIT_CANONICAL_TEST_ENV=1
           export WLR_RENDERER=pixman
           export LIBGL_ALWAYS_SOFTWARE=1
           
@@ -263,7 +263,7 @@ bash tests/visual/scripts/capture_goldens.sh
 
 The script:
 1. Starts headless Sway with canonical configuration
-2. Isolates Barbara from user config (uses defaults)
+2. Isolates usit from user config (uses defaults)
 3. Captures screenshots at demo milestones (t=3.0s, t=5.5s, t=7.5s)
 4. Saves to `tests/visual/golden/`
 
@@ -272,8 +272,8 @@ The script:
 For quick iteration during development:
 
 ```bash
-# On Sway/Hyprland with Barbara running
-barbara --demo &
+# On Sway/Hyprland with usit running
+usit --demo &
 sleep 3.0
 grim /tmp/demo_partial.png
 sleep 2.5
@@ -358,20 +358,20 @@ grim /tmp/current.png
 
 **Solution**:
 - This is a real failure - investigate the regression
-- Check if Barbara code changed (visual output)
+- Check if usit code changed (visual output)
 - Check if fonts/theme changed in CI environment
 - Update golden images if change is intentional: `bash tests/visual/scripts/capture_goldens.sh`
 
-### Barbara crashes under headless Sway
+### usit crashes under headless Sway
 
 **Cause**: Missing dependencies or rendering issues
 
 **Solution**:
 ```bash
-# Verify Barbara starts
-timeout 5 barbara --demo &
+# Verify usit starts
+timeout 5 usit --demo &
 sleep 2
-ps aux | grep barbara  # Should still be running
+ps aux | grep usit  # Should still be running
 
 # Check for errors
 cargo run --release -- --demo 2>&1 | head -20
@@ -412,15 +412,15 @@ tests/
 
 **Perceptual Hashing**: Uses gradient-based hashing (via `image_hasher` crate) to tolerate minor anti-aliasing and timing differences while catching real regressions.
 
-**Canonical Environment**: Tests behave differently based on `BARBARA_CANONICAL_TEST_ENV`:
+**Canonical Environment**: Tests behave differently based on `USIT_CANONICAL_TEST_ENV`:
 - **Canonical (CI)**: Failures panic (real bugs must be caught)
 - **Non-canonical (dev)**: Failures skip (environmental differences expected)
 
-**Config Isolation**: Tests set `XDG_CONFIG_HOME` to temp directory to ensure Barbara uses default settings, making golden images reproducible across machines.
+**Config Isolation**: Tests set `XDG_CONFIG_HOME` to temp directory to ensure usit uses default settings, making golden images reproducible across machines.
 
 ## Demo Mode Timeline
 
-Barbara's demo mode generates synthetic transcription events at specific times:
+usit's demo mode generates synthetic transcription events at specific times:
 
 | Time | Event | Visual State |
 |------|-------|--------------|

@@ -24,10 +24,10 @@ let wayland_attrs = WindowAttributesWayland::default()
 ## Validation Results
 
 ### Test Procedure
-1. Started `barbara --demo` in tmux session
+1. Started `usit --demo` in tmux session
 2. Waited 3 seconds for window to appear and demo events to fire
-3. Captured full-screen screenshot with `spectacle -b -f -n -o /tmp/barbara-test.png`
-4. Verified screenshot contains Barbara's overlay
+3. Captured full-screen screenshot with `spectacle -b -f -n -o /tmp/usit-test.png`
+4. Verified screenshot contains usit's overlay
 
 ### Screenshot Details
 - **Dimensions**: 5120 x 1440 (dual-monitor setup)
@@ -35,7 +35,7 @@ let wayland_attrs = WindowAttributesWayland::default()
 - **File Size**: ~773KB
 
 ### Layer::Overlay Confirmation
-- **CONFIRMED**: Barbara's layer-shell overlay appears in spectacle screenshots
+- **CONFIRMED**: usit's layer-shell overlay appears in spectacle screenshots
 - The overlay is visible at the bottom of the screen as expected
 - Spectrogram visualization with colored bars is captured
 - Color histogram of bottom region shows varied colors (not just black), confirming spectrogram content
@@ -81,6 +81,6 @@ Cropped 1920x200 region from bottom of screenshot:
 
 ## Conclusion
 
-**Layer-shell capture VALIDATED**: Barbara's `Layer::Overlay` configuration works correctly with Wayland compositor screenshot tools. The overlay is visible in full-screen captures.
+**Layer-shell capture VALIDATED**: usit's `Layer::Overlay` configuration works correctly with Wayland compositor screenshot tools. The overlay is visible in full-screen captures.
 
 For the visual testing infrastructure (Phase 1), testing should proceed on a wlroots compositor (Sway/Hyprland) with grim installed, as specified in the plan.

@@ -1,6 +1,6 @@
 # Audio Input Policy
 
-This document defines Barbara's policy for device selection, gain control, and automatic gain management.
+This document defines usit's policy for device selection, gain control, and automatic gain management.
 
 ## Definitions
 
@@ -47,7 +47,7 @@ Design choice: prefer disabling the slider for simplicity; aggressiveness contro
 - **Objective**: Keep the selected device out of the red (clipping) and balance noise floor against signal headroom.
 - **Conservative**: Only acts when soft AGC cannot salvage the signal (sustained clipping or extremely weak input).
 - **Rate-limited**: Changes device volume slowly to avoid fighting user/system controls.
-- **Restore on exit**: If hard AGC adjusted device volume, restore original value when Barbara exits.
+- **Restore on exit**: If hard AGC adjusted device volume, restore original value when usit exits.
 - **Opt-in only**: Hard AGC is never enabled by default; user must explicitly enable it.
 
 ### Signal Health Metrics
@@ -71,7 +71,7 @@ Design choice: prefer disabling the slider for simplicity; aggressiveness contro
 ## User Interaction Model
 
 ### Warnings as Primary UX
-- Barbara typically does NOT have window manager focus (user is typing elsewhere).
+- usit typically does NOT have window manager focus (user is typing elsewhere).
 - Warnings should be **visual but non-intrusive**: color change, icon, subtle animation.
 - Avoid modal dialogs or anything requiring immediate interaction.
 
@@ -89,7 +89,7 @@ Design choice: prefer disabling the slider for simplicity; aggressiveness contro
 ### Sources (Precedence High to Low)
 1. GUI (runtime changes)
 2. Command line arguments
-3. Config file (`~/.config/barbara/barbara.toml`)
+3. Config file (`~/.config/usit/usit.toml`)
 4. Compiled defaults
 
 ### Persisted Settings
@@ -115,4 +115,4 @@ Design choice: prefer disabling the slider for simplicity; aggressiveness contro
 
 - Should hard AGC changes be journaled so the user can review what was changed?
 - Should there be a "hard AGC ceiling" that prevents us from ever setting device volume above the user's initial value?
-- How to handle multiple Barbara instances (or other apps) competing for device volume control?
+- How to handle multiple usit instances (or other apps) competing for device volume control?

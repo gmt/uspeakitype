@@ -53,9 +53,9 @@ impl StatusWidget {
 
     fn build_prefix(&self) -> String {
         match &self.tag {
-            Some(t) if !t.is_empty() => format!("Barbara [{}] ", t),
-            Some(_) => "Barbara [] ".to_string(),
-            None => "Barbara ".to_string(),
+            Some(t) if !t.is_empty() => format!("usit [{}] ", t),
+            Some(_) => "usit [] ".to_string(),
+            None => "usit ".to_string(),
         }
     }
 
@@ -127,8 +127,8 @@ impl Widget for StatusWidget {
             return;
         }
 
-        // Full prefix doesn't fit, try without tag (just "Barbara ")
-        let fallback_prefix = "Barbara ";
+        // Full prefix doesn't fit, try without tag (just "usit ")
+        let fallback_prefix = "usit ";
         let fallback_prefix_len = fallback_prefix.chars().count();
         let rest = self.select_candidate(&candidates, icon_len + fallback_prefix_len, max_width);
 

@@ -98,7 +98,7 @@ fn test_harness_spawn_and_capture() {
 
 /// Check if running in canonical test environment
 fn is_canonical() -> bool {
-    std::env::var("BARBARA_CANONICAL_TEST_ENV").is_ok()
+    std::env::var("USIT_CANONICAL_TEST_ENV").is_ok()
 }
 
 /// Handle errors: fail in canonical, skip in non-canonical

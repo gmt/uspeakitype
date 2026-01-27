@@ -10,7 +10,7 @@ This directory contains golden reference images for visual regression testing.
 
 These development goldens are useful for:
 - Local visual regression testing during development
-- Verifying Barbara's overlay renders correctly on KDE
+- Verifying usit's overlay renders correctly on KDE
 - Perceptual hash comparison (tolerates resolution differences)
 
 However, they are **not suitable for pixel-perfect CI testing** due to:
@@ -37,8 +37,8 @@ Running from within a KDE session fails because:
 ```bash
 # 1. Switch to a virtual terminal (Ctrl+Alt+F2)
 # 2. Log in
-# 3. Navigate to barbara repo
-cd /home/greg/src/barbara
+# 3. Navigate to usit repo
+cd /home/greg/src/usit
 
 # 4. Run the capture script
 ./tests/visual/scripts/capture_goldens.sh
@@ -51,7 +51,7 @@ cd /home/greg/src/barbara
 ```bash
 # Run in a container with sway and grim installed
 podman run --rm -it \
-  -v /home/greg/src/barbara:/workspace \
+  -v /home/greg/src/usit:/workspace \
   -w /workspace \
   archlinux:latest \
   bash -c "pacman -Sy --noconfirm sway grim cargo && ./tests/visual/scripts/capture_goldens.sh"
@@ -105,7 +105,7 @@ wgpu_opacity_half.png:      PNG image data, 5120 x 1440, 8-bit/color RGBA, non-i
 Visual inspection should show:
 
 **Demo mode goldens:**
-- Barbara's overlay window with spectrogram at bottom
+- usit's overlay window with spectrogram at bottom
 - Text in correct color (gray for partial, white for committed)
 - Transparent background (overlay composited over desktop)
 

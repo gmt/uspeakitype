@@ -5,7 +5,7 @@
 //!
 //! Key difference from sonori:
 //! - sonori: transcribe(audio_segment) -> complete_text
-//! - barbara: stream_transcribe(audio_buffer) -> partial_text (called repeatedly)
+//! - usit: stream_transcribe(audio_buffer) -> partial_text (called repeatedly)
 
 pub mod moonshine;
 

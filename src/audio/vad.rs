@@ -1,6 +1,6 @@
 //! Silero VAD - Voice Activity Detection
 //!
-//! Key insight: In barbara, VAD is for COMMIT DETECTION, not batching.
+//! Key insight: In usit, VAD is for COMMIT DETECTION, not batching.
 //! We transcribe continuously as audio arrives; VAD only decides when to commit.
 
 use std::collections::VecDeque;

@@ -11,7 +11,7 @@
 # Requirements:
 #   - sway (wlroots compositor)
 #   - grim (screenshot tool)
-#   - cargo (to build barbara)
+#   - cargo (to build usit)
 
 set -e
 
@@ -98,36 +98,36 @@ export XDG_CONFIG_HOME=$(mktemp -d)
 echo "Using temp config dir: $XDG_CONFIG_HOME"
 
 # 7. Mark as canonical environment
-export BARBARA_CANONICAL_TEST_ENV=1
+export USIT_CANONICAL_TEST_ENV=1
 
 # 8. Create golden directory
 mkdir -p "$SCRIPT_DIR/../golden"
 
-# 9. Build Barbara BEFORE capturing (avoid compilation affecting timing)
-echo "Building Barbara (release)..."
+# 9. Build usit BEFORE capturing (avoid compilation affecting timing)
+echo "Building usit (release)..."
 cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml"
-BARBARA_BIN="$REPO_ROOT/target/release/barbara"
+USIT_BIN="$REPO_ROOT/target/release/usit"
 
-if [[ ! -x "$BARBARA_BIN" ]]; then
-    echo "ERROR: Barbara binary not found at $BARBARA_BIN"
+if [[ ! -x "$USIT_BIN" ]]; then
+    echo "ERROR: usit binary not found at $USIT_BIN"
     kill $SWAY_PID 2>/dev/null || true
     exit 1
 fi
-echo "Barbara binary: $BARBARA_BIN"
+echo "usit binary: $USIT_BIN"
 
 # Cleanup function
 cleanup() {
     echo "Cleaning up..."
-    kill $BARBARA_PID 2>/dev/null || true
+    kill $USIT_PID 2>/dev/null || true
     kill $SWAY_PID 2>/dev/null || true
     rm -rf "$XDG_CONFIG_HOME"
 }
 trap cleanup EXIT
 
-# 10. Launch Barbara with isolated config
-echo "Launching Barbara in demo mode..."
-"$BARBARA_BIN" --demo &
-BARBARA_PID=$!
+# 10. Launch usit with isolated config
+echo "Launching usit in demo mode..."
+"$USIT_BIN" --demo &
+USIT_PID=$!
 
 # 11. Capture at each milestone
 # Demo timeline:

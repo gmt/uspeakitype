@@ -32,9 +32,9 @@ pub use ydotool::{find_ydotool_socket, YdotoolInjector};
 ///
 /// # Logging
 /// Each probe attempt logs to stderr in format:
-/// - Active: `[barbara] Probing wrtype... active`
-/// - Failed: `[barbara] Probing wrtype... unavailable (error message)`
-/// - Disabled: `[barbara] Probing wrtype... skipped (disabled)`
+/// - Active: `[usit] Probing wrtype... active`
+/// - Failed: `[usit] Probing wrtype... unavailable (error message)`
+/// - Disabled: `[usit] Probing wrtype... skipped (disabled)`
 pub fn select_backend(disabled: &[String]) -> Option<Box<dyn TextInjector>> {
     // Probe wrtype
     if !disabled.iter().any(|s| s == "wrtype") {
