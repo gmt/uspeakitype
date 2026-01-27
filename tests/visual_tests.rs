@@ -117,31 +117,39 @@ macro_rules! try_or_skip {
 }
 
 /// Measure average alpha channel value in an image region
-/// Returns average alpha (0.0 = fully transparent, 1.0 = fully opaque)
-fn measure_alpha_channel(image: &image::RgbaImage, region: (u32, u32, u32, u32)) -> f32 {
+fn measure_pink_bleedthrough(image: &image::RgbaImage, region: (u32, u32, u32, u32)) -> f32 {
     let (x, y, w, h) = region;
-    let mut alpha_sum = 0.0;
+    let mut pink_score = 0.0;
     let mut count = 0;
 
-    for py in y..(y + h) {
-        for px in x..(x + w) {
+    for py in y..(y + h).min(image.height()) {
+        for px in x..(x + w).min(image.width()) {
             let pixel = image.get_pixel(px, py);
-            let alpha = pixel[3] as f32 / 255.0; // Alpha is the 4th component
-            alpha_sum += alpha;
+            let r = pixel[0] as f32 / 255.0;
+            let g = pixel[1] as f32 / 255.0;
+            let b = pixel[2] as f32 / 255.0;
+
+            let score = ((r - g) + (b - g)).max(0.0) / 2.0;
+            pink_score += score;
             count += 1;
         }
     }
 
-    alpha_sum / count as f32
+    if count == 0 {
+        return 0.0;
+    }
+    pink_score / count as f32
 }
 
 fn overlay_region() -> (u32, u32, u32, u32) {
+    // Must match docker-test.sh resolution (1920x1080)
     let output_width = 1920u32;
     let output_height = 1080u32;
     let window_width = (output_width as f32 * 0.25) as u32;
     let window_height = 210u32;
     let margin = 24u32;
 
+    // Sample inside the overlay, avoiding edges/rounded corners
     let x = (output_width - window_width) / 2 + 20;
     let y = output_height.saturating_sub(margin + window_height) + 20;
     let w = window_width.saturating_sub(40);
@@ -205,46 +213,42 @@ fn test_opacity_directional() {
         "load image 0.95"
     );
 
-    // Measure alpha in Barbara's window region
     let region = overlay_region();
 
-    let alpha_75 = measure_alpha_channel(&image_75, region);
-    let alpha_85 = measure_alpha_channel(&image_85, region);
-    let alpha_95 = measure_alpha_channel(&image_95, region);
+    let pink_75 = measure_pink_bleedthrough(&image_75, region);
+    let pink_85 = measure_pink_bleedthrough(&image_85, region);
+    let pink_95 = measure_pink_bleedthrough(&image_95, region);
 
-    println!("Alpha channel measurements:");
-    println!("  75% opacity: {:.4}", alpha_75);
-    println!("  85% opacity: {:.4}", alpha_85);
-    println!("  95% opacity: {:.4}", alpha_95);
+    println!("Pink bleedthrough measurements:");
+    println!("  75% opacity: {:.4}", pink_75);
+    println!("  85% opacity: {:.4}", pink_85);
+    println!("  95% opacity: {:.4}", pink_95);
 
-    // Directional assertions:
-    // Lower opacity value = more transparent = LOWER alpha
     assert!(
-        alpha_75 < alpha_85,
-        "75% should have LOWER alpha than 85% (more transparent)\n\
+        pink_75 > pink_85,
+        "75% should show MORE pink than 85% (more transparent)\n\
          Got: 75%={:.4}, 85%={:.4}",
-        alpha_75,
-        alpha_85
+        pink_75,
+        pink_85
     );
     assert!(
-        alpha_85 < alpha_95,
-        "85% should have LOWER alpha than 95% (95% is more opaque)\n\
+        pink_85 > pink_95,
+        "85% should show MORE pink than 95% (95% is more opaque)\n\
          Got: 85%={:.4}, 95%={:.4}",
-        alpha_85,
-        alpha_95
+        pink_85,
+        pink_95
     );
 
-    // Verify they're actually different (not all same due to bug)
-    let diff_75_95 = (alpha_75 - alpha_95).abs();
+    let diff_75_95 = (pink_75 - pink_95).abs();
     assert!(
-        diff_75_95 > 0.05,
+        diff_75_95 > 0.02,
         "75% and 95% should be measurably different\n\
-         Got difference: {:.4} (expected > 0.05)",
+         Got difference: {:.4} (expected > 0.02)",
         diff_75_95
     );
 
     println!("PASS: Opacity directional test");
-    println!("  Semantics confirmed: higher value = more opaque = higher alpha");
+    println!("  Semantics confirmed: higher opacity = less pink visible");
 }
 
 /// Test extreme transparency - should show almost all background
@@ -279,21 +283,19 @@ fn test_opacity_extreme_transparent() {
     );
 
     let region = overlay_region();
-    let alpha = measure_alpha_channel(&image, region);
+    let pink = measure_pink_bleedthrough(&image, region);
 
     println!("Extreme opacity (0.1%):");
-    println!("  Alpha channel: {:.4}", alpha);
+    println!("  Pink bleedthrough: {:.4}", pink);
 
-    // Should be very low - nearly transparent
-    // Threshold: alpha should be close to 0.001 (within tolerance)
     assert!(
-        alpha < 0.05,
-        "0.1% opacity should have very low alpha (<0.05)\n\
+        pink > 0.3,
+        "0.1% opacity should show lots of pink (>0.3)\n\
          Got: {:.4}",
-        alpha
+        pink
     );
 
-    println!("PASS: Near-transparent has alpha ~{:.4}", alpha);
+    println!("PASS: Near-transparent shows ~{:.0}% pink", pink * 100.0);
 }
 
 /// Test extreme opacity - should show almost no background
@@ -328,21 +330,19 @@ fn test_opacity_extreme_opaque() {
     );
 
     let region = overlay_region();
-    let alpha = measure_alpha_channel(&image, region);
+    let pink = measure_pink_bleedthrough(&image, region);
 
     println!("Extreme opacity (99.9%):");
-    println!("  Alpha channel: {:.4}", alpha);
+    println!("  Pink bleedthrough: {:.4}", pink);
 
-    // Should be very high - nearly opaque
-    // Threshold: alpha should be close to 0.999 (within tolerance)
     assert!(
-        alpha > 0.95,
-        "99.9% opacity should have very high alpha (>0.95)\n\
+        pink < 0.15,
+        "99.9% opacity should show minimal pink (<0.15)\n\
          Got: {:.4}",
-        alpha
+        pink
     );
 
-    println!("PASS: Near-opaque has alpha ~{:.4}", alpha);
+    println!("PASS: Near-opaque shows ~{:.0}% pink", pink * 100.0);
 }
 
 #[test]
