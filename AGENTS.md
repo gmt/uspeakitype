@@ -303,6 +303,8 @@ User should not see AGC fighting their manual adjustments.
 ## Versioning
 - Bump **patch version** when a Sisyphus boulder is complete (e.g., 0.2.5 → 0.2.6)
 - Version lives in `Cargo.toml` - update it as part of the final commit
+- Tag after committing: `./scripts/tag-version.sh`
+- Push with tags: `git push` (followTags config handles it)
 
 ### Visual Agent Observation (tmux environments)
 
