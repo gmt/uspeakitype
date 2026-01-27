@@ -30,13 +30,13 @@ use ratatui::{
     Terminal,
 };
 
-// Import from barbara crate
-use barbara::spectrum::{FlameScheme, WaterfallHistory};
-use barbara::ui::spectrogram_widget::SpectrogramWidget;
-use barbara::ui::status_widget::{StatusInfo, StatusWidget};
-use barbara::ui::theme::DEFAULT_THEME;
-use barbara::ui::transcript_widget::TranscriptWidget;
-use barbara::ui::waterfall_widget::WaterfallWidget;
+// Import from usit crate
+use usit::spectrum::{FlameScheme, WaterfallHistory};
+use usit::ui::spectrogram_widget::SpectrogramWidget;
+use usit::ui::status_widget::{StatusInfo, StatusWidget};
+use usit::ui::theme::DEFAULT_THEME;
+use usit::ui::transcript_widget::TranscriptWidget;
+use usit::ui::waterfall_widget::WaterfallWidget;
 
 /// Character set for bar meter visualization
 const BLOCK_CHARS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];

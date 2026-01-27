@@ -26,9 +26,9 @@ use ratatui::{
     Terminal,
 };
 
-// Import from barbara crate
-use barbara::spectrum::FlameScheme;
-use barbara::ui::spectrogram_widget::SpectrogramWidget;
+// Import from usit crate
+use usit::spectrum::FlameScheme;
+use usit::ui::spectrogram_widget::SpectrogramWidget;
 
 /// Character set for bar meter visualization
 const BLOCK_CHARS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];

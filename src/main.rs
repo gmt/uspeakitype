@@ -9,14 +9,14 @@ use crossterm::terminal;
 use supports_unicode::Stream;
 use terminal_size::{terminal_size, Height, Width};
 
-use barbara::audio::{self, AudioCapture, CaptureConfig, CaptureControl};
-use barbara::config::{Config, ModelVariant};
-use barbara::instance::{find_duplicate_tag, find_instances};
-use barbara::spectrum::get_color_scheme;
-use barbara::ui;
-use barbara::ui::spectrogram::SpectrogramMode;
-use barbara::ui::terminal::{TerminalConfig, TerminalMode, TerminalVisualizer};
-use barbara::{backend, download, streaming};
+use usit::audio::{self, AudioCapture, CaptureConfig, CaptureControl};
+use usit::config::{Config, ModelVariant};
+use usit::instance::{find_duplicate_tag, find_instances};
+use usit::spectrum::get_color_scheme;
+use usit::ui;
+use usit::ui::spectrogram::SpectrogramMode;
+use usit::ui::terminal::{TerminalConfig, TerminalMode, TerminalVisualizer};
+use usit::{backend, download, streaming};
 
 /// Normalize backend names: lowercase, trim, filter unknown
 fn normalize_backend_names(raw: &[String]) -> Vec<String> {
@@ -27,7 +27,7 @@ fn normalize_backend_names(raw: &[String]) -> Vec<String> {
             if KNOWN.contains(&s.as_str()) {
                 true
             } else {
-                eprintln!("[barbara] Warning: unknown backend '{}', ignoring", s);
+                eprintln!("[usit] Warning: unknown backend '{}', ignoring", s);
                 false
             }
         })
@@ -56,7 +56,7 @@ enum AnsiCharset {
 }
 
 #[derive(Parser)]
-#[command(name = "barbara")]
+#[command(name = "usit")]
 #[command(about = "Streaming speech-to-text with live revision")]
 #[command(long_about = "Streaming speech-to-text with live revision\n\n\
 Keybindings:\n  \
@@ -146,7 +146,7 @@ struct Args {
     #[arg(long)]
     source: Option<String>,
 
-    /// Path to model directory (default: ~/.cache/barbara/models)
+    /// Path to model directory (default: ~/.cache/usit/models)
     #[arg(long)]
     model_dir: Option<PathBuf>,
 
@@ -270,7 +270,7 @@ fn run_fireworks_test() -> anyhow::Result<()> {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let is_tui = args.ansi || args.ansi_sweep;
-    barbara::logging::init(is_tui)?;
+    usit::logging::init(is_tui)?;
     let config = Config::load_or_default();
 
     if args.test_fireworks {
@@ -321,7 +321,7 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| {
             dirs::cache_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
-                .join("barbara/models")
+                .join("usit/models")
         });
 
     if args.list_sources {
@@ -357,7 +357,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    println!("barbara v{}", env!("CARGO_PKG_VERSION"));
+    println!("usit v{}", env!("CARGO_PKG_VERSION"));
 
     let running = Arc::new(AtomicBool::new(true));
     let audio_state = ui::new_shared_state();
@@ -423,7 +423,7 @@ fn main() -> anyhow::Result<()> {
 
     // Spawn injector thread (runs independently, logs errors to stderr)
     std::thread::spawn(move || {
-        use barbara::input::{find_ydotool_socket, select_backend, TextInjector};
+        use usit::input::{find_ydotool_socket, select_backend, TextInjector};
 
         // 1. Normalize backend-disable list
         let disabled = normalize_backend_names(&backend_disable);

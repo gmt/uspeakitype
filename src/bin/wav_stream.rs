@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use hound::WavReader;
 
-use barbara::backend::MoonshineStreamer;
+use usit::backend::MoonshineStreamer;
 
 #[derive(Parser)]
 struct Args {

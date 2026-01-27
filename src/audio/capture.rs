@@ -556,11 +556,11 @@ fn run_capture_loop(
         *pw::keys::MEDIA_TYPE => "Audio",
         *pw::keys::MEDIA_CATEGORY => "Capture",
         *pw::keys::MEDIA_ROLE => "Communication",
-        *pw::keys::NODE_NAME => "barbara-capture",
+        *pw::keys::NODE_NAME => "usit-capture",
     };
 
     let stream =
-        pw::stream::StreamBox::new(&core, "barbara-audio", props).context("creating stream")?;
+        pw::stream::StreamBox::new(&core, "usit-audio", props).context("creating stream")?;
 
     let user_data = UserData {
         format: AudioInfoRaw::new(),

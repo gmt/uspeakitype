@@ -12,7 +12,7 @@ pub fn init(is_tui: bool) -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
     if connected_to_journal() {
         JournalLog::new()?
-            .with_syslog_identifier("barbara".to_string())
+            .with_syslog_identifier("usit".to_string())
             .with_extra_fields(vec![("VERSION", env!("CARGO_PKG_VERSION"))])
             .install()?;
         log::set_max_level(LevelFilter::Info);

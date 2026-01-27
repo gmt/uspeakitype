@@ -430,50 +430,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "barbara"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ashpd",
- "bytemuck",
- "clap",
- "crossterm",
- "dirs",
- "env_logger",
- "futures-util",
- "glyphon",
- "hound",
- "image",
- "image_hasher",
- "log",
- "ndarray",
- "ort",
- "parking_lot",
- "pipewire",
- "pollster",
- "portable-pty",
- "ratatui",
- "reqwest",
- "resvg",
- "rustfft",
- "serde",
- "serde_json",
- "smithay-client-toolkit",
- "supports-unicode",
- "systemd-journal-logger",
- "tempfile",
- "terminal_size",
- "tokenizers",
- "tokio",
- "toml",
- "vt100",
- "wgpu",
- "winit",
- "wrtype",
- "zbus",
-]
-
-[[package]]
 name = "base64"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5059,6 +5015,50 @@ dependencies = [
  "percent-encoding",
  "serde",
  "serde_derive",
+]
+
+[[package]]
+name = "uspeakitype"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "ashpd",
+ "bytemuck",
+ "clap",
+ "crossterm",
+ "dirs",
+ "env_logger",
+ "futures-util",
+ "glyphon",
+ "hound",
+ "image",
+ "image_hasher",
+ "log",
+ "ndarray",
+ "ort",
+ "parking_lot",
+ "pipewire",
+ "pollster",
+ "portable-pty",
+ "ratatui",
+ "reqwest",
+ "resvg",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "smithay-client-toolkit",
+ "supports-unicode",
+ "systemd-journal-logger",
+ "tempfile",
+ "terminal_size",
+ "tokenizers",
+ "tokio",
+ "toml",
+ "vt100",
+ "wgpu",
+ "winit",
+ "wrtype",
+ "zbus",
 ]
 
 [[package]]

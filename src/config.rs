@@ -174,12 +174,12 @@ impl Config {
 
     /// Get the default config file path
     ///
-    /// Returns `~/.config/barbara/barbara.toml`
+    /// Returns `~/.config/usit/usit.toml`
     pub fn config_path() -> PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("barbara")
-            .join("barbara.toml")
+            .join("usit")
+            .join("usit.toml")
     }
 
     /// Load config from default path, or return defaults if file doesn't exist
@@ -329,9 +329,9 @@ gain = 1.5
     }
 
     #[test]
-    fn test_config_path_ends_with_barbara_toml() {
+    fn test_config_path_ends_with_usit_toml() {
         let path = Config::config_path();
-        assert!(path.ends_with("barbara/barbara.toml"));
+        assert!(path.ends_with("usit/usit.toml"));
     }
 
     #[test]

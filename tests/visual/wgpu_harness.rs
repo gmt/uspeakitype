@@ -14,7 +14,7 @@ use tempfile::TempDir;
 
 use crate::visual::comparison::{compare_images, CompareResult};
 use crate::visual::screenshot::capture_screenshot;
-use barbara::instance::find_instances;
+use usit::instance::find_instances;
 
 static CLEANUP_ONCE: Once = Once::new();
 
@@ -59,11 +59,11 @@ impl WgpuTestHarness {
         let mut cmd_args = vec!["--tag", &tag, "--no-duplicate-tag"];
         cmd_args.extend(args.iter());
 
-        let child = Command::new(env!("CARGO_BIN_EXE_barbara"))
+        let child = Command::new(env!("CARGO_BIN_EXE_usit"))
             .args(&cmd_args)
             .env("XDG_CONFIG_HOME", &config_dir)
             .spawn()
-            .context("failed to spawn barbara")?;
+            .context("failed to spawn usit")?;
 
         Ok(Self { child, temp_dir })
     }
