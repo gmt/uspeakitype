@@ -7,6 +7,7 @@ HEAD=$(git rev-parse HEAD)
 if [ -z "$EXISTING" ]; then
     git tag -a "$TAG" -m "Release $VERSION"
     echo "Tagged $TAG"
+    exit 0
 elif [ "$EXISTING" = "$HEAD" ]; then
     exit 0  # Already tagged here, silent
 elif git merge-base --is-ancestor "$EXISTING" HEAD; then
