@@ -1,8 +1,6 @@
-# Barbara - Streaming ASR with Live Revision
+# usit - Streaming ASR with Live Revision
 
-**Named for:** Greek "barbaros" - one who babbles unintelligibly ("bar bar bar"). Our job: make the babbling intelligible.
-
-Barbara is a streaming speech-to-text overlay for Linux that transcribes audio in real-time with live word-by-word revision, providing both terminal (ANSI) and graphical (WGPU) interfaces.
+**uspeakitype** ("you speak, I type") is a streaming speech-to-text overlay for Linux that transcribes audio in real-time with live word-by-word revision, providing both terminal (ANSI) and graphical (WGPU) interfaces.
 
 ## Features
 
@@ -16,7 +14,7 @@ Barbara is a streaming speech-to-text overlay for Linux that transcribes audio i
 
 ## Input Injection Backends
 
-Barbara automatically selects the best available input injection backend for your compositor/desktop environment. The selection follows a fallback chain: **wrtype** → **ydotool** → **display-only mode**.
+usit automatically selects the best available input injection backend for your compositor/desktop environment. The selection follows a fallback chain: **wrtype** → **ydotool** → **display-only mode**.
 
 ### Backend Comparison
 
@@ -68,13 +66,13 @@ Skip specific backends during selection. Useful for testing or working around is
 
 ```bash
 # Force ydotool (skip wrtype)
-barbara --backend-disable=wrtype
+usit --backend-disable=wrtype
 
 # Test display-only mode
-barbara --backend-disable=wrtype,ydotool
+usit --backend-disable=wrtype,ydotool
 
 # Case-insensitive, whitespace-tolerant
-barbara --backend-disable="WrType, YdoTool"
+usit --backend-disable="WrType, YdoTool"
 ```
 
 Valid backend names: `wrtype`, `ydotool`
@@ -83,10 +81,10 @@ Valid backend names: `wrtype`, `ydotool`
 Automatically start the ydotoold daemon if the socket is missing. Useful for systems where the daemon isn't running as a service.
 
 ```bash
-barbara --autostart-ydotoold
+usit --autostart-ydotoold
 ```
 
-The daemon will be spawned in the background. Barbara waits 500ms for the socket to appear, then continues with backend selection.
+The daemon will be spawned in the background. usit waits 500ms for the socket to appear, then continues with backend selection.
 
 ### Troubleshooting
 
@@ -125,9 +123,9 @@ cargo run --release -- --demo
 
 ## Acknowledgments
 
-Barbara is basically a dumbed-down version of [**Sonori**](https://github.com/0xPD33/sonori) by 0xPD33, an MIT-licensed local AI-powered speech transcription application for Linux.
+usit is basically a dumbed-down version of [**Sonori**](https://github.com/0xPD33/sonori) by 0xPD33, an MIT-licensed local AI-powered speech transcription application for Linux.
 
-Without Sonori's example and code to steal from, Barbara likely would have been a prohibatively difficult undertaking and basically a non-project.
+Without Sonori's example and code to steal from, usit likely would have been a prohibatively difficult undertaking and basically a non-project.
 
 ## License
 

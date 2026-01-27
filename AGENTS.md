@@ -1,6 +1,6 @@
-# Barbara - Streaming ASR with Live Revision
+# usit - Streaming ASR with Live Revision
 
-**Named for:** Greek "barbaros" - one who babbles unintelligibly ("bar bar bar"). Our job: make the babbling intelligible.
+**uspeakitype** ("you speak, I type") - streaming speech-to-text for Linux.
 
 ## Quick Reference
 
@@ -38,7 +38,7 @@ src/
 ## Core Concept: Streaming vs Batch ASR
 
 Batch (Whisper): Wait for silence → transcribe → show all at once
-Streaming (Barbara): Show words as spoken → revise earlier guesses → commit on silence
+Streaming (usit): Show words as spoken → revise earlier guesses → commit on silence
 
 VAD role: **Commit detection**, not batching. We transcribe continuously; VAD signals when to finalize.
 
@@ -240,7 +240,7 @@ Settings can come from multiple sources. Higher precedence wins:
 
 1. **GUI** (runtime changes in control panel)
 2. **Command line** (`--flag value`)
-3. **Config file** (`~/.config/barbara/barbara.toml`)
+3. **Config file** (`~/.config/usit/usit.toml`)
 4. **Defaults** (compiled-in)
 
 Use a unified config framework (e.g., `config-rs` + `clap`) to keep these in sync. Avoid hand-rolling precedence logic per-setting.
@@ -285,7 +285,7 @@ User should not see AGC fighting their manual adjustments.
 - gui (ansi/tui control panel), or, equivalently,
 - gui (opengl control panel)
 - cmdline
-- ~/.config/barbara/barbara.conf
+- ~/.config/usit/usit.toml
 
 ## try to keep tui layout and opengl layout as analogous as possible; switching between the two should feel natural
 
