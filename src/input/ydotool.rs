@@ -117,7 +117,14 @@ impl TextInjector for YdotoolInjector {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+    use std::sync::Mutex;
     use tempfile::TempDir;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        ENV_LOCK.lock().expect("env lock poisoned")
+    }
 
     /// Create fake binary that logs invocation to a file
     fn setup_fake_binary(dir: &TempDir, name: &str, exit_code: i32) -> PathBuf {
@@ -189,6 +196,7 @@ mod tests {
 
     #[test]
     fn new_succeeds_when_ydotool_in_path_and_socket_exists() {
+        let _env_lock = env_lock();
         let temp = TempDir::new().unwrap();
         setup_fake_binary(&temp, "ydotool", 0);
         let _path_guard = PathGuard::set(temp.path().to_str().unwrap());
@@ -206,6 +214,7 @@ mod tests {
 
     #[test]
     fn new_fails_when_ydotool_not_found() {
+        let _env_lock = env_lock();
         let temp = TempDir::new().unwrap();
         let _guard = PathGuard::set(temp.path().to_str().unwrap());
 
@@ -219,6 +228,7 @@ mod tests {
 
     #[test]
     fn new_fails_when_socket_missing() {
+        let _env_lock = env_lock();
         let temp = TempDir::new().unwrap();
         setup_fake_binary(&temp, "ydotool", 0);
         let _path_guard = PathGuard::set(temp.path().to_str().unwrap());
@@ -235,6 +245,7 @@ mod tests {
 
     #[test]
     fn inject_passes_correct_args() {
+        let _env_lock = env_lock();
         let temp = TempDir::new().unwrap();
         setup_fake_binary(&temp, "ydotool", 0);
         let _path_guard = PathGuard::set(temp.path().to_str().unwrap());
@@ -259,6 +270,7 @@ mod tests {
 
     #[test]
     fn inject_empty_string_returns_ok() {
+        let _env_lock = env_lock();
         let temp = TempDir::new().unwrap();
         setup_fake_binary(&temp, "ydotool", 0);
         let _path_guard = PathGuard::set(temp.path().to_str().unwrap());
@@ -288,6 +300,7 @@ mod tests {
 
     #[test]
     fn inject_fails_on_nonzero_exit() {
+        let _env_lock = env_lock();
         let temp = TempDir::new().unwrap();
         setup_fake_binary(&temp, "ydotool", 1);
         let _path_guard = PathGuard::set(temp.path().to_str().unwrap());
@@ -307,6 +320,7 @@ mod tests {
 
     #[test]
     fn name_returns_ydotool() {
+        let _env_lock = env_lock();
         let temp = TempDir::new().unwrap();
         setup_fake_binary(&temp, "ydotool", 0);
         let _path_guard = PathGuard::set(temp.path().to_str().unwrap());
@@ -324,6 +338,7 @@ mod tests {
 
     #[test]
     fn find_ydotool_socket_checks_ydotool_socket_env_first() {
+        let _env_lock = env_lock();
         let temp = TempDir::new().unwrap();
         let socket_path = temp.path().join("custom_socket");
         std::fs::write(&socket_path, "").unwrap();
@@ -338,6 +353,7 @@ mod tests {
 
     #[test]
     fn find_ydotool_socket_checks_xdg_runtime_dir_second() {
+        let _env_lock = env_lock();
         let temp = TempDir::new().unwrap();
         let socket_path = temp.path().join(".ydotool_socket");
         std::fs::write(&socket_path, "").unwrap();
@@ -352,6 +368,7 @@ mod tests {
 
     #[test]
     fn find_ydotool_socket_checks_tmp_fallback_third() {
+        let _env_lock = env_lock();
         let mut env_guard = EnvGuard::new();
         env_guard.set("YDOTOOL_SOCKET", None);
         env_guard.set("XDG_RUNTIME_DIR", None);
@@ -364,6 +381,7 @@ mod tests {
 
     #[test]
     fn find_ydotool_socket_returns_none_when_no_socket_found() {
+        let _env_lock = env_lock();
         let mut env_guard = EnvGuard::new();
         env_guard.set("YDOTOOL_SOCKET", None);
         env_guard.set("XDG_RUNTIME_DIR", Some("/nonexistent/path"));

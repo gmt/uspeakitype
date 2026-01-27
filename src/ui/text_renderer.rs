@@ -6,6 +6,7 @@ use glyphon::{
     Attrs, Buffer, Cache, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache,
     TextArea, TextAtlas, TextBounds, TextRenderer as GlyphonTextRenderer, Viewport,
 };
+use glyphon::cosmic_text::Align;
 use wgpu::{Device, Queue, TextureView};
 use winit::dpi::PhysicalSize;
 
@@ -152,6 +153,7 @@ impl TextRenderer {
                     .family(Family::SansSerif)
                     .color(committed_color),
                 Shaping::Advanced,
+                Some(Align::Left),
             );
             self.buffer.shape_until_scroll(&mut self.font_system, true);
 
@@ -193,6 +195,7 @@ impl TextRenderer {
                 partial,
                 &Attrs::new().family(Family::SansSerif).color(partial_color),
                 Shaping::Advanced,
+                Some(Align::Left),
             );
             self.buffer_partial
                 .shape_until_scroll(&mut self.font_system, true);
@@ -237,6 +240,7 @@ impl TextRenderer {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
@@ -244,6 +248,7 @@ impl TextRenderer {
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
+                multiview_mask: None,
                 occlusion_query_set: None,
             });
 

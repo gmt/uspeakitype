@@ -142,7 +142,7 @@ impl Renderer {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Background Pipeline Layout"),
             bind_group_layouts: &[&bg_bind_group_layout],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         let bg_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -174,7 +174,7 @@ impl Renderer {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -322,6 +322,7 @@ impl Renderer {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
                             r: 0.0,
@@ -332,7 +333,10 @@ impl Renderer {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                ..Default::default()
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.bg_pipeline);
             pass.set_bind_group(0, &self.bg_bind_group, &[]);

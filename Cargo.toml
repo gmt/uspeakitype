@@ -26,8 +26,8 @@ path = "examples/widget_test.rs"
 ort = { version = "2.0.0-rc.10", features = ["ndarray"] }
 ndarray = "0.17"
 winit = { version = "0.31.0-beta.2", git = "https://github.com/SergioRibera/winit", branch = "layer_shell" }
-wgpu = "25.0.2"
-glyphon = "0.9.0"
+wgpu = "28"
+glyphon = "0.10.0"
 bytemuck = { version = "1.18.0", features = ["derive"] }
 smithay-client-toolkit = "0.20.0"
 ashpd = { version = "0.12", default-features = false, features = ["tokio"] }
@@ -47,7 +47,7 @@ hound = "3.5"
 terminal_size = "0.4.1"
 supports-unicode = "3.0.0"
 crossterm = "0.28"
-ratatui = "0.28"
+ratatui = "0.30.0"
 reqwest = { version = "0.11", default-features = false, features = ["stream", "rustls-tls"] }
 futures-util = "0.3"
 dirs = "5.0"
