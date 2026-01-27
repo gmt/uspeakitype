@@ -39,7 +39,7 @@ ENV XDG_RUNTIME_DIR=/run/user/0 \
     WLR_RENDERER=pixman \
     WLR_RENDERER_ALLOW_SOFTWARE=1 \
     LIBGL_ALWAYS_SOFTWARE=1 \
-    VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json \
+    VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json \
     BARBARA_CANONICAL_TEST_ENV=1
 
 WORKDIR /app
