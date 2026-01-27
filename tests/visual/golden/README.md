@@ -75,7 +75,7 @@ The CI pipeline will capture goldens automatically in a headless environment.
 
 | File | Capture Time | Expected Content | Status |
 |------|--------------|------------------|--------|
-| `wgpu_transparency_half.png` | t=3.0s | Window at 50% transparency | ✓ Captured (5120x1440, KDE) |
+| `wgpu_opacity_half.png` | t=3.0s | Window at 50% opacity | ✓ Captured (5120x1440, KDE) |
 | `wgpu_control_panel_full.png` | t=3.0s | Control panel with all 10 controls | ✓ Captured (5120x1440, KDE) |
 
 ### Capture Details
@@ -99,7 +99,7 @@ demo_committed_hello.png:        PNG image data, 5120 x 1440, 8-bit/color RGBA, 
 demo_partial_listening.png:      PNG image data, 5120 x 1440, 8-bit/color RGBA, non-interlaced
 demo_twotone_streaming.png:      PNG image data, 5120 x 1440, 8-bit/color RGBA, non-interlaced
 wgpu_control_panel_full.png:     PNG image data, 5120 x 1440, 8-bit/color RGBA, non-interlaced
-wgpu_transparency_half.png:      PNG image data, 5120 x 1440, 8-bit/color RGBA, non-interlaced
+wgpu_opacity_half.png:      PNG image data, 5120 x 1440, 8-bit/color RGBA, non-interlaced
 ```
 
 Visual inspection should show:
@@ -110,7 +110,7 @@ Visual inspection should show:
 - Transparent background (overlay composited over desktop)
 
 **WGPU enhancement goldens:**
-- `wgpu_transparency_half.png`: Window at 50% transparency (more background visible)
+- `wgpu_opacity_half.png`: Window at 50% opacity (more background visible)
 - `wgpu_control_panel_full.png`: Control panel visible with all 10 controls including TransparencySlider
 
 **Note:** For canonical CI goldens, expect:

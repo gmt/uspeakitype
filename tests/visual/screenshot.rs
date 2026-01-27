@@ -15,7 +15,7 @@ pub enum Compositor {
 
 fn grim_available() -> bool {
     Command::new("grim")
-        .arg("--version")
+        .arg("-h")
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
@@ -28,7 +28,8 @@ pub fn compositor_type() -> Compositor {
 
     let is_wlroots = std::env::var("SWAYSOCK").is_ok()
         || std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok()
-        || std::env::var("RIVER_SOCKET").is_ok();
+        || std::env::var("RIVER_SOCKET").is_ok()
+        || std::env::var("WLR_BACKENDS").ok().as_deref() == Some("headless");
 
     if is_wlroots && grim_available() {
         return Compositor::Wlroots;

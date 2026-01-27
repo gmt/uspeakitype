@@ -163,6 +163,14 @@ cargo test --lib                  # Library tests only
 cargo test --doc                  # Doc tests only
 ```
 
+### Docker Visual Tests
+
+- Requires Docker Compose v2 plugin (`docker compose`).
+- If Docker build fails with openssl-sys, ensure `libssl-dev` is in the image (see Dockerfile).
+- If Docker build fails with xkbcommon (smithay-client-toolkit), ensure `libxkbcommon-dev` is in the image.
+- If Docker build fails with bindgen/libspa-sys, ensure `libclang-dev` is in the image.
+- Run: `docker compose run visual-tests cargo test --release --test visual_tests opacity -- --ignored --nocapture`
+
 ### Test Patterns
 
 | Pattern | Purpose | Location |

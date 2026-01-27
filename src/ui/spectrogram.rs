@@ -20,10 +20,12 @@ pub enum SpectrogramMode {
 }
 
 pub struct Spectrogram {
+    device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     instance_buffer: wgpu::Buffer,
+    instance_capacity: usize,
     size: PhysicalSize<u32>,
     window_height: u32,
     last_update: Instant,
@@ -206,10 +208,12 @@ impl Spectrogram {
         queue.write_buffer(&instance_buffer, 0, bytemuck::cast_slice(&instances));
 
         Self {
+            device,
             queue,
             pipeline,
             vertex_buffer,
             instance_buffer,
+            instance_capacity: max_instances,
             size,
             window_height,
             last_update: Instant::now(),
@@ -322,7 +326,7 @@ impl Spectrogram {
         self.update_instance_buffer();
     }
 
-    fn update_instance_buffer(&self) {
+    fn update_instance_buffer(&mut self) {
         let instances = match self.mode {
             SpectrogramMode::BarMeter => Self::create_bar_instances(
                 &self.bar_data,
@@ -339,6 +343,16 @@ impl Spectrogram {
                 self.opacity,
             ),
         };
+        if instances.len() > self.instance_capacity {
+            self.instance_capacity = instances.len();
+            let buffer_size = (self.instance_capacity * std::mem::size_of::<BarInstance>()) as u64;
+            self.instance_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Spectrogram Instances"),
+                size: buffer_size,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
         self.queue
             .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));
     }

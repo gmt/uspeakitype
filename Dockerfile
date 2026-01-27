@@ -1,13 +1,13 @@
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Build tools
-    build-essential pkg-config \
+    build-essential pkg-config libssl-dev libclang-dev \
     # Rust (via rustup)
     curl ca-certificates \
     # Wayland + Sway
-    sway grim libwayland-dev \
+    sway grim libwayland-dev libxkbcommon-dev \
     # Mesa software rendering (Vulkan + OpenGL)
     mesa-vulkan-drivers libvulkan1 vulkan-tools \
     libegl1 libgl1-mesa-dri mesa-utils \
