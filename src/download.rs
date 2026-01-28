@@ -170,6 +170,22 @@ async fn download_file(
     Ok(())
 }
 
+/// Helper function to generate a helpful error message for missing Parakeet models
+fn parakeet_not_found_error(asr_dir: &Path) -> anyhow::Error {
+    anyhow::anyhow!(
+        "Parakeet model not found.\n\n\
+         Please download model files to:\n  {}\n\n\
+         Required files (one of each group):\n  \
+         - encoder-model.onnx OR encoder.onnx OR encoder_model.onnx\n  \
+         - decoder_joint-model.onnx OR decoder_joint.onnx OR decoder_joint_model.onnx\n  \
+         - vocab.txt\n  \
+         - nemo128.onnx OR nemo80.onnx\n\n\
+         Download from: https://huggingface.co/nvidia/parakeet-tdt-0.6b\n\
+         Export to ONNX using the NeMo toolkit.",
+        asr_dir.display()
+    )
+}
+
 /// Ensure all required models exist, downloading if necessary
 ///
 /// Checks if all model files exist in the given directory. If any are missing,
@@ -260,36 +276,30 @@ pub fn ensure_models_exist_with_progress(
             // Phase 1 (local-dir-first): validate that the required ONNX artifacts exist.
             let asr_dir = model_dir.join(variant.dir_name());
 
+            // Create directory if missing so user knows exact path
+            std::fs::create_dir_all(&asr_dir).ok();
+
             if !asr_dir.exists() {
-                anyhow::bail!("Missing Parakeet model directory: {}", asr_dir.display());
+                return Err(parakeet_not_found_error(&asr_dir));
             }
 
             let required_any =
                 |candidates: &[&str]| candidates.iter().any(|f| asr_dir.join(f).exists());
             if !required_any(&["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"]) {
-                anyhow::bail!(
-                    "Missing Parakeet encoder ONNX under {} (expected one of: encoder-model.onnx, encoder.onnx, encoder_model.onnx)",
-                    asr_dir.display()
-                );
+                return Err(parakeet_not_found_error(&asr_dir));
             }
             if !required_any(&[
                 "decoder_joint-model.onnx",
                 "decoder_joint.onnx",
                 "decoder_joint_model.onnx",
             ]) {
-                anyhow::bail!(
-                    "Missing Parakeet decoder_joint ONNX under {} (expected one of: decoder_joint-model.onnx, decoder_joint.onnx, decoder_joint_model.onnx)",
-                    asr_dir.display()
-                );
+                return Err(parakeet_not_found_error(&asr_dir));
             }
             if !asr_dir.join("vocab.txt").exists() {
-                anyhow::bail!("Missing Parakeet vocab.txt under {}", asr_dir.display());
+                return Err(parakeet_not_found_error(&asr_dir));
             }
             if !required_any(&["nemo128.onnx", "nemo80.onnx"]) {
-                anyhow::bail!(
-                    "Missing NeMo preprocessor ONNX under {} (expected nemo128.onnx or nemo80.onnx)",
-                    asr_dir.display()
-                );
+                return Err(parakeet_not_found_error(&asr_dir));
             }
 
             Ok(ModelPaths {
