@@ -6,17 +6,49 @@ use wgpu::util::DeviceExt;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
+use glyphon::{Color, TextBounds};
+
+use super::control_panel::{
+    transcript_text_bounds, Control, PanelRect, PANEL_PADDING, TEXT_PANEL_HEIGHT,
+};
 use super::icon::IconRenderer;
 use super::spectrogram::{Spectrogram, SpectrogramMode};
 use super::text_renderer::TextRenderer;
 use super::theme::{Theme, DEFAULT_THEME};
 use super::SharedAudioState;
 
+fn panel_text_bounds(rect: &PanelRect) -> TextBounds {
+    TextBounds {
+        left: (rect.x + PANEL_PADDING) as i32,
+        top: (rect.y + PANEL_PADDING) as i32,
+        right: (rect.x + rect.width - PANEL_PADDING) as i32,
+        bottom: (rect.y + rect.height - PANEL_PADDING) as i32,
+    }
+}
+
 const WINDOW_WIDTH: u32 = 400;
 const TEXT_HEIGHT: u32 = 80;
 const SPECTROGRAM_HEIGHT: u32 = 120;
 const GAP: u32 = 10;
 const PADDING: f32 = 12.0;
+
+pub fn compute_layout_heights(window_height: u32) -> (u32, u32) {
+    let text_panel_height_const = TEXT_PANEL_HEIGHT as u32;
+
+    let actual_text_panel_height = if window_height > text_panel_height_const {
+        text_panel_height_const
+    } else if window_height > 1 {
+        window_height - 1
+    } else {
+        0
+    };
+
+    let spectrogram_height = window_height
+        .saturating_sub(actual_text_panel_height)
+        .max(1);
+
+    (spectrogram_height, actual_text_panel_height)
+}
 
 pub struct Renderer {
     pub window: Arc<dyn Window>,
@@ -432,22 +464,39 @@ impl Renderer {
             )
         };
 
+        let (_spectrogram_height, actual_text_panel_height) =
+            compute_layout_heights(self.config.height);
+        let text_panel_y = (self.config.height - actual_text_panel_height) as f32;
+
         self.spectrogram.update(&samples);
         self.spectrogram
             .render(&mut encoder, &view, self.config.height);
 
-        self.text_renderer.render(
-            &view,
-            &mut encoder,
-            &committed,
-            &partial,
-            0.0,
-            (SPECTROGRAM_HEIGHT + GAP) as f32,
-            1.0,
-            self.config.width,
-            TEXT_HEIGHT,
-            PADDING,
-        );
+        if actual_text_panel_height > 0 {
+            let text_rect = PanelRect {
+                x: 0.0,
+                y: text_panel_y,
+                width: self.config.width as f32,
+                height: actual_text_panel_height as f32,
+            };
+            self.render_panel_background(&mut encoder, &view, &text_rect, [0.12, 0.12, 0.14, 1.0]);
+
+            let transcript_bounds = transcript_text_bounds(&text_rect);
+
+            self.text_renderer.render(
+                &view,
+                &mut encoder,
+                &committed,
+                &partial,
+                0.0,
+                text_panel_y,
+                1.0,
+                self.config.width,
+                actual_text_panel_height,
+                10.0,
+                transcript_bounds,
+            );
+        }
 
         if let Some(panel) = control_panel {
             self.render_control_panel(&view, &mut encoder, panel);
@@ -483,115 +532,76 @@ impl Renderer {
             return;
         }
 
-        let panel_width = 400.0;
-        let panel_x = (self.config.width as f32 - panel_width) / 2.0;
-        let panel_y = 100.0;
+        let rect = PanelRect::for_window(self.config.width as f32, self.config.height as f32);
 
-        use crate::ui::control_panel::Control;
+        self.render_panel_background(encoder, view, &rect, [0.12, 0.12, 0.14, 1.0]);
 
-        let controls_vec: Vec<String> = Control::ALL
-            .iter()
-            .map(|&control| {
-                let (label, value) = match control {
-                    Control::DeviceSelector => (
-                        "Device",
-                        panel
-                            .selected_device
-                            .map(|id| format!("#{}", id))
-                            .unwrap_or_else(|| "Default".to_string()),
-                    ),
-                    Control::GainSlider => (
-                        "Gain",
-                        format!(
-                            "{:.1}x{}",
-                            panel.gain_value,
-                            if panel.agc_enabled { " (AGC)" } else { "" }
-                        ),
-                    ),
-                    Control::AgcCheckbox => (
-                        "AGC",
-                        if panel.agc_enabled { "[X]" } else { "[ ]" }.to_string(),
-                    ),
-                    Control::PauseButton => (
-                        "Pause",
-                        if panel.is_paused { "[X]" } else { "[ ]" }.to_string(),
-                    ),
-                    Control::VizToggle => (
-                        "Viz",
-                        match panel.viz_mode {
-                            SpectrogramMode::BarMeter => "Bars",
-                            SpectrogramMode::Waterfall => "Waterfall",
-                        }
-                        .to_string(),
-                    ),
-                    Control::ColorPicker => ("Color", panel.color_scheme_name.to_string()),
-                    Control::InjectionToggle => (
-                        "Injection",
-                        if self.audio_state.read().injection_enabled {
-                            "[X]"
-                        } else {
-                            "[ ]"
-                        }
-                        .to_string(),
-                    ),
-                    Control::ModelSelector => ("Model", panel.model.to_string()),
-                    Control::AutoSaveToggle => (
-                        "Auto-Save",
-                        if panel.auto_save { "[X]" } else { "[ ]" }.to_string(),
-                    ),
-                    Control::OpacitySlider => ("Opacity", format!("{:.0}%", panel.opacity * 100.0)),
-                    Control::QuitButton => ("Quit", "Exit application".to_string()),
-                };
-                format!("{}: {}", label, value)
-            })
-            .collect();
+        let mut lines: Vec<(String, f32, f32)> = Vec::with_capacity(12);
 
-        let controls = [
-            controls_vec.first().map(|s| s.as_str()).unwrap_or(""),
-            controls_vec.get(1).map(|s| s.as_str()).unwrap_or(""),
-            controls_vec.get(2).map(|s| s.as_str()).unwrap_or(""),
-            controls_vec.get(3).map(|s| s.as_str()).unwrap_or(""),
-            controls_vec.get(4).map(|s| s.as_str()).unwrap_or(""),
-            controls_vec.get(5).map(|s| s.as_str()).unwrap_or(""),
-            controls_vec.get(6).map(|s| s.as_str()).unwrap_or(""),
-            controls_vec.get(7).map(|s| s.as_str()).unwrap_or(""),
-            controls_vec.get(8).map(|s| s.as_str()).unwrap_or(""),
-            controls_vec.get(9).map(|s| s.as_str()).unwrap_or(""),
-            controls_vec.get(10).map(|s| s.as_str()).unwrap_or(""),
-        ];
+        lines.push((
+            "Control Panel (click gear to close)".to_string(),
+            rect.x + PANEL_PADDING,
+            rect.title_y(),
+        ));
 
-        let title = "Control Panel (click to toggle)";
-        self.text_renderer.render(
-            view,
-            encoder,
-            title,
-            "",
-            panel_x,
-            panel_y,
-            1.0,
-            self.config.width,
-            30,
-            5.0,
-        );
+        for (i, control) in Control::ALL.iter().enumerate() {
+            let label = match control {
+                Control::DeviceSelector => {
+                    let name = panel
+                        .selected_device
+                        .map(|id| format!("#{}", id))
+                        .unwrap_or_else(|| "Default".to_string());
+                    format!("Device: {}", name)
+                }
+                Control::GainSlider => {
+                    format!(
+                        "Gain: {:.2}x{}",
+                        panel.gain_value,
+                        if panel.agc_enabled { " (AGC)" } else { "" }
+                    )
+                }
+                Control::AgcCheckbox => {
+                    format!("AGC: {}", if panel.agc_enabled { "ON" } else { "OFF" })
+                }
+                Control::PauseButton => {
+                    format!(
+                        "Capture: {}",
+                        if panel.is_paused { "PAUSED" } else { "RUNNING" }
+                    )
+                }
+                Control::VizToggle => {
+                    format!("Viz: {:?}", panel.viz_mode)
+                }
+                Control::ColorPicker => {
+                    format!("Colors: {}", panel.color_scheme_name)
+                }
+                Control::InjectionToggle => {
+                    let enabled = self.audio_state.read().injection_enabled;
+                    format!("Injection: {}", if enabled { "ON" } else { "OFF" })
+                }
+                Control::ModelSelector => {
+                    format!("Model: {}", panel.model)
+                }
+                Control::AutoSaveToggle => {
+                    format!("Auto-save: {}", if panel.auto_save { "ON" } else { "OFF" })
+                }
+                Control::OpacitySlider => {
+                    format!("Opacity: {}%", (panel.opacity * 100.0) as u32)
+                }
+                Control::QuitButton => "Quit".to_string(),
+            };
 
-        for (idx, control_text) in controls.iter().enumerate() {
-            let y = panel_y + 40.0 + (idx as f32 * 40.0);
-            self.text_renderer.render(
-                view,
-                encoder,
-                control_text,
-                "",
-                panel_x + 10.0,
-                y,
-                1.0,
-                self.config.width,
-                30,
-                5.0,
-            );
+            lines.push((label, rect.x + PANEL_PADDING, rect.row_y(i)));
         }
+
+        let bounds = panel_text_bounds(&rect);
+        let color = Color::rgba(230, 230, 235, 255);
+        let panel_width = rect.width - 2.0 * PANEL_PADDING;
+
+        self.text_renderer
+            .render_panel_text(encoder, view, lines, bounds, color, panel_width);
     }
 
-    #[allow(dead_code)]
     fn render_panel_background(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -627,5 +637,38 @@ impl Renderer {
         pass.set_pipeline(&self.panel_bg_pipeline);
         pass.set_bind_group(0, &self.panel_bg_bind_group, &[]);
         pass.draw(0..4, 0..1);
+    }
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    #[test]
+    fn test_layout_sizing_normal() {
+        let (spec_h, text_h) = compute_layout_heights(600);
+        assert_eq!(spec_h, 540);
+        assert_eq!(text_h, 60);
+    }
+
+    #[test]
+    fn test_layout_sizing_small() {
+        let (spec_h, text_h) = compute_layout_heights(60);
+        assert_eq!(spec_h, 1);
+        assert_eq!(text_h, 59);
+    }
+
+    #[test]
+    fn test_layout_sizing_tiny() {
+        let (spec_h, text_h) = compute_layout_heights(30);
+        assert_eq!(spec_h, 1);
+        assert_eq!(text_h, 29);
+    }
+
+    #[test]
+    fn test_layout_sizing_degenerate() {
+        let (spec_h, text_h) = compute_layout_heights(1);
+        assert_eq!(spec_h, 1);
+        assert_eq!(text_h, 0);
     }
 }
