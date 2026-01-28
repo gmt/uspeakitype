@@ -420,11 +420,18 @@ pub fn ensure_models_exist_with_progress(
                 let dest = asr_dir.join(filename);
                 if !dest.exists() {
                     let url = format!("{}/{}", PARAKEET_ONNX_URL, filename);
-                    let _ = rt
-                        .block_on(async {
-                            download_file_optional(&url, &dest, cb_ref, cancel_token).await
-                        })
-                        .context(format!("Failed to download Parakeet optional file: {}", filename))?;
+                    match rt.block_on(async {
+                        download_file_optional(&url, &dest, cb_ref, cancel_token).await
+                    }) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            log::warn!(
+                                "Failed to download Parakeet optional file {}: {}",
+                                filename,
+                                e
+                            );
+                        }
+                    }
                 }
             }
 
@@ -432,16 +439,21 @@ pub fn ensure_models_exist_with_progress(
                 for filename in PARAKEET_NEMO_FILES.iter() {
                     let dest = asr_dir.join(filename);
                     let url = format!("{}/{}", PARAKEET_ONNX_URL, filename);
-                    let downloaded = rt
-                        .block_on(async {
-                            download_file_optional(&url, &dest, cb_ref, cancel_token).await
-                        })
-                        .context(format!(
-                            "Failed to download Parakeet preprocessor: {}",
-                            filename
-                        ))?;
-                    if downloaded {
-                        break;
+                    match rt.block_on(async {
+                        download_file_optional(&url, &dest, cb_ref, cancel_token).await
+                    }) {
+                        Ok(downloaded) => {
+                            if downloaded {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "Failed to download Parakeet preprocessor {}: {}",
+                                filename,
+                                e
+                            );
+                        }
                     }
                 }
             }
