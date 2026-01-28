@@ -418,6 +418,7 @@ fn main() -> anyhow::Result<()> {
     // Extract before spawn (args used after spawn, can't move)
     let backend_disable = args.backend_disable.clone();
     let autostart_ydotoold = args.autostart_ydotoold;
+    let is_tui = args.headless || args.ansi;
 
     // Spawn injector thread (runs independently, logs errors to stderr)
     std::thread::spawn(move || {
@@ -440,7 +441,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         // 3. Select backend with normalized disabled list
-        let mut injector: Box<dyn TextInjector> = match select_backend(&disabled) {
+        let mut injector: Box<dyn TextInjector> = match select_backend(&disabled, is_tui) {
             Some(inj) => {
                 log::info!("Input injection: {}", inj.name());
                 inj

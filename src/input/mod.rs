@@ -37,47 +37,52 @@ pub use ydotool::{find_ydotool_socket, YdotoolInjector};
 /// - Active: `[usit] Probing wrtype... active`
 /// - Failed: `[usit] Probing wrtype... unavailable (error message)`
 /// - Disabled: `[usit] Probing wrtype... skipped (disabled)`
-pub fn select_backend(disabled: &[String]) -> Option<Box<dyn TextInjector>> {
-    // Probe input_method
-    if !disabled.iter().any(|s| s == "input_method") {
-        log::debug!("Probing input_method...");
+pub fn select_backend(
+    disabled: &[String],
+    skip_input_method: bool,
+) -> Option<Box<dyn TextInjector>> {
+    // Probe input_method (skip in TUI mode - no Wayland window)
+    if skip_input_method {
+        log::info!("Probing input_method... skipped (TUI mode)");
+    } else if !disabled.iter().any(|s| s == "input_method") {
+        log::info!("Probing input_method...");
         match InputMethodInjector::new() {
             Ok(inj) => {
                 log::info!("input_method: active");
                 return Some(Box::new(inj));
             }
-            Err(e) => log::debug!("input_method: unavailable ({})", e),
+            Err(e) => log::info!("input_method: unavailable ({})", e),
         }
     } else {
-        log::debug!("input_method: skipped (disabled)");
+        log::info!("input_method: skipped (disabled)");
     }
 
     // Probe wrtype
     if !disabled.iter().any(|s| s == "wrtype") {
-        log::debug!("Probing wrtype...");
+        log::info!("Probing wrtype...");
         match WrtypeInjector::new() {
             Ok(inj) => {
                 log::info!("wrtype: active");
                 return Some(Box::new(inj));
             }
-            Err(e) => log::debug!("wrtype: unavailable ({})", e),
+            Err(e) => log::info!("wrtype: unavailable ({})", e),
         }
     } else {
-        log::debug!("wrtype: skipped (disabled)");
+        log::info!("wrtype: skipped (disabled)");
     }
 
     // Probe ydotool
     if !disabled.iter().any(|s| s == "ydotool") {
-        log::debug!("Probing ydotool...");
+        log::info!("Probing ydotool...");
         match YdotoolInjector::new() {
             Ok(inj) => {
                 log::info!("ydotool: active");
                 return Some(Box::new(inj));
             }
-            Err(e) => log::debug!("ydotool: unavailable ({})", e),
+            Err(e) => log::info!("ydotool: unavailable ({})", e),
         }
     } else {
-        log::debug!("ydotool: skipped (disabled)");
+        log::info!("ydotool: skipped (disabled)");
     }
 
     // All backends failed or disabled
@@ -95,25 +100,25 @@ mod tests {
             "wrtype".to_string(),
             "ydotool".to_string(),
         ];
-        let result = select_backend(&disabled);
+        let result = select_backend(&disabled, false);
         assert!(result.is_none());
     }
 
     #[test]
     fn test_select_backend_attempts_all() {
         let disabled = vec!["input_method".to_string()];
-        let _result = select_backend(&disabled);
+        let _result = select_backend(&disabled, false);
     }
 
     #[test]
     fn test_select_backend_disabled_single_backend() {
         let disabled = vec!["input_method".to_string(), "wrtype".to_string()];
-        let _result = select_backend(&disabled);
+        let _result = select_backend(&disabled, false);
     }
 
     #[test]
     fn test_select_backend_case_sensitive() {
         let disabled = vec!["input_method".to_string(), "WRTYPE".to_string()];
-        let _result = select_backend(&disabled);
+        let _result = select_backend(&disabled, false);
     }
 }
