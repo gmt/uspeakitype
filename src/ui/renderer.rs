@@ -37,6 +37,10 @@ pub struct Renderer {
     spectrogram: Spectrogram,
     audio_state: SharedAudioState,
     mode: SpectrogramMode,
+    // Panel background rendering
+    panel_bg_pipeline: wgpu::RenderPipeline,
+    panel_bg_uniform_buffer: wgpu::Buffer,
+    panel_bg_bind_group: wgpu::BindGroup,
 }
 
 impl Renderer {
@@ -223,6 +227,78 @@ impl Renderer {
 
         let icon_renderer = IconRenderer::new(device.clone(), queue.clone(), format);
 
+        let panel_bg_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Panel Background Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/panel_bg.wgsl").into()),
+        });
+
+        let panel_bg_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Panel Background Uniforms"),
+            size: 32, // 2 * vec4<f32> = 32 bytes
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let panel_bg_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Panel Background Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let panel_bg_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Panel Background Bind Group"),
+            layout: &panel_bg_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: panel_bg_uniform_buffer.as_entire_binding(),
+            }],
+        });
+
+        let panel_bg_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Panel Background Pipeline Layout"),
+                bind_group_layouts: &[&panel_bg_bind_group_layout],
+                immediate_size: 0,
+            });
+
+        let panel_bg_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Panel Background Pipeline"),
+            layout: Some(&panel_bg_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &panel_bg_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &panel_bg_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
         Self {
             window,
             surface,
@@ -240,6 +316,9 @@ impl Renderer {
             spectrogram,
             audio_state,
             mode,
+            panel_bg_pipeline,
+            panel_bg_uniform_buffer,
+            panel_bg_bind_group,
         }
     }
 
@@ -510,5 +589,43 @@ impl Renderer {
                 5.0,
             );
         }
+    }
+
+    #[allow(dead_code)]
+    fn render_panel_background(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        rect: &super::PanelRect,
+        color: [f32; 4],
+    ) {
+        let ndc = rect.to_ndc(self.config.width as f32, self.config.height as f32);
+
+        self.queue.write_buffer(
+            &self.panel_bg_uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[ndc, color]),
+        );
+
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Panel Background"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+
+        pass.set_pipeline(&self.panel_bg_pipeline);
+        pass.set_bind_group(0, &self.panel_bg_bind_group, &[]);
+        pass.draw(0..4, 0..1);
     }
 }
