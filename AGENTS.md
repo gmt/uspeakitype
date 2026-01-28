@@ -119,11 +119,10 @@ pub enum StreamEvent {
 
 | Anti-pattern | Rationale | Reference |
 |--------------|-----------|-----------|
-| Multi-backend abstraction | Moonshine-only by design; no backend trait/plugin system | `src/backend/mod.rs:1-13` |
 | Single-surface frobs | Every control MUST work in both TUI and WGPU; if terminal can't represent it, reconsider | UI/Config Principles |
-| 29s chunking logic | Removed from sonori; continuous streaming model instead | Porting from Sonori |
-| Persistent AGC adjustments | Algorithm-driven gain changes don't save to config; only explicit user choices persist | UI/Config Principles |
-| AGC vs manual gain conflict | When AGC active, gain slider becomes disabled or "aggressiveness" control; no fighting user | UI/Config Principles |
+| 29s chunking logic | Removed from sonori; continuous streaming model
+| Persistent AGC adjustments | Algorithm-driven gain changes don't save to config; only explicit user choices persist
+| AGC vs manual gain conflict | When AGC active, gain slider becomes disabled or "aggressiveness" control; no fighting user
 
 ## Key Dependencies
 
@@ -137,15 +136,6 @@ pub enum StreamEvent {
 | `anyhow` | Error handling |
 | `clap` | CLI argument parsing |
 | `tokio` | Async runtime |
-
-## Porting from Sonori
-
-When implementing TODOs, reference sonori source:
-- `sonori/src/audio_capture.rs` → `src/audio/capture.rs`
-- `sonori/src/silero_audio_processor.rs` → `src/audio/vad.rs`
-- `sonori/src/backend/moonshine/` → `src/backend/moonshine.rs`
-- `sonori/src/ui/app.rs` → `src/ui/app.rs`
-- `sonori/src/ui/text_renderer.rs` + `window.rs` → `src/ui/renderer.rs`
 
 **Key simplifications from sonori:**
 - No 29s chunking logic
