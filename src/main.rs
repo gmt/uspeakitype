@@ -350,6 +350,18 @@ fn main() -> anyhow::Result<()> {
     log::info!("usit v{}", env!("CARGO_PKG_VERSION"));
 
     let running = Arc::new(AtomicBool::new(true));
+
+    // Set up signal handler for graceful shutdown
+    // This allows threads (especially the IME injector) to clean up properly
+    {
+        let running = running.clone();
+        ctrlc::set_handler(move || {
+            log::info!("Received shutdown signal");
+            running.store(false, Ordering::SeqCst);
+        })
+        .expect("Failed to set signal handler");
+    }
+
     let audio_state = ui::new_shared_state();
 
     // Apply config: injection_enabled
@@ -420,8 +432,9 @@ fn main() -> anyhow::Result<()> {
     let autostart_ydotoold = args.autostart_ydotoold;
     let is_tui = args.headless || args.ansi || args.ansi_sweep;
 
-    // Spawn injector thread (runs independently, logs errors to stderr)
-    std::thread::spawn(move || {
+    // Spawn injector thread - handle stored so we can join on shutdown
+    // to ensure proper Wayland IME cleanup (Drop runs before process exit)
+    let injector_handle = std::thread::spawn(move || {
         use usit::input::{find_ydotool_socket, select_backend, TextInjector};
 
         // 1. Normalize backend-disable list
@@ -452,12 +465,14 @@ fn main() -> anyhow::Result<()> {
             }
         };
 
-        // 4. Run injection loop (unchanged from current)
+        // 4. Run injection loop - exits when channel closes (sender dropped)
         while let Ok(text) = injection_rx.recv() {
             if let Err(e) = injector.inject(&text) {
                 log::error!("Injection error: {}", e);
             }
         }
+        // injector drops here, triggering IME cleanup
+        log::debug!("Injector thread exiting");
     });
 
     let capture_control: Option<Arc<CaptureControl>> = if args.demo || args.ansi_sweep {
@@ -604,6 +619,14 @@ fn main() -> anyhow::Result<()> {
             opacity,
             args.tag.clone(),
         );
+    }
+
+    // Graceful shutdown: close injection channel and wait for IME cleanup
+    // This ensures the Wayland IME destroy request is sent before we exit
+    drop(injection_tx);
+    log::debug!("Waiting for injector thread...");
+    if injector_handle.join().is_err() {
+        log::warn!("Injector thread panicked");
     }
 
     Ok(())
