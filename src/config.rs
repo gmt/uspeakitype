@@ -9,13 +9,13 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-/// Model variant selection
+/// ASR model selection
 ///
-/// Moonshine has two drop-in compatible ONNX models: Base (~120MB) and Tiny (~100MB).
-/// Both use the same encoder/decoder interface; only the model size differs.
+/// `usit` supports multiple model *families* that share the same high-level UI semantics
+/// (partial vs committed text), but differ in model packaging and decoding strategy.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
 #[serde(rename_all = "kebab-case")]
-pub enum ModelVariant {
+pub enum AsrModelId {
     /// Moonshine Base model (~120MB) - better accuracy
     #[default]
     #[value(name = "moonshine-base")]
@@ -23,31 +23,37 @@ pub enum ModelVariant {
     /// Moonshine Tiny model (~100MB) - faster, lower memory
     #[value(name = "moonshine-tiny")]
     MoonshineTiny,
+    /// NVIDIA Parakeet TDT 0.6B v3 (multilingual) exported to ONNX (local files).
+    #[value(name = "parakeet-tdt-0.6b-v3")]
+    ParakeetTdt06bV3,
 }
 
-impl fmt::Display for ModelVariant {
+impl fmt::Display for AsrModelId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ModelVariant::MoonshineBase => write!(f, "Moonshine Base"),
-            ModelVariant::MoonshineTiny => write!(f, "Moonshine Tiny"),
+            AsrModelId::MoonshineBase => write!(f, "Moonshine Base"),
+            AsrModelId::MoonshineTiny => write!(f, "Moonshine Tiny"),
+            AsrModelId::ParakeetTdt06bV3 => write!(f, "Parakeet TDT 0.6B v3"),
         }
     }
 }
 
-impl ModelVariant {
+impl AsrModelId {
     /// Directory name for model storage (e.g., "moonshine-base")
     pub fn dir_name(&self) -> &str {
         match self {
-            ModelVariant::MoonshineBase => "moonshine-base",
-            ModelVariant::MoonshineTiny => "moonshine-tiny",
+            AsrModelId::MoonshineBase => "moonshine-base",
+            AsrModelId::MoonshineTiny => "moonshine-tiny",
+            AsrModelId::ParakeetTdt06bV3 => "parakeet-tdt-0.6b-v3",
         }
     }
 
-    /// URL segment for HuggingFace download (e.g., "base" or "tiny")
-    pub fn download_url_segment(&self) -> &str {
+    /// URL segment for HuggingFace download (Moonshine only).
+    pub fn moonshine_download_url_segment(&self) -> Option<&str> {
         match self {
-            ModelVariant::MoonshineBase => "base",
-            ModelVariant::MoonshineTiny => "tiny",
+            AsrModelId::MoonshineBase => Some("base"),
+            AsrModelId::MoonshineTiny => Some("tiny"),
+            AsrModelId::ParakeetTdt06bV3 => None,
         }
     }
 }
@@ -60,7 +66,7 @@ impl ModelVariant {
 pub struct Config {
     /// ASR model variant to use
     #[serde(default)]
-    pub model: ModelVariant,
+    pub model: AsrModelId,
 
     /// Enable automatic gain control
     #[serde(default)]
@@ -102,7 +108,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            model: ModelVariant::MoonshineBase,
+            model: AsrModelId::MoonshineBase,
             auto_gain: false,
             gain: 1.0,
             style: "bars".to_string(),
@@ -196,7 +202,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = Config::default();
-        assert_eq!(config.model, ModelVariant::MoonshineBase);
+        assert_eq!(config.model, AsrModelId::MoonshineBase);
         assert!(!config.auto_gain);
         assert_eq!(config.gain, 1.0);
         assert_eq!(config.style, "bars");
@@ -213,7 +219,7 @@ mod tests {
         let config_path = temp_dir.path().join("test.toml");
 
         let original = Config {
-            model: ModelVariant::MoonshineTiny,
+            model: AsrModelId::MoonshineTiny,
             auto_gain: true,
             gain: 2.5,
             style: "waterfall".to_string(),
@@ -262,7 +268,7 @@ auto_save = true
         // Load should succeed with defaults for missing fields
         let config = Config::load(&config_path).unwrap();
 
-        assert_eq!(config.model, ModelVariant::MoonshineTiny);
+        assert_eq!(config.model, AsrModelId::MoonshineTiny);
         assert_eq!(config.gain, 1.5);
         assert_eq!(config.style, "waterfall");
         // Explicitly set fields
@@ -285,7 +291,7 @@ auto_save = true
         // (which are 0, false, empty string for primitive types)
         let config = Config::load(&config_path).unwrap();
         // Just verify it loaded without error
-        assert_eq!(config.model, ModelVariant::MoonshineBase);
+        assert_eq!(config.model, AsrModelId::MoonshineBase);
     }
 
     #[test]
@@ -360,31 +366,49 @@ gain = 1.5
 
     #[test]
     fn test_model_variant_default() {
-        assert_eq!(ModelVariant::default(), ModelVariant::MoonshineBase);
+        assert_eq!(AsrModelId::default(), AsrModelId::MoonshineBase);
     }
 
     #[test]
     fn test_model_variant_display() {
-        assert_eq!(ModelVariant::MoonshineBase.to_string(), "Moonshine Base");
-        assert_eq!(ModelVariant::MoonshineTiny.to_string(), "Moonshine Tiny");
+        assert_eq!(AsrModelId::MoonshineBase.to_string(), "Moonshine Base");
+        assert_eq!(AsrModelId::MoonshineTiny.to_string(), "Moonshine Tiny");
+        assert_eq!(
+            AsrModelId::ParakeetTdt06bV3.to_string(),
+            "Parakeet TDT 0.6B v3"
+        );
     }
 
     #[test]
     fn test_model_variant_dir_name() {
-        assert_eq!(ModelVariant::MoonshineBase.dir_name(), "moonshine-base");
-        assert_eq!(ModelVariant::MoonshineTiny.dir_name(), "moonshine-tiny");
+        assert_eq!(AsrModelId::MoonshineBase.dir_name(), "moonshine-base");
+        assert_eq!(AsrModelId::MoonshineTiny.dir_name(), "moonshine-tiny");
+        assert_eq!(
+            AsrModelId::ParakeetTdt06bV3.dir_name(),
+            "parakeet-tdt-0.6b-v3"
+        );
     }
 
     #[test]
     fn test_model_variant_download_url_segment() {
-        assert_eq!(ModelVariant::MoonshineBase.download_url_segment(), "base");
-        assert_eq!(ModelVariant::MoonshineTiny.download_url_segment(), "tiny");
+        assert_eq!(
+            AsrModelId::MoonshineBase.moonshine_download_url_segment(),
+            Some("base")
+        );
+        assert_eq!(
+            AsrModelId::MoonshineTiny.moonshine_download_url_segment(),
+            Some("tiny")
+        );
+        assert_eq!(
+            AsrModelId::ParakeetTdt06bV3.moonshine_download_url_segment(),
+            None
+        );
     }
 
     #[test]
     fn test_model_variant_serialization() {
-        let base = ModelVariant::MoonshineBase;
-        let tiny = ModelVariant::MoonshineTiny;
+        let base = AsrModelId::MoonshineBase;
+        let tiny = AsrModelId::MoonshineTiny;
 
         let base_str = serde_json::to_string(&base).unwrap();
         let tiny_str = serde_json::to_string(&tiny).unwrap();
@@ -395,18 +419,22 @@ gain = 1.5
 
     #[test]
     fn test_model_variant_deserialization() {
-        let base: ModelVariant = serde_json::from_str("\"moonshine-base\"").unwrap();
-        let tiny: ModelVariant = serde_json::from_str("\"moonshine-tiny\"").unwrap();
+        let base: AsrModelId = serde_json::from_str("\"moonshine-base\"").unwrap();
+        let tiny: AsrModelId = serde_json::from_str("\"moonshine-tiny\"").unwrap();
 
-        assert_eq!(base, ModelVariant::MoonshineBase);
-        assert_eq!(tiny, ModelVariant::MoonshineTiny);
+        assert_eq!(base, AsrModelId::MoonshineBase);
+        assert_eq!(tiny, AsrModelId::MoonshineTiny);
     }
 
     #[test]
     fn test_model_variant_serde_roundtrip() {
-        for variant in [ModelVariant::MoonshineBase, ModelVariant::MoonshineTiny] {
+        for variant in [
+            AsrModelId::MoonshineBase,
+            AsrModelId::MoonshineTiny,
+            AsrModelId::ParakeetTdt06bV3,
+        ] {
             let json = serde_json::to_string(&variant).unwrap();
-            let deserialized: ModelVariant = serde_json::from_str(&json).unwrap();
+            let deserialized: AsrModelId = serde_json::from_str(&json).unwrap();
             assert_eq!(variant, deserialized);
         }
     }

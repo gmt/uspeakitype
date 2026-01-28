@@ -10,7 +10,7 @@ use supports_unicode::Stream;
 use terminal_size::{terminal_size, Height, Width};
 
 use usit::audio::{self, AudioCapture, CaptureConfig, CaptureControl};
-use usit::config::{Config, ModelVariant};
+use usit::config::{AsrModelId, Config};
 use usit::instance::{find_duplicate_tag, find_instances};
 use usit::spectrum::get_color_scheme;
 use usit::ui;
@@ -121,9 +121,9 @@ struct Args {
         default_value = "moonshine-base",
         hide_possible_values = true,
         hide_default_value = true,
-        help = "ASR model: moonshine-base, moonshine-tiny [default: moonshine-base]"
+        help = "ASR model: moonshine-base, moonshine-tiny, parakeet-tdt-0.6b-v3 [default: moonshine-base]"
     )]
-    model: ModelVariant,
+    model: AsrModelId,
 
     #[arg(long, help = "Disable colors in terminal output")]
     no_color: bool,
@@ -360,11 +360,11 @@ fn main() -> anyhow::Result<()> {
             None
         } else {
             use audio::{SileroVad, VadConfig};
-            use backend::MoonshineStreamer;
-            use streaming::{StreamingConfig, StreamingTranscriber};
+            use backend::{MoonshineStreamer, NemoTransducerStreamer};
+            use streaming::{BoxedTranscriber, StreamingConfig, StreamingTranscriber};
 
             log::info!("Loading models from {:?}...", model_dir);
-            let resolved_model = if args.model != ModelVariant::default() {
+            let resolved_model = if args.model != AsrModelId::default() {
                 args.model
             } else {
                 config.model
@@ -376,8 +376,16 @@ fn main() -> anyhow::Result<()> {
             log::info!("Initializing VAD...");
             let vad = SileroVad::new(&model_paths.silero_vad, VadConfig::default())?;
 
-            log::info!("Initializing Moonshine transcriber...");
-            let transcriber = MoonshineStreamer::new(&model_paths.moonshine_dir)?;
+            let transcriber: BoxedTranscriber = match resolved_model {
+                AsrModelId::MoonshineBase | AsrModelId::MoonshineTiny => {
+                    log::info!("Initializing Moonshine transcriber...");
+                    Box::new(MoonshineStreamer::new(&model_paths.asr_dir)?)
+                }
+                AsrModelId::ParakeetTdt06bV3 => {
+                    log::info!("Initializing NeMo transducer transcriber...");
+                    Box::new(NemoTransducerStreamer::new(&model_paths.asr_dir)?)
+                }
+            };
 
             log::info!("Creating streaming coordinator...");
             Some(StreamingTranscriber::new(
@@ -398,10 +406,10 @@ fn main() -> anyhow::Result<()> {
         std::sync::mpsc::Receiver<String>,
     ) = std::sync::mpsc::channel();
 
-    // Model hot-swap channel: TUI sends new ModelVariant, streaming thread receives
+    // Model hot-swap channel: TUI sends new AsrModelId, streaming thread receives
     let (model_swap_tx, model_swap_rx): (
-        std::sync::mpsc::Sender<ModelVariant>,
-        std::sync::mpsc::Receiver<ModelVariant>,
+        std::sync::mpsc::Sender<AsrModelId>,
+        std::sync::mpsc::Receiver<AsrModelId>,
     ) = std::sync::mpsc::channel();
 
     let download_cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -511,7 +519,18 @@ fn main() -> anyhow::Result<()> {
                     ) {
                         Ok(model_paths) => {
                             audio_state_for_worker.write().download_progress = None;
-                            match backend::MoonshineStreamer::new(&model_paths.moonshine_dir) {
+                            let new_transcriber = match new_variant {
+                                AsrModelId::MoonshineBase | AsrModelId::MoonshineTiny => {
+                                    backend::MoonshineStreamer::new(&model_paths.asr_dir)
+                                        .map(|t| Box::new(t) as streaming::BoxedTranscriber)
+                                }
+                                AsrModelId::ParakeetTdt06bV3 => {
+                                    backend::NemoTransducerStreamer::new(&model_paths.asr_dir)
+                                        .map(|t| Box::new(t) as streaming::BoxedTranscriber)
+                                }
+                            };
+
+                            match new_transcriber {
                                 Ok(new_transcriber) => {
                                     streamer.swap_transcriber(new_transcriber);
                                     log::info!("Model swapped to {}", new_variant);
@@ -519,7 +538,7 @@ fn main() -> anyhow::Result<()> {
                                 Err(e) => {
                                     log::error!("Failed to swap model: {}", e);
                                 }
-                            }
+                            };
                         }
                         Err(e) => {
                             audio_state_for_worker.write().download_progress = None;
@@ -765,7 +784,7 @@ fn run_terminal_loop(
     args: &Args,
     config: &Config,
     capture_control: Option<&Arc<CaptureControl>>,
-    model_swap_tx: std::sync::mpsc::Sender<ModelVariant>,
+    model_swap_tx: std::sync::mpsc::Sender<AsrModelId>,
     download_cancel: Arc<std::sync::atomic::AtomicBool>,
 ) -> anyhow::Result<()> {
     if !args.ansi {

@@ -14,7 +14,7 @@
 //! - Quit button
 
 use crate::audio::CaptureControl;
-use crate::config::ModelVariant;
+use crate::config::AsrModelId;
 use crate::spectrum::{get_color_scheme, ColorScheme};
 use crate::ui::spectrogram::{Spectrogram, SpectrogramMode};
 use crate::ui::{AudioSourceInfo, AudioState};
@@ -69,7 +69,7 @@ pub struct ControlPanelState {
     pub is_paused: bool,
     pub viz_mode: SpectrogramMode,
     pub color_scheme_name: &'static str, // "flame", "ice", "mono"
-    pub model: ModelVariant,
+    pub model: AsrModelId,
     pub auto_save: bool,
     pub opacity: f32, // 0.5 to 1.0 (WGPU overlay only)
 }
@@ -86,7 +86,7 @@ impl Default for ControlPanelState {
             is_paused: false,
             viz_mode: SpectrogramMode::BarMeter,
             color_scheme_name: "flame",
-            model: ModelVariant::MoonshineBase,
+            model: AsrModelId::MoonshineBase,
             auto_save: true,
             opacity: 0.85,
         }
@@ -139,8 +139,9 @@ impl ControlPanelState {
 
     pub fn toggle_model(&mut self) {
         self.model = match self.model {
-            ModelVariant::MoonshineBase => ModelVariant::MoonshineTiny,
-            ModelVariant::MoonshineTiny => ModelVariant::MoonshineBase,
+            AsrModelId::MoonshineBase => AsrModelId::MoonshineTiny,
+            AsrModelId::MoonshineTiny => AsrModelId::ParakeetTdt06bV3,
+            AsrModelId::ParakeetTdt06bV3 => AsrModelId::MoonshineBase,
         };
     }
 
@@ -329,11 +330,13 @@ mod tests {
     #[test]
     fn toggle_model_cycles_correctly() {
         let mut state = ControlPanelState::new();
-        assert_eq!(state.model, ModelVariant::MoonshineBase);
+        assert_eq!(state.model, AsrModelId::MoonshineBase);
         state.toggle_model();
-        assert_eq!(state.model, ModelVariant::MoonshineTiny);
+        assert_eq!(state.model, AsrModelId::MoonshineTiny);
         state.toggle_model();
-        assert_eq!(state.model, ModelVariant::MoonshineBase);
+        assert_eq!(state.model, AsrModelId::ParakeetTdt06bV3);
+        state.toggle_model();
+        assert_eq!(state.model, AsrModelId::MoonshineBase);
     }
 
     #[test]
@@ -349,7 +352,7 @@ mod tests {
     #[test]
     fn default_values_correct() {
         let state = ControlPanelState::new();
-        assert_eq!(state.model, ModelVariant::MoonshineBase);
+        assert_eq!(state.model, AsrModelId::MoonshineBase);
         assert!(state.auto_save);
     }
 }

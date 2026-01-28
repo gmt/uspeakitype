@@ -10,7 +10,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 
-use crate::config::ModelVariant;
+use crate::config::AsrModelId;
 
 /// Silero VAD model URL (GitHub)
 const SILERO_VAD_URL: &str =
@@ -26,30 +26,28 @@ const MOONSHINE_VARIANT_FILES: [&str; 2] = ["tokenizer.json", "preprocessor_conf
 ///
 /// Returns the base URL for downloading Moonshine ONNX files for the given variant.
 /// URL pattern: `https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/{variant}/float`
-fn moonshine_onnx_url(variant: ModelVariant) -> String {
-    let variant_name = match variant {
-        ModelVariant::MoonshineBase => "base",
-        ModelVariant::MoonshineTiny => "tiny",
-    };
-    format!(
+fn moonshine_onnx_url(variant: AsrModelId) -> Result<String> {
+    let variant_name = variant
+        .moonshine_download_url_segment()
+        .ok_or_else(|| anyhow::anyhow!("Moonshine download requested for non-Moonshine model"))?;
+    Ok(format!(
         "https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/{}/float",
         variant_name
-    )
+    ))
 }
 
 /// Construct HuggingFace URL for variant-specific files (tokenizer, config)
 ///
 /// Returns the base URL for downloading support files from the variant-specific repo.
 /// URL pattern: `https://huggingface.co/UsefulSensors/moonshine-{variant}/resolve/main`
-fn moonshine_variant_url(variant: ModelVariant) -> String {
-    let variant_name = match variant {
-        ModelVariant::MoonshineBase => "base",
-        ModelVariant::MoonshineTiny => "tiny",
-    };
-    format!(
+fn moonshine_variant_url(variant: AsrModelId) -> Result<String> {
+    let variant_name = variant
+        .moonshine_download_url_segment()
+        .ok_or_else(|| anyhow::anyhow!("Moonshine download requested for non-Moonshine model"))?;
+    Ok(format!(
         "https://huggingface.co/UsefulSensors/moonshine-{}/resolve/main",
         variant_name
-    )
+    ))
 }
 
 /// Paths to all required model files
@@ -57,16 +55,10 @@ fn moonshine_variant_url(variant: ModelVariant) -> String {
 pub struct ModelPaths {
     /// Path to Silero VAD model
     pub silero_vad: PathBuf,
-    /// Directory containing Moonshine models
-    pub moonshine_dir: PathBuf,
-    /// Path to Moonshine encoder model
-    pub moonshine_encoder: PathBuf,
-    /// Path to Moonshine decoder model
-    pub moonshine_decoder: PathBuf,
-    /// Path to Moonshine tokenizer
-    pub moonshine_tokenizer: PathBuf,
-    /// Path to Moonshine preprocessor config
-    pub moonshine_config: PathBuf,
+    /// Directory containing the selected ASR model.
+    ///
+    /// - Moonshine: contains `encoder_model.onnx`, `decoder_model_merged.onnx`, `tokenizer.json`, etc.\n    /// - NeMo transducer (Parakeet): contains `encoder-model.onnx`, `decoder_joint-model.onnx`, `vocab.txt`, `nemo128.onnx`, etc.
+    pub asr_dir: PathBuf,
 }
 
 /// Download a file from URL to destination with atomic write pattern
@@ -184,7 +176,7 @@ async fn download_file(
 /// downloads them from GitHub (Silero VAD) and HuggingFace (Moonshine).
 ///
 /// Uses blocking runtime to handle async downloads from sync context.
-pub fn ensure_models_exist(model_dir: &Path, variant: ModelVariant) -> Result<ModelPaths> {
+pub fn ensure_models_exist(model_dir: &Path, variant: AsrModelId) -> Result<ModelPaths> {
     ensure_models_exist_with_progress(model_dir, variant, None, None)
 }
 
@@ -192,43 +184,15 @@ pub fn ensure_models_exist(model_dir: &Path, variant: ModelVariant) -> Result<Mo
 /// for reporting download progress to the UI instead of printing to stdout.
 pub fn ensure_models_exist_with_progress(
     model_dir: &Path,
-    variant: ModelVariant,
+    variant: AsrModelId,
     progress_callback: Option<Box<dyn Fn(f64) + Send + Sync>>,
     cancel_token: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<ModelPaths> {
     let silero_vad_path = model_dir.join("silero_vad.onnx");
-    let moonshine_dir = model_dir.join(variant.dir_name());
-    let moonshine_encoder = moonshine_dir.join("encoder_model.onnx");
-    let moonshine_decoder = moonshine_dir.join("decoder_model_merged.onnx");
-    let moonshine_tokenizer = moonshine_dir.join("tokenizer.json");
-    let moonshine_config = moonshine_dir.join("preprocessor_config.json");
-
-    let all_exist = silero_vad_path.exists()
-        && moonshine_encoder.exists()
-        && moonshine_decoder.exists()
-        && moonshine_tokenizer.exists();
-
-    if all_exist {
-        if progress_callback.is_none() {
-            println!("All models found at {:?}", model_dir);
-        }
-        return Ok(ModelPaths {
-            silero_vad: silero_vad_path,
-            moonshine_dir,
-            moonshine_encoder,
-            moonshine_decoder,
-            moonshine_tokenizer,
-            moonshine_config,
-        });
-    }
-
-    if !moonshine_dir.exists() {
-        fs::create_dir_all(&moonshine_dir).context("Failed to create moonshine model directory")?;
-    }
-
     let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
     let cb_ref = progress_callback.as_deref();
 
+    // Silero VAD is small and shared across ASR models, so we always ensure it exists.
     if !silero_vad_path.exists() {
         rt.block_on(async {
             download_file(SILERO_VAD_URL, &silero_vad_path, cb_ref, cancel_token).await
@@ -236,58 +200,146 @@ pub fn ensure_models_exist_with_progress(
         .context("Failed to download Silero VAD model")?;
     }
 
-    let onnx_url = moonshine_onnx_url(variant);
-    for filename in MOONSHINE_ONNX_FILES.iter() {
-        let file_path = moonshine_dir.join(filename);
-        if !file_path.exists() {
-            let url = format!("{}/{}", onnx_url, filename);
-            rt.block_on(async { download_file(&url, &file_path, cb_ref, cancel_token).await })
-                .context(format!("Failed to download Moonshine file: {}", filename))?;
+    match variant {
+        AsrModelId::MoonshineBase | AsrModelId::MoonshineTiny => {
+            let asr_dir = model_dir.join(variant.dir_name());
+            let encoder = asr_dir.join("encoder_model.onnx");
+            let decoder = asr_dir.join("decoder_model_merged.onnx");
+            let tokenizer = asr_dir.join("tokenizer.json");
+
+            let all_exist = encoder.exists() && decoder.exists() && tokenizer.exists();
+            if all_exist {
+                if progress_callback.is_none() {
+                    println!("All models found at {:?}", model_dir);
+                }
+                return Ok(ModelPaths {
+                    silero_vad: silero_vad_path,
+                    asr_dir,
+                });
+            }
+
+            if !asr_dir.exists() {
+                fs::create_dir_all(&asr_dir)
+                    .context("Failed to create Moonshine model directory")?;
+            }
+
+            let onnx_url = moonshine_onnx_url(variant)?;
+            for filename in MOONSHINE_ONNX_FILES.iter() {
+                let file_path = asr_dir.join(filename);
+                if !file_path.exists() {
+                    let url = format!("{}/{}", onnx_url, filename);
+                    rt.block_on(async {
+                        download_file(&url, &file_path, cb_ref, cancel_token).await
+                    })
+                    .context(format!("Failed to download Moonshine file: {}", filename))?;
+                }
+            }
+
+            let variant_url = moonshine_variant_url(variant)?;
+            for filename in MOONSHINE_VARIANT_FILES.iter() {
+                let file_path = asr_dir.join(filename);
+                if !file_path.exists() {
+                    let url = format!("{}/{}", variant_url, filename);
+                    rt.block_on(async {
+                        download_file(&url, &file_path, cb_ref, cancel_token).await
+                    })
+                    .context(format!("Failed to download Moonshine file: {}", filename))?;
+                }
+            }
+
+            if progress_callback.is_none() {
+                println!("All models ready at {:?}", model_dir);
+            }
+
+            Ok(ModelPaths {
+                silero_vad: silero_vad_path,
+                asr_dir,
+            })
+        }
+        AsrModelId::ParakeetTdt06bV3 => {
+            // Phase 1 (local-dir-first): validate that the required ONNX artifacts exist.
+            let asr_dir = model_dir.join(variant.dir_name());
+
+            if !asr_dir.exists() {
+                anyhow::bail!("Missing Parakeet model directory: {}", asr_dir.display());
+            }
+
+            let required_any =
+                |candidates: &[&str]| candidates.iter().any(|f| asr_dir.join(f).exists());
+            if !required_any(&["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"]) {
+                anyhow::bail!(
+                    "Missing Parakeet encoder ONNX under {} (expected one of: encoder-model.onnx, encoder.onnx, encoder_model.onnx)",
+                    asr_dir.display()
+                );
+            }
+            if !required_any(&[
+                "decoder_joint-model.onnx",
+                "decoder_joint.onnx",
+                "decoder_joint_model.onnx",
+            ]) {
+                anyhow::bail!(
+                    "Missing Parakeet decoder_joint ONNX under {} (expected one of: decoder_joint-model.onnx, decoder_joint.onnx, decoder_joint_model.onnx)",
+                    asr_dir.display()
+                );
+            }
+            if !asr_dir.join("vocab.txt").exists() {
+                anyhow::bail!("Missing Parakeet vocab.txt under {}", asr_dir.display());
+            }
+            if !required_any(&["nemo128.onnx", "nemo80.onnx"]) {
+                anyhow::bail!(
+                    "Missing NeMo preprocessor ONNX under {} (expected nemo128.onnx or nemo80.onnx)",
+                    asr_dir.display()
+                );
+            }
+
+            Ok(ModelPaths {
+                silero_vad: silero_vad_path,
+                asr_dir,
+            })
         }
     }
-
-    let variant_url = moonshine_variant_url(variant);
-    for filename in MOONSHINE_VARIANT_FILES.iter() {
-        let file_path = moonshine_dir.join(filename);
-        if !file_path.exists() {
-            let url = format!("{}/{}", variant_url, filename);
-            rt.block_on(async { download_file(&url, &file_path, cb_ref, cancel_token).await })
-                .context(format!("Failed to download Moonshine file: {}", filename))?;
-        }
-    }
-
-    if progress_callback.is_none() {
-        println!("All models ready at {:?}", model_dir);
-    }
-
-    Ok(ModelPaths {
-        silero_vad: silero_vad_path,
-        moonshine_dir,
-        moonshine_encoder,
-        moonshine_decoder,
-        moonshine_tokenizer,
-        moonshine_config,
-    })
 }
 
 /// Check if a specific model variant is fully downloaded (ONNX + tokenizer)
-pub fn is_model_downloaded(model_dir: &Path, variant: ModelVariant) -> bool {
-    let moonshine_dir = model_dir.join(variant.dir_name());
-    let encoder = moonshine_dir.join("encoder_model.onnx");
-    let decoder = moonshine_dir.join("decoder_model_merged.onnx");
-    let tokenizer = moonshine_dir.join("tokenizer.json");
-    encoder.exists() && decoder.exists() && tokenizer.exists()
+pub fn is_model_downloaded(model_dir: &Path, variant: AsrModelId) -> bool {
+    let asr_dir = model_dir.join(variant.dir_name());
+    match variant {
+        AsrModelId::MoonshineBase | AsrModelId::MoonshineTiny => {
+            let encoder = asr_dir.join("encoder_model.onnx");
+            let decoder = asr_dir.join("decoder_model_merged.onnx");
+            let tokenizer = asr_dir.join("tokenizer.json");
+            encoder.exists() && decoder.exists() && tokenizer.exists()
+        }
+        AsrModelId::ParakeetTdt06bV3 => {
+            if !asr_dir.exists() {
+                return false;
+            }
+            let required_any =
+                |candidates: &[&str]| candidates.iter().any(|f| asr_dir.join(f).exists());
+            required_any(&["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"])
+                && required_any(&[
+                    "decoder_joint-model.onnx",
+                    "decoder_joint.onnx",
+                    "decoder_joint_model.onnx",
+                ])
+                && asr_dir.join("vocab.txt").exists()
+                && required_any(&["nemo128.onnx", "nemo80.onnx"])
+        }
+    }
 }
 
 /// List all available model variants in the model directory
-pub fn available_models(model_dir: &Path) -> Vec<ModelVariant> {
+pub fn available_models(model_dir: &Path) -> Vec<AsrModelId> {
     let mut available = Vec::new();
 
-    if is_model_downloaded(model_dir, ModelVariant::MoonshineBase) {
-        available.push(ModelVariant::MoonshineBase);
+    if is_model_downloaded(model_dir, AsrModelId::MoonshineBase) {
+        available.push(AsrModelId::MoonshineBase);
     }
-    if is_model_downloaded(model_dir, ModelVariant::MoonshineTiny) {
-        available.push(ModelVariant::MoonshineTiny);
+    if is_model_downloaded(model_dir, AsrModelId::MoonshineTiny) {
+        available.push(AsrModelId::MoonshineTiny);
+    }
+    if is_model_downloaded(model_dir, AsrModelId::ParakeetTdt06bV3) {
+        available.push(AsrModelId::ParakeetTdt06bV3);
     }
 
     available
@@ -300,29 +352,15 @@ mod tests {
     #[test]
     fn test_model_paths_struct() {
         let model_dir = PathBuf::from("/tmp/models");
-        let variant = ModelVariant::MoonshineBase;
+        let variant = AsrModelId::MoonshineBase;
         let paths = ModelPaths {
             silero_vad: model_dir.join("silero_vad.onnx"),
-            moonshine_dir: model_dir.join(variant.dir_name()),
-            moonshine_encoder: model_dir
-                .join(variant.dir_name())
-                .join("encoder_model.onnx"),
-            moonshine_decoder: model_dir
-                .join(variant.dir_name())
-                .join("decoder_model_merged.onnx"),
-            moonshine_tokenizer: model_dir.join(variant.dir_name()).join("tokenizer.json"),
-            moonshine_config: model_dir
-                .join(variant.dir_name())
-                .join("preprocessor_config.json"),
+            asr_dir: model_dir.join(variant.dir_name()),
         };
 
         // Verify all fields are populated
         assert!(!paths.silero_vad.as_os_str().is_empty());
-        assert!(!paths.moonshine_dir.as_os_str().is_empty());
-        assert!(!paths.moonshine_encoder.as_os_str().is_empty());
-        assert!(!paths.moonshine_decoder.as_os_str().is_empty());
-        assert!(!paths.moonshine_tokenizer.as_os_str().is_empty());
-        assert!(!paths.moonshine_config.as_os_str().is_empty());
+        assert!(!paths.asr_dir.as_os_str().is_empty());
     }
 
     #[test]
@@ -350,25 +388,25 @@ mod tests {
 
     #[test]
     fn test_moonshine_url_construction() {
-        let base_onnx = moonshine_onnx_url(ModelVariant::MoonshineBase);
+        let base_onnx = moonshine_onnx_url(AsrModelId::MoonshineBase).unwrap();
         assert_eq!(
             base_onnx,
             "https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/base/float"
         );
 
-        let tiny_onnx = moonshine_onnx_url(ModelVariant::MoonshineTiny);
+        let tiny_onnx = moonshine_onnx_url(AsrModelId::MoonshineTiny).unwrap();
         assert_eq!(
             tiny_onnx,
             "https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/tiny/float"
         );
 
-        let base_variant = moonshine_variant_url(ModelVariant::MoonshineBase);
+        let base_variant = moonshine_variant_url(AsrModelId::MoonshineBase).unwrap();
         assert_eq!(
             base_variant,
             "https://huggingface.co/UsefulSensors/moonshine-base/resolve/main"
         );
 
-        let tiny_variant = moonshine_variant_url(ModelVariant::MoonshineTiny);
+        let tiny_variant = moonshine_variant_url(AsrModelId::MoonshineTiny).unwrap();
         assert_eq!(
             tiny_variant,
             "https://huggingface.co/UsefulSensors/moonshine-tiny/resolve/main"
@@ -383,8 +421,8 @@ mod tests {
         let model_dir = temp_dir.path();
 
         // No models downloaded initially
-        assert!(!is_model_downloaded(model_dir, ModelVariant::MoonshineBase));
-        assert!(!is_model_downloaded(model_dir, ModelVariant::MoonshineTiny));
+        assert!(!is_model_downloaded(model_dir, AsrModelId::MoonshineBase));
+        assert!(!is_model_downloaded(model_dir, AsrModelId::MoonshineTiny));
 
         // Create Base model files
         let base_dir = model_dir.join("moonshine-base");
@@ -395,8 +433,8 @@ mod tests {
         fs::write(base_dir.join("tokenizer.json"), b"{}").expect("Failed to write tokenizer");
 
         // Base should be detected
-        assert!(is_model_downloaded(model_dir, ModelVariant::MoonshineBase));
-        assert!(!is_model_downloaded(model_dir, ModelVariant::MoonshineTiny));
+        assert!(is_model_downloaded(model_dir, AsrModelId::MoonshineBase));
+        assert!(!is_model_downloaded(model_dir, AsrModelId::MoonshineTiny));
 
         // Create Tiny model files
         let tiny_dir = model_dir.join("moonshine-tiny");
@@ -407,8 +445,8 @@ mod tests {
         fs::write(tiny_dir.join("tokenizer.json"), b"{}").expect("Failed to write tokenizer");
 
         // Both should be detected
-        assert!(is_model_downloaded(model_dir, ModelVariant::MoonshineBase));
-        assert!(is_model_downloaded(model_dir, ModelVariant::MoonshineTiny));
+        assert!(is_model_downloaded(model_dir, AsrModelId::MoonshineBase));
+        assert!(is_model_downloaded(model_dir, AsrModelId::MoonshineTiny));
     }
 
     #[test]
@@ -432,7 +470,7 @@ mod tests {
 
         let available = available_models(model_dir);
         assert_eq!(available.len(), 1);
-        assert_eq!(available[0], ModelVariant::MoonshineBase);
+        assert_eq!(available[0], AsrModelId::MoonshineBase);
 
         // Create Tiny model
         let tiny_dir = model_dir.join("moonshine-tiny");
@@ -444,7 +482,7 @@ mod tests {
 
         let available = available_models(model_dir);
         assert_eq!(available.len(), 2);
-        assert_eq!(available[0], ModelVariant::MoonshineBase);
-        assert_eq!(available[1], ModelVariant::MoonshineTiny);
+        assert_eq!(available[0], AsrModelId::MoonshineBase);
+        assert_eq!(available[1], AsrModelId::MoonshineTiny);
     }
 }

@@ -48,6 +48,19 @@ pub trait Transcriber {
     fn reset(&mut self);
 }
 
+/// Boxed transcriber used by production for model hot-swap across families.
+pub type BoxedTranscriber = Box<dyn Transcriber + Send>;
+
+impl<T: Transcriber + ?Sized> Transcriber for Box<T> {
+    fn transcribe_incremental(&mut self, samples: &[f32]) -> Result<String> {
+        (**self).transcribe_incremental(samples)
+    }
+
+    fn reset(&mut self) {
+        (**self).reset();
+    }
+}
+
 /// Streaming transcriber coordinator
 pub struct StreamingTranscriber<V: VadProcessor, T: Transcriber> {
     vad: V,
@@ -167,7 +180,7 @@ impl Transcriber for MoonshineStreamer {
 }
 
 /// Production streaming transcriber with real VAD and ASR
-pub type DefaultStreamingTranscriber = StreamingTranscriber<SileroVad, MoonshineStreamer>;
+pub type DefaultStreamingTranscriber = StreamingTranscriber<SileroVad, BoxedTranscriber>;
 
 #[cfg(test)]
 mod tests {
