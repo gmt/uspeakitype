@@ -5,6 +5,7 @@ edition = "2021"
 description = "Streaming ASR with live revision"
 license = "MIT"
 authors = ["Greg Turner <gmt@be-evil.net>"]
+default-run = "usit"
 
 [lib]
 name = "usit"
