@@ -22,6 +22,16 @@ const MOONSHINE_ONNX_FILES: [&str; 2] = ["encoder_model.onnx", "decoder_model_me
 /// Moonshine support files to download (from variant-specific repo)
 const MOONSHINE_VARIANT_FILES: [&str; 2] = ["tokenizer.json", "preprocessor_config.json"];
 
+/// Parakeet (NeMo TDT) ONNX repo with exported artifacts.
+const PARAKEET_ONNX_URL: &str =
+    "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main";
+
+/// Optional Parakeet artifacts (downloaded if present).
+const PARAKEET_OPTIONAL_FILES: [&str; 1] = ["config.json"];
+
+/// Acceptable NeMo preprocessor graphs.
+const PARAKEET_NEMO_FILES: [&str; 2] = ["nemo128.onnx", "nemo80.onnx"];
+
 /// Construct HuggingFace URL for Moonshine ONNX files
 ///
 /// Returns the base URL for downloading Moonshine ONNX files for the given variant.
@@ -170,18 +180,115 @@ async fn download_file(
     Ok(())
 }
 
+/// Download a file if it exists (returns false on 404).
+async fn download_file_optional(
+    url: &str,
+    dest: &Path,
+    progress_callback: Option<&(dyn Fn(f64) + Send + Sync)>,
+    cancel_token: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<bool> {
+    if let Some(parent) = dest.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).context("Failed to create parent directories")?;
+        }
+    }
+
+    let response = reqwest::get(url)
+        .await
+        .context(format!("Failed to download from {}", url))?;
+
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(false);
+    }
+
+    if !response.status().is_success() {
+        return Err(anyhow::anyhow!(
+            "Failed to download {}: HTTP {}",
+            dest.file_name().and_then(|n| n.to_str()).unwrap_or("file"),
+            response.status()
+        ));
+    }
+
+    let temp_path = dest.with_extension("downloading");
+    let filename = dest.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+    let total_size = response.content_length().unwrap_or(0);
+    let mut file = tokio::fs::File::create(&temp_path)
+        .await
+        .context(format!("Failed to create temp file at {:?}", temp_path))?;
+
+    if progress_callback.is_none() {
+        println!("Downloading {}...", filename);
+    }
+
+    let mut stream = response.bytes_stream();
+    let mut downloaded: u64 = 0;
+
+    while let Some(item) = stream.next().await {
+        if cancel_token
+            .map(|t| t.load(std::sync::atomic::Ordering::Relaxed))
+            .unwrap_or(false)
+        {
+            drop(file);
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err(anyhow::anyhow!("Download cancelled"));
+        }
+
+        let chunk = item.context("Error while downloading file")?;
+        file.write_all(&chunk)
+            .await
+            .context("Failed to write chunk to file")?;
+
+        downloaded += chunk.len() as u64;
+        if total_size > 0 {
+            let progress = downloaded as f64 / total_size as f64;
+            if let Some(cb) = &progress_callback {
+                cb(progress);
+            } else {
+                print!(
+                    "\rDownloading {}... {:.1}% ({}/{} bytes)",
+                    filename,
+                    progress * 100.0,
+                    downloaded,
+                    total_size
+                );
+                std::io::stdout().flush()?;
+            }
+        }
+    }
+
+    if progress_callback.is_none() {
+        if total_size > 0 {
+            println!(
+                "\rDownload complete: {}/{} bytes (100%)    ",
+                downloaded, total_size
+            );
+        } else {
+            println!("\rDownload complete: {} bytes", downloaded);
+        }
+    }
+
+    drop(file);
+    fs::rename(&temp_path, dest).context(format!(
+        "Failed to rename downloaded file from {:?} to {:?}",
+        temp_path, dest
+    ))?;
+
+    Ok(true)
+}
+
 /// Helper function to generate a helpful error message for missing Parakeet models
 fn parakeet_not_found_error(asr_dir: &Path) -> anyhow::Error {
     anyhow::anyhow!(
-        "Parakeet model not found.\n\n\
-         Please download model files to:\n  {}\n\n\
+        "Parakeet model download failed or incomplete.\n\n\
+         Automatic download attempted from:\n  {}\n\n\
+         Expected model files in:\n  {}\n\n\
          Required files (one of each group):\n  \
          - encoder-model.onnx OR encoder.onnx OR encoder_model.onnx\n  \
          - decoder_joint-model.onnx OR decoder_joint.onnx OR decoder_joint_model.onnx\n  \
          - vocab.txt\n  \
          - nemo128.onnx OR nemo80.onnx\n\n\
-         Download from: https://huggingface.co/nvidia/parakeet-tdt-0.6b\n\
-         Export to ONNX using the NeMo toolkit.",
+         If automatic download fails, ensure network access or place the files manually.",
+        PARAKEET_ONNX_URL,
         asr_dir.display()
     )
 }
@@ -273,32 +380,81 @@ pub fn ensure_models_exist_with_progress(
             })
         }
         AsrModelId::ParakeetTdt06bV3 => {
-            // Phase 1 (local-dir-first): validate that the required ONNX artifacts exist.
+            // Ensure Parakeet artifacts exist (download if missing).
             let asr_dir = model_dir.join(variant.dir_name());
 
-            // Create directory if missing so user knows exact path
-            std::fs::create_dir_all(&asr_dir).ok();
-
-            if !asr_dir.exists() {
-                return Err(parakeet_not_found_error(&asr_dir));
-            }
+            std::fs::create_dir_all(&asr_dir).context(format!(
+                "Failed to create Parakeet model directory at {}",
+                asr_dir.display()
+            ))?;
 
             let required_any =
                 |candidates: &[&str]| candidates.iter().any(|f| asr_dir.join(f).exists());
+
             if !required_any(&["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"]) {
-                return Err(parakeet_not_found_error(&asr_dir));
+                let dest = asr_dir.join("encoder-model.onnx");
+                let url = format!("{}/{}", PARAKEET_ONNX_URL, "encoder-model.onnx");
+                rt.block_on(async { download_file(&url, &dest, cb_ref, cancel_token).await })
+                    .context("Failed to download Parakeet encoder")?;
             }
+
             if !required_any(&[
                 "decoder_joint-model.onnx",
                 "decoder_joint.onnx",
                 "decoder_joint_model.onnx",
             ]) {
-                return Err(parakeet_not_found_error(&asr_dir));
+                let dest = asr_dir.join("decoder_joint-model.onnx");
+                let url = format!("{}/{}", PARAKEET_ONNX_URL, "decoder_joint-model.onnx");
+                rt.block_on(async { download_file(&url, &dest, cb_ref, cancel_token).await })
+                    .context("Failed to download Parakeet decoder/joint")?;
             }
+
             if !asr_dir.join("vocab.txt").exists() {
-                return Err(parakeet_not_found_error(&asr_dir));
+                let dest = asr_dir.join("vocab.txt");
+                let url = format!("{}/{}", PARAKEET_ONNX_URL, "vocab.txt");
+                rt.block_on(async { download_file(&url, &dest, cb_ref, cancel_token).await })
+                    .context("Failed to download Parakeet vocab")?;
             }
-            if !required_any(&["nemo128.onnx", "nemo80.onnx"]) {
+
+            for filename in PARAKEET_OPTIONAL_FILES.iter() {
+                let dest = asr_dir.join(filename);
+                if !dest.exists() {
+                    let url = format!("{}/{}", PARAKEET_ONNX_URL, filename);
+                    let _ = rt
+                        .block_on(async {
+                            download_file_optional(&url, &dest, cb_ref, cancel_token).await
+                        })
+                        .context(format!("Failed to download Parakeet optional file: {}", filename))?;
+                }
+            }
+
+            if !required_any(&PARAKEET_NEMO_FILES) {
+                for filename in PARAKEET_NEMO_FILES.iter() {
+                    let dest = asr_dir.join(filename);
+                    let url = format!("{}/{}", PARAKEET_ONNX_URL, filename);
+                    let downloaded = rt
+                        .block_on(async {
+                            download_file_optional(&url, &dest, cb_ref, cancel_token).await
+                        })
+                        .context(format!(
+                            "Failed to download Parakeet preprocessor: {}",
+                            filename
+                        ))?;
+                    if downloaded {
+                        break;
+                    }
+                }
+            }
+
+            if !required_any(&["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"])
+                || !required_any(&[
+                    "decoder_joint-model.onnx",
+                    "decoder_joint.onnx",
+                    "decoder_joint_model.onnx",
+                ])
+                || !asr_dir.join("vocab.txt").exists()
+                || !required_any(&PARAKEET_NEMO_FILES)
+            {
                 return Err(parakeet_not_found_error(&asr_dir));
             }
 
