@@ -19,6 +19,98 @@ use crate::spectrum::{get_color_scheme, ColorScheme};
 use crate::ui::spectrogram::{Spectrogram, SpectrogramMode};
 use crate::ui::{AudioSourceInfo, AudioState};
 
+// Panel geometry constants
+pub const PANEL_MAX_WIDTH: f32 = 400.0;
+pub const PANEL_MIN_SIZE: f32 = 100.0; // Minimum dimension to prevent collapse
+pub const PANEL_MARGIN: f32 = 20.0; // Margin from window edges
+pub const ROW_HEIGHT: f32 = 32.0; // Height per control row
+pub const TITLE_HEIGHT: f32 = 36.0; // Height for title row
+pub const PANEL_PADDING: f32 = 12.0; // Internal padding (top/bottom/left/right)
+pub const TEXT_PANEL_HEIGHT: f32 = 60.0; // Height for text panel at bottom
+
+/// Rectangle representing panel position and size in pixel coordinates.
+/// Origin is top-left of window, Y increases downward.
+#[derive(Debug, Clone, Copy)]
+pub struct PanelRect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl PanelRect {
+    /// Calculate panel rect for given window dimensions.
+    /// Panel is centered with margin, clamped to minimum size.
+    pub fn for_window(window_width: f32, window_height: f32) -> Self {
+        // Content height: title + 11 control rows
+        let content_height = TITLE_HEIGHT + (Control::ALL.len() as f32 * ROW_HEIGHT);
+
+        // Total height: content + padding
+        let raw_height = content_height + PANEL_PADDING * 2.0;
+        let raw_width = PANEL_MAX_WIDTH;
+
+        // Clamp to window bounds with margin
+        let available_width = (window_width - PANEL_MARGIN * 2.0).max(PANEL_MIN_SIZE);
+        let available_height = (window_height - PANEL_MARGIN * 2.0).max(PANEL_MIN_SIZE);
+
+        let width = raw_width.min(available_width);
+        let height = raw_height.min(available_height);
+
+        // Center in window
+        let x = (window_width - width) / 2.0;
+        let y = (window_height - height) / 2.0;
+
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    /// Y coordinate for title text
+    pub fn title_y(&self) -> f32 {
+        self.y + PANEL_PADDING
+    }
+
+    /// Y coordinate for control row N (0-indexed)
+    pub fn row_y(&self, row: usize) -> f32 {
+        self.y + PANEL_PADDING + TITLE_HEIGHT + (row as f32 * ROW_HEIGHT)
+    }
+
+    /// Convert Y coordinate to control index, or None if outside control area
+    pub fn control_at_y(&self, click_y: f32) -> Option<usize> {
+        let controls_start_y = self.y + PANEL_PADDING + TITLE_HEIGHT;
+
+        if click_y < controls_start_y {
+            return None;
+        }
+
+        let relative_y = click_y - controls_start_y;
+        let row = (relative_y / ROW_HEIGHT) as usize;
+
+        if row < Control::ALL.len() {
+            Some(row)
+        } else {
+            None
+        }
+    }
+
+    /// Check if point is inside panel bounds
+    pub fn contains(&self, x: f32, y: f32) -> bool {
+        x >= self.x && x < self.x + self.width && y >= self.y && y < self.y + self.height
+    }
+
+    /// Convert pixel rect to NDC for shader uniform
+    pub fn to_ndc(&self, window_width: f32, window_height: f32) -> [f32; 4] {
+        let ndc_left = (self.x / window_width) * 2.0 - 1.0;
+        let ndc_top = 1.0 - (self.y / window_height) * 2.0;
+        let ndc_width = (self.width / window_width) * 2.0;
+        let ndc_height = (self.height / window_height) * 2.0;
+        [ndc_left, ndc_top, ndc_width, ndc_height]
+    }
+}
+
 /// The 11 control panel controls
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Control {
@@ -354,5 +446,39 @@ mod tests {
         let state = ControlPanelState::new();
         assert_eq!(state.model, AsrModelId::MoonshineBase);
         assert!(state.auto_save);
+    }
+}
+
+#[cfg(test)]
+mod panel_rect_tests {
+    use super::*;
+
+    #[test]
+    fn test_panel_rect_unclamped() {
+        let rect = PanelRect::for_window(800.0, 600.0);
+        assert_eq!(rect.width, 400.0);
+        assert_eq!(rect.height, 412.0); // 36 + 11*32 + 24
+    }
+
+    #[test]
+    fn test_panel_rect_width_clamped() {
+        let rect = PanelRect::for_window(400.0, 600.0);
+        assert_eq!(rect.width, 360.0); // 400 - 2*20
+        assert_eq!(rect.height, 412.0);
+    }
+
+    #[test]
+    fn test_panel_rect_minimum() {
+        let rect = PanelRect::for_window(50.0, 50.0);
+        assert_eq!(rect.width, 100.0);
+        assert_eq!(rect.height, 100.0);
+    }
+
+    #[test]
+    fn test_control_at_y() {
+        let rect = PanelRect::for_window(800.0, 600.0);
+        assert_eq!(rect.control_at_y(rect.title_y()), None);
+        assert_eq!(rect.control_at_y(rect.row_y(0)), Some(0));
+        assert_eq!(rect.control_at_y(rect.row_y(5) + 10.0), Some(5));
     }
 }
