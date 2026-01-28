@@ -14,12 +14,13 @@
 
 ## Input Injection Backends
 
-usit automatically selects the best available input injection backend for your compositor/desktop environment. The selection follows a fallback chain: **wrtype** → **ydotool** → **display-only mode**.
+usit automatically selects the best available input injection backend for your compositor/desktop environment. The selection follows a fallback chain: **input_method** → **wrtype** → **ydotool** → **display-only mode**.
 
 ### Backend Comparison
 
 | Backend | Compositor/DE | Requirements | Limitations |
 |---------|---------------|--------------|-------------|
+| **input_method** | Wayland compositors with zwp_input_method_v2 (wlroots, KDE, GNOME*) | None (built-in) | May conflict with other IMEs (fcitx5, ibus); GNOME support varies |
 | **wrtype** | wlroots-based (Sway, Hyprland, River, etc.) | None (built-in) | wlroots compositors only |
 | **ydotool** | Any Linux compositor | `ydotool` package, `ydotoold` daemon, uinput permissions | Requires daemon setup |
 | **display-only** | Any | None | No text injection (transcription display only) |
@@ -28,16 +29,21 @@ usit automatically selects the best available input injection backend for your c
 
 All backends support UTF-8 and emoji when available. The table shows what happens as you move down the fallback chain:
 
-| Feature | wrtype | ydotool | display-only |
-|---------|--------|---------|--------------|
-| Text injection | ✓ | ✓ | ✗ |
-| UTF-8 support | ✓ | ✓ | N/A |
-| Emoji support | ✓ | ✓* | N/A |
-| Setup required | None | Package + daemon | None |
+| Feature | input_method | wrtype | ydotool | display-only |
+|---------|--------------|--------|---------|--------------|
+| Text injection | ✓ | ✓ | ✓ | ✗ |
+| UTF-8 support | ✓ | ✓ | ✓ | N/A |
+| Emoji support | ✓ | ✓ | ✓* | N/A |
+| Setup required | None | None | Package + daemon | None |
 
 *ydotool emoji support depends on application's input handling
 
 ### Backend Setup
+
+#### input_method (Wayland compositors)
+No setup required - works out of the box on compositors that support the `zwp_input_method_v2` protocol (wlroots-based compositors like Sway/Hyprland, KDE Plasma, and some GNOME configurations).
+
+**Note**: If another IME (fcitx5, ibus) is already active, `input_method` will gracefully fall back to `wrtype` or `ydotool`.
 
 #### wrtype (wlroots compositors)
 No setup required - works out of the box on Sway, Hyprland, River, and other wlroots-based compositors.
@@ -65,17 +71,20 @@ ydotoold &
 Skip specific backends during selection. Useful for testing or working around issues.
 
 ```bash
-# Force ydotool (skip wrtype)
-usit --backend-disable=wrtype
+# Skip input_method (use wrtype)
+usit --backend-disable=input_method
+
+# Force ydotool (skip input_method and wrtype)
+usit --backend-disable=input_method,wrtype
 
 # Test display-only mode
-usit --backend-disable=wrtype,ydotool
+usit --backend-disable=input_method,wrtype,ydotool
 
 # Case-insensitive, whitespace-tolerant
-usit --backend-disable="WrType, YdoTool"
+usit --backend-disable="Input_Method, WrType, YdoTool"
 ```
 
-Valid backend names: `wrtype`, `ydotool`
+Valid backend names: `input_method`, `wrtype`, `ydotool`
 
 #### `--autostart-ydotoold`
 Automatically start the ydotoold daemon if the socket is missing. Useful for systems where the daemon isn't running as a service.
