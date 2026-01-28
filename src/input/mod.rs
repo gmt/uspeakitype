@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 
+pub mod input_method;
 pub mod wrtype;
 pub mod ydotool;
 
