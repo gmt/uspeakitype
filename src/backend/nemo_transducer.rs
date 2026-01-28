@@ -389,12 +389,6 @@ impl NemoTransducerStreamer {
         self.encode(&features, &features_lens)
     }
 
-    fn greedy_decode_full(&mut self, encodings: &Array2<f32>, enc_len: usize) -> Result<Vec<u32>> {
-        self.reset_internal();
-        self.decode_range_commit(encodings, 0, enc_len)?;
-        Ok(self.tokens.clone())
-    }
-
     fn decode_range_commit(
         &mut self,
         encodings: &Array2<f32>,
