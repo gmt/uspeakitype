@@ -20,7 +20,7 @@ use usit::{backend, download, streaming};
 
 /// Normalize backend names: lowercase, trim, filter unknown
 fn normalize_backend_names(raw: &[String]) -> Vec<String> {
-    const KNOWN: &[&str] = &["wrtype", "ydotool"];
+    const KNOWN: &[&str] = &["input_method", "wrtype", "ydotool"];
     raw.iter()
         .map(|s| s.trim().to_lowercase())
         .filter(|s| {
@@ -158,7 +158,7 @@ struct Args {
     #[arg(long)]
     test_fireworks: bool,
 
-    /// Disable specific backends (comma-separated: wrtype,ydotool)
+    /// Disable specific backends (comma-separated: input_method,wrtype,ydotool)
     #[arg(long, value_delimiter = ',')]
     backend_disable: Vec<String>,
 
