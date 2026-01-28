@@ -185,6 +185,16 @@ impl Default for ControlPanelState {
     }
 }
 
+/// Generate text bounds for transcript text panel
+pub fn transcript_text_bounds(text_rect: &PanelRect) -> glyphon::TextBounds {
+    glyphon::TextBounds {
+        left: (text_rect.x + PANEL_PADDING) as i32,
+        top: (text_rect.y + PANEL_PADDING) as i32,
+        right: (text_rect.x + text_rect.width - PANEL_PADDING) as i32,
+        bottom: (text_rect.y + text_rect.height - PANEL_PADDING) as i32,
+    }
+}
+
 impl ControlPanelState {
     pub fn new() -> Self {
         Self::default()

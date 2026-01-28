@@ -120,6 +120,7 @@ impl TextRenderer {
         area_width: u32,
         _area_height: u32,
         padding: f32,
+        bounds: TextBounds,
     ) {
         if committed.is_empty() && partial.is_empty() {
             return;
@@ -175,12 +176,7 @@ impl TextRenderer {
                 left: x + padding,
                 top: y + padding,
                 scale: 1.0,
-                bounds: TextBounds {
-                    left: i32::MIN,
-                    top: i32::MIN,
-                    right: i32::MAX,
-                    bottom: i32::MAX,
-                },
+                bounds,
                 default_color: committed_color,
                 custom_glyphs: &[],
             });
@@ -218,12 +214,7 @@ impl TextRenderer {
                 left: x + padding + offset,
                 top: y + padding,
                 scale: 1.0,
-                bounds: TextBounds {
-                    left: i32::MIN,
-                    top: i32::MIN,
-                    right: i32::MAX,
-                    bottom: i32::MAX,
-                },
+                bounds,
                 default_color: partial_color,
                 custom_glyphs: &[],
             });

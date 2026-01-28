@@ -27,20 +27,15 @@ fn panel_text_bounds(rect: &PanelRect) -> TextBounds {
 }
 
 const WINDOW_WIDTH: u32 = 400;
-const TEXT_HEIGHT: u32 = 80;
 const SPECTROGRAM_HEIGHT: u32 = 120;
-const GAP: u32 = 10;
-const PADDING: f32 = 12.0;
 
 pub fn compute_layout_heights(window_height: u32) -> (u32, u32) {
     let text_panel_height_const = TEXT_PANEL_HEIGHT as u32;
 
     let actual_text_panel_height = if window_height > text_panel_height_const {
         text_panel_height_const
-    } else if window_height > 1 {
-        window_height - 1
     } else {
-        0
+        window_height.saturating_sub(1)
     };
 
     let spectrogram_height = window_height
