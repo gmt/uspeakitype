@@ -17,7 +17,7 @@ use winit::window::{WindowAttributes, WindowId};
 
 use crate::audio::CaptureControl;
 
-use super::control_panel::ControlPanelState;
+use super::control_panel::{Control, ControlPanelState, PanelRect};
 use super::renderer::Renderer;
 use super::spectrogram::SpectrogramMode;
 use super::SharedAudioState;
@@ -96,111 +96,106 @@ impl OverlayApp {
     }
 
     fn handle_control_panel_click(&mut self, x: f64, y: f64, width: u32, height: u32) {
-        let gear_icon_size = 40.0;
-        let gear_x = width as f64 - gear_icon_size - 10.0;
+        let x = x as f32;
+        let y = y as f32;
+
+        // Gear icon hit-test (top-right corner, 32x32)
+        let gear_icon_size = 32.0;
+        let gear_x = width as f32 - gear_icon_size - 10.0;
         let gear_y = 10.0;
 
-        if x >= gear_x
-            && x <= gear_x + gear_icon_size
-            && y >= gear_y
-            && y <= gear_y + gear_icon_size
+        if x >= gear_x && x < gear_x + gear_icon_size && y >= gear_y && y < gear_y + gear_icon_size
         {
-            self.control_panel.toggle_open();
+            self.control_panel.is_open = !self.control_panel.is_open;
             return;
         }
 
+        // If panel not open, nothing else to check
         if !self.control_panel.is_open {
             return;
         }
 
-        let panel_width = 400.0;
-        let panel_height = 300.0;
-        let panel_x = (width as f64 - panel_width) / 2.0;
-        let panel_y = (height as f64 - panel_height) / 2.0;
+        // Get panel geometry
+        let rect = PanelRect::for_window(width as f32, height as f32);
 
-        if x < panel_x || x > panel_x + panel_width || y < panel_y || y > panel_y + panel_height {
-            self.control_panel.toggle_open();
+        // Click outside panel closes it
+        if !rect.contains(x, y) {
+            self.control_panel.is_open = false;
             return;
         }
 
-        let control_height = 40.0;
-        let start_y = panel_y + 50.0;
-        let relative_y = y - start_y;
+        // Determine which control was clicked
+        let Some(control_idx) = rect.control_at_y(y) else {
+            return; // Click in title or padding area
+        };
 
-        if relative_y < 0.0 || relative_y > control_height * Control::ALL.len() as f64 {
-            return;
-        }
-
-        let control_idx = (relative_y / control_height) as usize;
-
-        use super::control_panel::Control;
-        let controls = Control::ALL;
-
-        if control_idx < controls.len() {
-            match controls[control_idx] {
-                Control::AgcCheckbox => {
-                    self.control_panel.toggle_agc();
-                    let mut state = self.audio_state.write();
-                    self.control_panel.apply_agc(&mut state);
-                }
-                Control::InjectionToggle => {
-                    let mut state = self.audio_state.write();
-                    self.control_panel.toggle_injection(&mut state);
-                }
-                Control::PauseButton => {
-                    self.control_panel.toggle_pause();
-                    if let Some(ref ctrl) = self.capture_control {
-                        self.control_panel.apply_pause(ctrl);
-                    }
-                }
-                Control::VizToggle => {
-                    self.control_panel.toggle_viz_mode();
-                    self.mode = self.control_panel.viz_mode;
-                    for renderer in self.renderers.values_mut() {
-                        renderer.set_mode(self.control_panel.viz_mode);
-                    }
-                }
-                Control::ColorPicker => {
-                    let next_scheme = match self.control_panel.color_scheme_name {
-                        "flame" => "ice",
-                        "ice" => "mono",
-                        _ => "flame",
-                    };
-                    self.control_panel.set_color_scheme(next_scheme);
-                    for renderer in self.renderers.values_mut() {
-                        renderer.set_color_scheme(next_scheme);
-                    }
-                }
-                Control::GainSlider => {
-                    let new_gain = if self.control_panel.gain_value >= 2.0 {
-                        0.5
-                    } else {
-                        (self.control_panel.gain_value + 0.5).min(2.0)
-                    };
-                    self.control_panel.set_gain(new_gain);
-                    let mut state = self.audio_state.write();
-                    self.control_panel.apply_gain(&mut state);
-                }
-                Control::ModelSelector => {
-                    self.control_panel.toggle_model();
-                }
-                Control::AutoSaveToggle => {
-                    self.control_panel.toggle_auto_save();
-                }
-                Control::OpacitySlider => {
-                    self.control_panel.adjust_opacity();
-                    for renderer in self.renderers.values_mut() {
-                        renderer.set_opacity(self.control_panel.opacity);
-                    }
-                }
-                Control::QuitButton => {
-                    self.running.store(false, Ordering::Relaxed);
-                    if let Some(ref control) = self.capture_control {
-                        control.stop();
-                    }
-                }
-                _ => {}
+        // Dispatch to control action
+        match Control::ALL.get(control_idx) {
+            Some(Control::DeviceSelector) => {
+                // No-op - device cycling is future work
             }
+            Some(Control::GainSlider) => {
+                let new_gain = if self.control_panel.gain_value >= 2.0 {
+                    0.5
+                } else {
+                    (self.control_panel.gain_value + 0.25).min(2.0)
+                };
+                self.control_panel.set_gain(new_gain);
+                let mut state = self.audio_state.write();
+                self.control_panel.apply_gain(&mut state);
+            }
+            Some(Control::AgcCheckbox) => {
+                self.control_panel.toggle_agc();
+                let mut state = self.audio_state.write();
+                self.control_panel.apply_agc(&mut state);
+            }
+            Some(Control::PauseButton) => {
+                self.control_panel.toggle_pause();
+                if let Some(ref ctrl) = self.capture_control {
+                    self.control_panel.apply_pause(ctrl);
+                }
+            }
+            Some(Control::VizToggle) => {
+                self.control_panel.toggle_viz_mode();
+                self.mode = self.control_panel.viz_mode;
+                for renderer in self.renderers.values_mut() {
+                    renderer.set_mode(self.control_panel.viz_mode);
+                }
+            }
+            Some(Control::ColorPicker) => {
+                let next_scheme = match self.control_panel.color_scheme_name {
+                    "flame" => "ice",
+                    "ice" => "mono",
+                    _ => "flame",
+                };
+                self.control_panel.set_color_scheme(next_scheme);
+                for renderer in self.renderers.values_mut() {
+                    renderer.set_color_scheme(next_scheme);
+                }
+            }
+            Some(Control::InjectionToggle) => {
+                let mut state = self.audio_state.write();
+                self.control_panel.toggle_injection(&mut state);
+            }
+            Some(Control::ModelSelector) => {
+                self.control_panel.toggle_model();
+            }
+            Some(Control::AutoSaveToggle) => {
+                self.control_panel.toggle_auto_save();
+            }
+            Some(Control::OpacitySlider) => {
+                self.control_panel.adjust_opacity();
+                for renderer in self.renderers.values_mut() {
+                    renderer.set_opacity(self.control_panel.opacity);
+                }
+            }
+            Some(Control::QuitButton) => {
+                self.running.store(false, Ordering::Relaxed);
+                if let Some(ref control) = self.capture_control {
+                    control.stop();
+                }
+            }
+            None => {}
         }
     }
 }
