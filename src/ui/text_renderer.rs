@@ -19,6 +19,7 @@ pub struct TextRenderer {
     renderer: GlyphonTextRenderer,
     buffer: Buffer,
     buffer_partial: Buffer,
+    panel_buffers: Vec<Buffer>,
     device: Arc<Device>,
     queue: Arc<Queue>,
     size: PhysicalSize<u32>,
@@ -58,6 +59,14 @@ impl TextRenderer {
             Some(size.height as f32),
         );
 
+        // Panel buffers for control panel text (12 lines: 1 title + 11 controls)
+        let mut panel_buffers = Vec::with_capacity(12);
+        for _ in 0..12 {
+            let mut buf = Buffer::new(&mut font_system, Metrics::new(14.0, 18.0));
+            buf.set_size(&mut font_system, Some(size.width as f32), None);
+            panel_buffers.push(buf);
+        }
+
         Self {
             font_system,
             swash_cache,
@@ -65,6 +74,7 @@ impl TextRenderer {
             renderer,
             buffer,
             buffer_partial,
+            panel_buffers,
             device,
             queue,
             size,
@@ -85,6 +95,9 @@ impl TextRenderer {
             Some(size.width as f32),
             Some(size.height as f32),
         );
+        for buf in &mut self.panel_buffers {
+            buf.set_size(&mut self.font_system, Some(size.width as f32), None);
+        }
         self.viewport.update(
             &self.queue,
             Resolution {
@@ -237,6 +250,92 @@ impl TextRenderer {
         if prepare_result.is_ok() {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Text Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+                occlusion_query_set: None,
+            });
+
+            let _ = self
+                .renderer
+                .render(&self.atlas, &self.viewport, &mut render_pass);
+        }
+
+        self.atlas.trim();
+    }
+
+    /// Render batched panel text (control panel title + controls)
+    pub fn render_panel_text(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        lines: Vec<(String, f32, f32)>,
+        bounds: TextBounds,
+        color: Color,
+        panel_width: f32,
+    ) {
+        let line_count = lines.len().min(12);
+        let line_positions: Vec<(f32, f32)> =
+            lines.iter().take(12).map(|(_, x, y)| (*x, *y)).collect();
+
+        for (i, (text, _, _)) in lines.into_iter().take(12).enumerate() {
+            self.panel_buffers[i].set_metrics(&mut self.font_system, Metrics::new(14.0, 18.0));
+            self.panel_buffers[i].set_size(&mut self.font_system, Some(panel_width), None);
+            self.panel_buffers[i].set_text(
+                &mut self.font_system,
+                &text,
+                &Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+                Some(Align::Left),
+            );
+            self.panel_buffers[i].shape_until_scroll(&mut self.font_system, false);
+        }
+
+        let text_areas: Vec<TextArea> = (0..line_count)
+            .map(|i| {
+                let (x, y) = line_positions[i];
+                TextArea {
+                    buffer: &self.panel_buffers[i],
+                    left: x,
+                    top: y,
+                    scale: 1.0,
+                    bounds,
+                    default_color: color,
+                    custom_glyphs: &[],
+                }
+            })
+            .collect();
+
+        self.viewport.update(
+            &self.queue,
+            Resolution {
+                width: self.size.width,
+                height: self.size.height,
+            },
+        );
+
+        let prepare_result = self.renderer.prepare(
+            &self.device,
+            &self.queue,
+            &mut self.font_system,
+            &mut self.atlas,
+            &self.viewport,
+            text_areas,
+            &mut self.swash_cache,
+        );
+
+        if prepare_result.is_ok() {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Panel Text Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view,
                     resolve_target: None,
