@@ -58,128 +58,118 @@ enum AnsiCharset {
 #[derive(Parser)]
 #[command(name = "usit")]
 #[command(about = "Streaming speech-to-text with live revision")]
-#[command(long_about = "Streaming speech-to-text with live revision\n\n\
-Keybindings:\n  \
-Space - Pause/resume recording\n  \
-w - Toggle between bar meter and waterfall visualization\n  \
-c - Open control panel\n  \
-q/Esc - Quit (GUI mode)\n  \
-q - Quit (TUI mode)")]
+#[command(next_line_help = false, term_width = 0)]
+#[command(after_help = "Keybindings: Space=pause, w=viz toggle, c=control panel, q/Esc=quit")]
 struct Args {
-    /// Text-only output, no visualization
-    #[arg(long)]
+    #[arg(long, help = "Text-only output, no visualization")]
     headless: bool,
 
-    /// Use synthetic audio instead of microphone
-    #[arg(long)]
+    #[arg(long, help = "Use synthetic audio instead of microphone")]
     demo: bool,
 
-    /// Enable automatic gain control
-    #[arg(long)]
+    #[arg(long, help = "Enable automatic gain control")]
     auto_gain: bool,
 
-    /// List available audio sources and exit
-    #[arg(long)]
+    #[arg(long, help = "List available audio sources and exit")]
     list_sources: bool,
 
-    /// Terminal UI mode (instead of graphical overlay)
-    #[arg(long)]
+    #[arg(long, help = "Terminal UI mode (instead of graphical overlay)")]
     ansi: bool,
 
-    /// Spectrogram width in characters
-    #[arg(long)]
+    #[arg(long, help = "Spectrogram width in characters")]
     ansi_width: Option<usize>,
 
-    /// Spectrogram height in characters
-    #[arg(long)]
+    #[arg(long, help = "Spectrogram height in characters")]
     ansi_height: Option<usize>,
 
-    /// Character set: auto, ascii, blocks [default: auto]
     #[arg(
         long,
         value_enum,
         default_value = "auto",
         hide_possible_values = true,
-        hide_default_value = true
+        hide_default_value = true,
+        help = "Character set: auto, ascii, blocks [default: auto]"
     )]
     ansi_charset: AnsiCharset,
 
-    /// Demo mode with frequency sweep (tests spectrogram)
-    #[arg(long)]
+    #[arg(long, help = "Frequency sweep demo (tests spectrogram)")]
     ansi_sweep: bool,
 
-    /// Visualization: bars, waterfall [default: bars]
     #[arg(
         long,
         value_enum,
         default_value = "bars",
         hide_possible_values = true,
-        hide_default_value = true
+        hide_default_value = true,
+        help = "Visualization: bars, waterfall [default: bars]"
     )]
     style: SpectrogramStyle,
 
-    /// Color scheme: flame, ice, mono [default: flame]
     #[arg(
         long,
         value_enum,
         default_value = "flame",
         hide_possible_values = true,
-        hide_default_value = true
+        hide_default_value = true,
+        help = "Color scheme: flame, ice, mono [default: flame]"
     )]
     color: ColorSchemeName,
 
-    /// ASR model: moonshine-base, moonshine-tiny [default: moonshine-base]
     #[arg(
         long,
         value_enum,
         default_value = "moonshine-base",
         hide_possible_values = true,
-        hide_default_value = true
+        hide_default_value = true,
+        help = "ASR model: moonshine-base, moonshine-tiny [default: moonshine-base]"
     )]
     model: ModelVariant,
 
-    /// Disable colors in terminal output
-    #[arg(long)]
+    #[arg(long, help = "Disable colors in terminal output")]
     no_color: bool,
 
-    /// Audio source (use --list-sources to see options)
-    #[arg(long)]
+    #[arg(long, help = "Audio source (see --list-sources)")]
     source: Option<String>,
 
-    /// Path to model directory (default: ~/.cache/usit/models)
-    #[arg(long)]
+    #[arg(long, help = "Model directory [default: ~/.cache/usit/models]")]
     model_dir: Option<PathBuf>,
 
-    /// Window opacity (0.0-1.0, default: 0.85)
-    #[arg(long, default_value = "0.85")]
+    #[arg(
+        long,
+        default_value = "0.85",
+        hide_default_value = true,
+        help = "Window opacity 0.0-1.0 [default: 0.85]"
+    )]
     opacity: f32,
 
-    /// Run visual test sequence in tmux (cycles through terminal sizes)
-    #[arg(long)]
+    #[arg(long, hide = true, help = "Run visual test sequence in tmux")]
     test_fireworks: bool,
 
-    /// Disable specific backends (comma-separated: input_method,wrtype,ydotool)
-    #[arg(long, value_delimiter = ',')]
+    #[arg(
+        long,
+        value_delimiter = ',',
+        help = "Disable backends (input_method,wrtype,ydotool)"
+    )]
     backend_disable: Vec<String>,
 
-    /// Auto-start ydotoold daemon if needed
-    #[arg(long)]
+    #[arg(long, help = "Auto-start ydotoold daemon if needed")]
     autostart_ydotoold: bool,
 
-    /// Tag this instance for identification (shown in title, used for cleanup)
-    #[arg(long)]
+    #[arg(long, help = "Tag for instance identification")]
     tag: Option<String>,
 
-    /// Error and exit if another instance with same tag is running
-    #[arg(long)]
+    #[arg(long, help = "Error if another instance has same tag")]
     no_duplicate_tag: bool,
 
-    /// List running usit instances and exit
-    #[arg(long)]
+    #[arg(long, help = "List running usit instances and exit")]
     list_instances: bool,
 
-    /// Use human-readable format for --list-instances
-    #[arg(long, short = 'H', requires = "list_instances")]
+    #[arg(
+        long,
+        short = 'H',
+        requires = "list_instances",
+        help = "Human-readable format for --list-instances"
+    )]
     human: bool,
 }
 
