@@ -2,7 +2,7 @@
 set -e
 VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
 TAG="v$VERSION"
-EXISTING=$(git rev-parse "$TAG" 2>/dev/null || echo "")
+EXISTING=$(git rev-parse --verify --quiet "${TAG}^{commit}" || true)
 HEAD=$(git rev-parse HEAD)
 if [ -z "$EXISTING" ]; then
     git tag -a "$TAG" -m "Release $VERSION"
