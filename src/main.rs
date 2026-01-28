@@ -418,7 +418,7 @@ fn main() -> anyhow::Result<()> {
     // Extract before spawn (args used after spawn, can't move)
     let backend_disable = args.backend_disable.clone();
     let autostart_ydotoold = args.autostart_ydotoold;
-    let is_tui = args.headless || args.ansi;
+    let is_tui = args.ansi || args.ansi_sweep;
 
     // Spawn injector thread (runs independently, logs errors to stderr)
     std::thread::spawn(move || {
