@@ -380,4 +380,4 @@ Valid rejections (with explanation required):
 - "Test requires hardware feature unavailable in software rendering" → Specify feature
 - "Golden image comparison insufficient for this visual property" → Explain why, propose alternative
 
-When in doubt: try it in Docker first, then report specific failures. You should not need root to use docker on this host.
+When in doubt: try it in Docker first, then report specific failures and why they can't be fixed (hint: they can probably be fixed).
