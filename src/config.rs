@@ -33,7 +33,7 @@ impl fmt::Display for AsrModelId {
         match self {
             AsrModelId::MoonshineBase => write!(f, "Moonshine Base"),
             AsrModelId::MoonshineTiny => write!(f, "Moonshine Tiny"),
-            AsrModelId::ParakeetTdt06bV3 => write!(f, "Parakeet TDT 0.6B v3"),
+            AsrModelId::ParakeetTdt06bV3 => write!(f, "Parakeet"),
         }
     }
 }
@@ -373,10 +373,7 @@ gain = 1.5
     fn test_model_variant_display() {
         assert_eq!(AsrModelId::MoonshineBase.to_string(), "Moonshine Base");
         assert_eq!(AsrModelId::MoonshineTiny.to_string(), "Moonshine Tiny");
-        assert_eq!(
-            AsrModelId::ParakeetTdt06bV3.to_string(),
-            "Parakeet TDT 0.6B v3"
-        );
+        assert_eq!(AsrModelId::ParakeetTdt06bV3.to_string(), "Parakeet");
     }
 
     #[test]
