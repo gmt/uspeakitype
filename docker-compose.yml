@@ -15,6 +15,14 @@ services:
           cpus: '4'
           memory: 4G
 
+  ime-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./test-output:/app/test-output
+    entrypoint: /app/scripts/docker-ime-test.sh
+
   # Optional: Interactive shell for debugging
   shell:
     build:
