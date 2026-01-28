@@ -230,8 +230,10 @@ pub fn ensure_models_exist_with_progress(
     let cb_ref = progress_callback.as_deref();
 
     if !silero_vad_path.exists() {
-        rt.block_on(async { download_file(SILERO_VAD_URL, &silero_vad_path, cb_ref, cancel_token).await })
-            .context("Failed to download Silero VAD model")?;
+        rt.block_on(async {
+            download_file(SILERO_VAD_URL, &silero_vad_path, cb_ref, cancel_token).await
+        })
+        .context("Failed to download Silero VAD model")?;
     }
 
     let onnx_url = moonshine_onnx_url(variant);
@@ -280,14 +282,14 @@ pub fn is_model_downloaded(model_dir: &Path, variant: ModelVariant) -> bool {
 /// List all available model variants in the model directory
 pub fn available_models(model_dir: &Path) -> Vec<ModelVariant> {
     let mut available = Vec::new();
-    
+
     if is_model_downloaded(model_dir, ModelVariant::MoonshineBase) {
         available.push(ModelVariant::MoonshineBase);
     }
     if is_model_downloaded(model_dir, ModelVariant::MoonshineTiny) {
         available.push(ModelVariant::MoonshineTiny);
     }
-    
+
     available
 }
 
@@ -302,10 +304,16 @@ mod tests {
         let paths = ModelPaths {
             silero_vad: model_dir.join("silero_vad.onnx"),
             moonshine_dir: model_dir.join(variant.dir_name()),
-            moonshine_encoder: model_dir.join(variant.dir_name()).join("encoder_model.onnx"),
-            moonshine_decoder: model_dir.join(variant.dir_name()).join("decoder_model_merged.onnx"),
+            moonshine_encoder: model_dir
+                .join(variant.dir_name())
+                .join("encoder_model.onnx"),
+            moonshine_decoder: model_dir
+                .join(variant.dir_name())
+                .join("decoder_model_merged.onnx"),
             moonshine_tokenizer: model_dir.join(variant.dir_name()).join("tokenizer.json"),
-            moonshine_config: model_dir.join(variant.dir_name()).join("preprocessor_config.json"),
+            moonshine_config: model_dir
+                .join(variant.dir_name())
+                .join("preprocessor_config.json"),
         };
 
         // Verify all fields are populated
@@ -382,7 +390,8 @@ mod tests {
         let base_dir = model_dir.join("moonshine-base");
         fs::create_dir_all(&base_dir).expect("Failed to create base dir");
         fs::write(base_dir.join("encoder_model.onnx"), b"").expect("Failed to write encoder");
-        fs::write(base_dir.join("decoder_model_merged.onnx"), b"").expect("Failed to write decoder");
+        fs::write(base_dir.join("decoder_model_merged.onnx"), b"")
+            .expect("Failed to write decoder");
         fs::write(base_dir.join("tokenizer.json"), b"{}").expect("Failed to write tokenizer");
 
         // Base should be detected
@@ -393,7 +402,8 @@ mod tests {
         let tiny_dir = model_dir.join("moonshine-tiny");
         fs::create_dir_all(&tiny_dir).expect("Failed to create tiny dir");
         fs::write(tiny_dir.join("encoder_model.onnx"), b"").expect("Failed to write encoder");
-        fs::write(tiny_dir.join("decoder_model_merged.onnx"), b"").expect("Failed to write decoder");
+        fs::write(tiny_dir.join("decoder_model_merged.onnx"), b"")
+            .expect("Failed to write decoder");
         fs::write(tiny_dir.join("tokenizer.json"), b"{}").expect("Failed to write tokenizer");
 
         // Both should be detected
@@ -416,7 +426,8 @@ mod tests {
         let base_dir = model_dir.join("moonshine-base");
         fs::create_dir_all(&base_dir).expect("Failed to create base dir");
         fs::write(base_dir.join("encoder_model.onnx"), b"").expect("Failed to write encoder");
-        fs::write(base_dir.join("decoder_model_merged.onnx"), b"").expect("Failed to write decoder");
+        fs::write(base_dir.join("decoder_model_merged.onnx"), b"")
+            .expect("Failed to write decoder");
         fs::write(base_dir.join("tokenizer.json"), b"{}").expect("Failed to write tokenizer");
 
         let available = available_models(model_dir);
@@ -427,7 +438,8 @@ mod tests {
         let tiny_dir = model_dir.join("moonshine-tiny");
         fs::create_dir_all(&tiny_dir).expect("Failed to create tiny dir");
         fs::write(tiny_dir.join("encoder_model.onnx"), b"").expect("Failed to write encoder");
-        fs::write(tiny_dir.join("decoder_model_merged.onnx"), b"").expect("Failed to write decoder");
+        fs::write(tiny_dir.join("decoder_model_merged.onnx"), b"")
+            .expect("Failed to write decoder");
         fs::write(tiny_dir.join("tokenizer.json"), b"{}").expect("Failed to write tokenizer");
 
         let available = available_models(model_dir);

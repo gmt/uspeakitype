@@ -26,6 +26,7 @@ pub struct Spectrogram {
     vertex_buffer: wgpu::Buffer,
     instance_buffer: wgpu::Buffer,
     instance_capacity: usize,
+    instance_count: usize,
     size: PhysicalSize<u32>,
     window_height: u32,
     last_update: Instant,
@@ -196,8 +197,22 @@ impl Spectrogram {
             SpectrogramMode::Waterfall => (size.width as usize) * num_bands,
         };
 
-        let instances =
-            Self::create_bar_instances(&bar_data, size, window_height, color_scheme.as_ref(), 0.85);
+        let instances = match mode {
+            SpectrogramMode::BarMeter => Self::create_bar_instances(
+                &bar_data,
+                size,
+                window_height,
+                color_scheme.as_ref(),
+                0.85,
+            ),
+            SpectrogramMode::Waterfall => Self::create_waterfall_instances(
+                &history,
+                size,
+                window_height,
+                color_scheme.as_ref(),
+                0.85,
+            ),
+        };
         let buffer_size = (max_instances * std::mem::size_of::<BarInstance>()) as u64;
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Spectrogram Instances"),
@@ -214,6 +229,7 @@ impl Spectrogram {
             vertex_buffer,
             instance_buffer,
             instance_capacity: max_instances,
+            instance_count: instances.len(),
             size,
             window_height,
             last_update: Instant::now(),
@@ -343,8 +359,11 @@ impl Spectrogram {
                 self.opacity,
             ),
         };
-        if instances.len() > self.instance_capacity {
-            self.instance_capacity = instances.len();
+        let instance_count = instances.len();
+        self.instance_count = instance_count;
+
+        if instance_count > self.instance_capacity {
+            self.instance_capacity = instance_count;
             let buffer_size = (self.instance_capacity * std::mem::size_of::<BarInstance>()) as u64;
             self.instance_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("Spectrogram Instances"),
@@ -453,10 +472,7 @@ impl Spectrogram {
         view: &wgpu::TextureView,
         _window_height: u32,
     ) {
-        let instance_count = match self.mode {
-            SpectrogramMode::BarMeter => self.bar_data.len(),
-            SpectrogramMode::Waterfall => self.history.len() * self.history.num_bands(),
-        };
+        let instance_count = self.instance_count;
 
         if instance_count == 0 {
             return;

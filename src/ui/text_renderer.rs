@@ -2,11 +2,11 @@
 
 use std::sync::Arc;
 
+use glyphon::cosmic_text::Align;
 use glyphon::{
     Attrs, Buffer, Cache, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache,
     TextArea, TextAtlas, TextBounds, TextRenderer as GlyphonTextRenderer, Viewport,
 };
-use glyphon::cosmic_text::Align;
 use wgpu::{Device, Queue, TextureView};
 use winit::dpi::PhysicalSize;
 
