@@ -6,6 +6,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential pkg-config libssl-dev libclang-dev \
     # Rust (via rustup)
     curl ca-certificates \
+    # Git (for staleness detection)
+    git \
     # Wayland + Sway
     sway grim libwayland-dev libxkbcommon-dev \
     # Mesa software rendering (Vulkan + OpenGL)
@@ -47,8 +49,14 @@ WORKDIR /app
 # Copy source (or mount via docker-compose)
 COPY . .
 
-# Store Cargo.lock hash for staleness detection
-RUN sha256sum Cargo.lock | cut -d' ' -f1 > /app/.cargo-lock-hash
+# Git state passed as build args (computed on host since .git is excluded)
+ARG GIT_COMMIT=unknown
+ARG GIT_DIFF_HASH=clean
+
+# Store build state for staleness detection
+RUN sha256sum Cargo.lock | cut -d' ' -f1 > /app/.cargo-lock-hash && \
+    echo "$GIT_COMMIT" > /app/.git-commit && \
+    echo "$GIT_DIFF_HASH" > /app/.git-diff-hash
 
 # Build usit
 RUN cargo build --release
@@ -58,4 +66,4 @@ COPY scripts/docker-test.sh /docker-test.sh
 RUN chmod +x /docker-test.sh
 
 ENTRYPOINT ["/docker-test.sh"]
-CMD ["cargo", "test", "--release", "--test", "visual_tests", "--", "--ignored", "--nocapture", "--test-threads=1"]
+CMD ["cargo", "test", "--release", "--test", "visual_tests", "--", "--nocapture", "--test-threads=1"]

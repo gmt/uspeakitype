@@ -4,6 +4,7 @@
 //! This is the preferred backend for non-wlroots Wayland compositors (GNOME, KDE, etc.).
 
 use std::cell::{Cell, RefCell};
+use std::mem::ManuallyDrop;
 
 use anyhow::{anyhow, Result};
 
@@ -111,7 +112,9 @@ impl Dispatch<WlSeat, ()> for State {
 pub struct InputMethodInjector {
     connection: Connection,
     queue: EventQueue<State>,
-    input_method: InputMethod,
+    /// Wrapped in ManuallyDrop so we can drop it before flushing in Drop impl,
+    /// ensuring the destroy request is actually sent to the compositor.
+    input_method: ManuallyDrop<InputMethod>,
     state: State,
 }
 
@@ -162,7 +165,7 @@ impl InputMethodInjector {
         Ok(Self {
             connection,
             queue,
-            input_method,
+            input_method: ManuallyDrop::new(input_method),
             state,
         })
     }
@@ -197,5 +200,19 @@ impl TextInjector for InputMethodInjector {
         self.input_method.commit();
         self.connection.flush()?;
         Ok(())
+    }
+}
+
+impl Drop for InputMethodInjector {
+    fn drop(&mut self) {
+        // SAFETY: We own the InputMethod and it won't be used after this.
+        // We must drop it manually before flushing so the destroy request
+        // is queued, then flush to actually send it to the compositor.
+        // Without this, the compositor (KDE/KWin) may be left with stale
+        // IME state that can cause crashes in clipboard handling.
+        unsafe {
+            ManuallyDrop::drop(&mut self.input_method);
+        }
+        let _ = self.connection.flush();
     }
 }

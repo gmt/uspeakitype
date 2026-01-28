@@ -128,12 +128,30 @@ pub fn pty_available() -> bool {
         .is_ok()
 }
 
+impl Drop for TuiTestHarness {
+    fn drop(&mut self) {
+        // Ensure child process is cleaned up if harness is dropped
+        // (e.g., test panic) without explicit wait_exit call.
+        // portable_pty's kill() sends SIGHUP first, waits 250ms,
+        // then SIGKILL - this gives the child time for graceful cleanup.
+        if let Some(ref mut child) = self.child {
+            let _ = child.kill();
+            // Give it a moment to actually exit
+            for _ in 0..10 {
+                if child.try_wait().ok().flatten().is_some() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    #[ignore]
     fn test_harness_basic() {
         if !pty_available() {
             eprintln!("Skipping: PTY not available");

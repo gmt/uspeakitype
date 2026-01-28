@@ -3,22 +3,11 @@ set -e
 
 echo "=== usit Docker Visual Tests ==="
 
-# Check for Cargo.lock staleness
-if [ -n "$HOST_CARGO_LOCK_HASH" ] && [ -f /app/.cargo-lock-hash ]; then
-    IMAGE_HASH=$(cat /app/.cargo-lock-hash)
-    if [ "$HOST_CARGO_LOCK_HASH" != "$IMAGE_HASH" ]; then
-        echo ""
-        echo "WARNING: Docker image has stale dependencies!"
-        echo "  Host Cargo.lock:  ${HOST_CARGO_LOCK_HASH:0:16}..."
-        echo "  Image Cargo.lock: ${IMAGE_HASH:0:16}..."
-        echo "  Run: docker compose build visual-tests"
-        echo ""
-        if [ "$USIT_STRICT_SYNC" = "1" ]; then
-            echo "ERROR: USIT_STRICT_SYNC=1, aborting due to stale image"
-            exit 1
-        fi
-    else
-        echo "Cargo.lock: in sync"
+# Show build state (staleness checked by wrapper script)
+if [ -f /app/.git-commit ]; then
+    echo "Image built from: $(cat /app/.git-commit | head -c8)"
+    if [ "$(cat /app/.git-diff-hash)" != "clean" ] && [ "$(cat /app/.git-diff-hash)" != "$(echo -n | sha256sum | cut -d' ' -f1)" ]; then
+        echo "  (with uncommitted changes)"
     fi
 fi
 
@@ -49,7 +38,7 @@ SWAY_SOCKET=$(ls "$XDG_RUNTIME_DIR"/sway-ipc.* 2>/dev/null | head -1)
 if [ -n "$SWAY_SOCKET" ]; then
     export SWAYSOCK="$SWAY_SOCKET"
     echo "  SWAYSOCK=$SWAYSOCK"
-    
+
     # Configure output
     swaymsg output HEADLESS-1 resolution 1920x1080 scale 1 background "#000000" solid_color || true
 fi

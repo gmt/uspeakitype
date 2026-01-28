@@ -11,13 +11,11 @@ fn fixtures_dir() -> PathBuf {
 }
 
 #[test]
-#[ignore]
 fn test_compositor_detection() {
     println!("Compositor: {:?}", visual::screenshot::compositor_type());
 }
 
 #[test]
-#[ignore]
 fn test_hash_identical() {
     let baseline = fixtures_dir().join("baseline.png");
     let result = visual::comparison::compare_images(&baseline, &baseline)
@@ -33,7 +31,6 @@ fn test_hash_identical() {
 }
 
 #[test]
-#[ignore]
 fn test_hash_similar() {
     let baseline = fixtures_dir().join("baseline.png");
     let similar = fixtures_dir().join("baseline_similar.png");
@@ -59,7 +56,6 @@ fn test_hash_similar() {
 }
 
 #[test]
-#[ignore]
 fn test_hash_different() {
     let baseline = fixtures_dir().join("baseline.png");
     let different = fixtures_dir().join("completely_different.png");
@@ -81,7 +77,6 @@ fn test_hash_different() {
 }
 
 #[test]
-#[ignore]
 #[serial]
 fn test_harness_spawn_and_capture() {
     if !visual::screenshot::screenshot_available() {
@@ -163,7 +158,6 @@ fn overlay_region() -> (u32, u32, u32, u32) {
 /// Test that opacity CLI flag actually affects rendering
 /// and verify directional semantics (higher = more opaque)
 #[test]
-#[ignore] // Visual test - requires compositor
 #[serial]
 fn test_opacity_directional() {
     if !visual::screenshot::screenshot_available() {
@@ -256,7 +250,6 @@ fn test_opacity_directional() {
 
 /// Test extreme transparency - should show almost all background
 #[test]
-#[ignore] // Visual test - requires compositor
 #[serial]
 fn test_opacity_extreme_transparent() {
     if !visual::screenshot::screenshot_available() {
@@ -304,7 +297,6 @@ fn test_opacity_extreme_transparent() {
 
 /// Test extreme opacity - should show almost no background
 #[test]
-#[ignore] // Visual test - requires compositor
 #[serial]
 fn test_opacity_extreme_opaque() {
     if !visual::screenshot::screenshot_available() {
@@ -351,7 +343,6 @@ fn test_opacity_extreme_opaque() {
 }
 
 #[test]
-#[ignore]
 #[serial]
 fn test_demo_partial_listening() {
     if !visual::screenshot::screenshot_available() {
@@ -396,7 +387,6 @@ fn test_demo_partial_listening() {
 }
 
 #[test]
-#[ignore]
 #[serial]
 fn test_demo_committed_hello() {
     if !visual::screenshot::screenshot_available() {
@@ -441,7 +431,6 @@ fn test_demo_committed_hello() {
 }
 
 #[test]
-#[ignore]
 #[serial]
 fn test_demo_twotone_streaming() {
     if !visual::screenshot::screenshot_available() {
@@ -486,7 +475,6 @@ fn test_demo_twotone_streaming() {
 }
 
 #[test]
-#[ignore]
 #[serial]
 fn test_wgpu_opacity_half() {
     if !visual::screenshot::screenshot_available() {
@@ -535,7 +523,6 @@ fn test_wgpu_opacity_half() {
 }
 
 #[test]
-#[ignore]
 #[serial]
 fn test_wgpu_control_panel_full() {
     if !visual::screenshot::screenshot_available() {

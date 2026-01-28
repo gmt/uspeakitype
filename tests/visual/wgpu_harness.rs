@@ -70,25 +70,51 @@ impl WgpuTestHarness {
 
     /// Clean up all test instances with tags starting with "visual-test-"
     ///
-    /// Kills processes and waits for /proc/{pid} to disappear (anti-flake).
+    /// Uses graceful signal progression (SIGTERM -> SIGKILL) to allow
+    /// processes to clean up Wayland IME state before termination.
     fn cleanup_all_test_instances() {
         let instances = find_instances(None);
-        let mut killed_pids = Vec::new();
+        let mut pids_to_kill = Vec::new();
 
         for inst in instances {
             if let Some(tag) = &inst.tag {
                 if tag.starts_with("visual-test-") {
-                    let _ = std::process::Command::new("kill")
-                        .args(["-9", &inst.pid.to_string()])
-                        .status();
-                    killed_pids.push(inst.pid);
+                    pids_to_kill.push(inst.pid);
                 }
             }
         }
 
+        if pids_to_kill.is_empty() {
+            return;
+        }
+
+        // Send SIGTERM first for graceful shutdown
+        for &pid in &pids_to_kill {
+            let _ = std::process::Command::new("kill")
+                .args(["-TERM", &pid.to_string()])
+                .status();
+        }
+
+        // Wait up to 200ms for graceful exit
+        let grace_deadline = std::time::Instant::now() + Duration::from_millis(200);
+        while std::time::Instant::now() < grace_deadline {
+            pids_to_kill.retain(|&pid| Path::new(&format!("/proc/{}", pid)).exists());
+            if pids_to_kill.is_empty() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+
+        // SIGKILL any remaining processes
+        for &pid in &pids_to_kill {
+            let _ = std::process::Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .status();
+        }
+
         // Wait for /proc/{pid} to disappear (anti-flake)
-        let deadline = std::time::Instant::now() + Duration::from_millis(500);
-        for pid in killed_pids {
+        let deadline = std::time::Instant::now() + Duration::from_millis(300);
+        for pid in pids_to_kill {
             let proc_path = format!("/proc/{}", pid);
             while Path::new(&proc_path).exists() {
                 if std::time::Instant::now() > deadline {
@@ -126,31 +152,46 @@ impl WgpuTestHarness {
 
 impl Drop for WgpuTestHarness {
     fn drop(&mut self) {
-        // NOTE: Child::kill() sends SIGKILL on Unix (immediate termination)
-        // This is fine for test cleanup - we don't need graceful SIGTERM
-        let _ = self.child.kill();
+        // Use graceful signal progression to allow Wayland IME cleanup.
+        // SIGTERM first, then SIGKILL if needed.
+        let pid = self.child.id();
 
-        // Poll with timeout to reap zombie - 2 second deadline
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        // Send SIGTERM for graceful shutdown
+        let _ = Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status();
+
+        // Wait up to 200ms for graceful exit
+        let grace_deadline = std::time::Instant::now() + Duration::from_millis(200);
         loop {
             match self.child.try_wait() {
-                Ok(Some(_status)) => {
-                    // Child exited, zombie reaped
-                    break;
-                }
+                Ok(Some(_)) => return, // Exited gracefully
                 Ok(None) => {
-                    // Process still showing as running (shouldn't happen after SIGKILL)
+                    if std::time::Instant::now() > grace_deadline {
+                        break; // Grace period expired
+                    }
+                    thread::sleep(Duration::from_millis(20));
+                }
+                Err(_) => return, // Error, process likely gone
+            }
+        }
+
+        // SIGKILL if still running after grace period
+        let _ = self.child.kill();
+
+        // Reap zombie with timeout
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        loop {
+            match self.child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) => {
                     if std::time::Instant::now() > deadline {
-                        // Timeout: give up, final wait attempt
                         let _ = self.child.wait();
                         break;
                     }
-                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    thread::sleep(Duration::from_millis(50));
                 }
-                Err(_) => {
-                    // Error checking status - process likely already gone
-                    break;
-                }
+                Err(_) => break,
             }
         }
     }

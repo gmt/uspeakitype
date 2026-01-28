@@ -1,8 +1,7 @@
 //! Integration tests for input_method backend
 //!
 //! These tests verify the InputMethodInjector functionality in a Docker environment
-//! with a headless Wayland compositor. Tests are ignored by default and run only
-//! when USIT_CANONICAL_TEST_ENV is set (Docker environment).
+//! with a headless Wayland compositor. Tests skip gracefully when not in Docker.
 
 use usit::input::{InputMethodInjector, TextInjector as _};
 
@@ -11,18 +10,17 @@ fn is_docker_env() -> bool {
     std::env::var("USIT_CANONICAL_TEST_ENV").is_ok()
 }
 
-/// Skip test if not in Docker environment
-fn skip_if_not_docker() {
-    if !is_docker_env() {
-        eprintln!("Skipping test outside Docker environment (USIT_CANONICAL_TEST_ENV not set)");
-        return;
-    }
+/// Skip reason for non-Docker environments
+fn skip_reason() -> &'static str {
+    "not in Docker environment (USIT_CANONICAL_TEST_ENV not set)"
 }
 
 #[test]
-#[ignore]
 fn test_input_method_injector_new_succeeds() {
-    skip_if_not_docker();
+    if !is_docker_env() {
+        eprintln!("Skipping: {}", skip_reason());
+        return;
+    }
 
     match InputMethodInjector::new() {
         Ok(_injector) => {
@@ -36,9 +34,11 @@ fn test_input_method_injector_new_succeeds() {
 }
 
 #[test]
-#[ignore]
 fn test_input_method_injector_name() {
-    skip_if_not_docker();
+    if !is_docker_env() {
+        eprintln!("Skipping: {}", skip_reason());
+        return;
+    }
 
     match InputMethodInjector::new() {
         Ok(injector) => {
@@ -54,9 +54,11 @@ fn test_input_method_injector_name() {
 }
 
 #[test]
-#[ignore]
 fn test_input_method_inject_not_activated() {
-    skip_if_not_docker();
+    if !is_docker_env() {
+        eprintln!("Skipping: {}", skip_reason());
+        return;
+    }
 
     match InputMethodInjector::new() {
         Ok(mut injector) => {
@@ -79,9 +81,11 @@ fn test_input_method_inject_not_activated() {
 }
 
 #[test]
-#[ignore]
 fn test_input_method_inject_empty_string() {
-    skip_if_not_docker();
+    if !is_docker_env() {
+        eprintln!("Skipping: {}", skip_reason());
+        return;
+    }
 
     match InputMethodInjector::new() {
         Ok(mut injector) => {
@@ -104,9 +108,11 @@ fn test_input_method_inject_empty_string() {
 }
 
 #[test]
-#[ignore]
 fn test_input_method_surrounding_text() {
-    skip_if_not_docker();
+    if !is_docker_env() {
+        eprintln!("Skipping: {}", skip_reason());
+        return;
+    }
 
     match InputMethodInjector::new() {
         Ok(injector) => {
