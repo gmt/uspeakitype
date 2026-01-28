@@ -1089,3 +1089,37 @@ fn run_headless_text(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_backend_names_recognizes_input_method() {
+        let raw = vec!["input_method".to_string()];
+        let normalized = normalize_backend_names(&raw);
+        assert_eq!(normalized, vec!["input_method"]);
+    }
+
+    #[test]
+    fn test_normalize_backend_names_rejects_unknown() {
+        let raw = vec!["unknown_backend".to_string()];
+        let normalized = normalize_backend_names(&raw);
+        assert!(normalized.is_empty());
+    }
+
+    #[test]
+    fn test_normalize_backend_names_all_known_backends() {
+        // Verify all known backends are recognized
+        let raw = vec![
+            "input_method".to_string(),
+            "wrtype".to_string(),
+            "ydotool".to_string(),
+        ];
+        let normalized = normalize_backend_names(&raw);
+        assert_eq!(normalized.len(), 3);
+        assert!(normalized.contains(&"input_method".to_string()));
+        assert!(normalized.contains(&"wrtype".to_string()));
+        assert!(normalized.contains(&"ydotool".to_string()));
+    }
+}
