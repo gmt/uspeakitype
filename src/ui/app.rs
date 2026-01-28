@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -192,6 +193,12 @@ impl OverlayApp {
                         renderer.set_opacity(self.control_panel.opacity);
                     }
                 }
+                Control::QuitButton => {
+                    self.running.store(false, Ordering::Relaxed);
+                    if let Some(ref control) = self.capture_control {
+                        control.stop();
+                    }
+                }
                 _ => {}
             }
         }
@@ -239,6 +246,10 @@ impl ApplicationHandler for OverlayApp {
         renderer.set_opacity(self.control_panel.opacity);
         let window_id = renderer.window.id();
         self.renderers.insert(window_id, renderer);
+
+        if event_loop.is_wayland() {
+            release_focus_to_previous_window();
+        }
     }
 
     fn window_event(
@@ -355,11 +366,12 @@ fn create_window_attributes(
         .with_decorations(false)
         .with_transparent(true)
         .with_surface_size(size)
-        .with_title(title)
+        .with_title(&title)
         .with_resizable(false);
 
     if event_loop.is_wayland() {
         let wayland_attrs = WindowAttributesWayland::default()
+            .with_name("usit", title)
             .with_layer_shell()
             .with_anchor(Anchor::BOTTOM)
             .with_layer(Layer::Overlay)
@@ -371,4 +383,26 @@ fn create_window_attributes(
     }
 
     attrs
+}
+
+fn release_focus_to_previous_window() {
+    std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_millis(100));
+
+        if let Err(e) = release_focus_kwin() {
+            log::debug!("Could not release focus via KWin: {}", e);
+        }
+    });
+}
+
+fn release_focus_kwin() -> Result<(), Box<dyn std::error::Error>> {
+    let connection = zbus::blocking::Connection::session()?;
+    let proxy = zbus::blocking::Proxy::new(
+        &connection,
+        "org.kde.kglobalaccel",
+        "/component/kwin",
+        "org.kde.kglobalaccel.Component",
+    )?;
+    proxy.call_method("invokeShortcut", &("Walk Through Windows (Reverse)",))?;
+    Ok(())
 }

@@ -160,6 +160,11 @@ fn format_control_label(control: Control, value: &str, mode: LayoutMode) -> Stri
         (Control::OpacitySlider, LayoutMode::Full) => "Opacity",
         (Control::OpacitySlider, LayoutMode::Compact) => "Opac",
         (Control::OpacitySlider, _) => "O",
+
+        // QuitButton
+        (Control::QuitButton, LayoutMode::Full) => "Quit",
+        (Control::QuitButton, LayoutMode::Compact) => "Quit",
+        (Control::QuitButton, _) => "Q",
     };
 
     format!("{}: {}", prefix, value)
@@ -487,6 +492,7 @@ impl TerminalVisualizer {
                     Control::OpacitySlider => {
                         format!("{:.0}%", panel.opacity * 100.0)
                     }
+                    Control::QuitButton => "Exit".to_string(),
                 };
                 (control, format_control_label(control, &value, mode))
             })

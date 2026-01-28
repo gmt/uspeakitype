@@ -461,6 +461,7 @@ impl Renderer {
                         if panel.auto_save { "[X]" } else { "[ ]" }.to_string(),
                     ),
                     Control::OpacitySlider => ("Opacity", format!("{:.0}%", panel.opacity * 100.0)),
+                    Control::QuitButton => ("Quit", "Exit application".to_string()),
                 };
                 format!("{}: {}", label, value)
             })
@@ -477,6 +478,7 @@ impl Renderer {
             controls_vec.get(7).map(|s| s.as_str()).unwrap_or(""),
             controls_vec.get(8).map(|s| s.as_str()).unwrap_or(""),
             controls_vec.get(9).map(|s| s.as_str()).unwrap_or(""),
+            controls_vec.get(10).map(|s| s.as_str()).unwrap_or(""),
         ];
 
         let title = "Control Panel (click to toggle)";

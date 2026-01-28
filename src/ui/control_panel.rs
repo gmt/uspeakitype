@@ -1,6 +1,6 @@
 //! Control panel state management
 //!
-//! Manages the state for the 10 control panel controls:
+//! Manages the state for the 11 control panel controls:
 //! - Device selector
 //! - Gain slider
 //! - AGC checkbox
@@ -11,6 +11,7 @@
 //! - Model selector
 //! - Auto-save toggle
 //! - Opacity slider (WGPU only)
+//! - Quit button
 
 use crate::audio::CaptureControl;
 use crate::config::ModelVariant;
@@ -18,7 +19,7 @@ use crate::spectrum::{get_color_scheme, ColorScheme};
 use crate::ui::spectrogram::{Spectrogram, SpectrogramMode};
 use crate::ui::{AudioSourceInfo, AudioState};
 
-/// The 10 control panel controls
+/// The 11 control panel controls
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Control {
     DeviceSelector,
@@ -31,10 +32,11 @@ pub enum Control {
     ModelSelector,
     AutoSaveToggle,
     OpacitySlider,
+    QuitButton,
 }
 
 impl Control {
-    /// All 10 controls in order (used for navigation and rendering)
+    /// All 11 controls in order (used for navigation and rendering)
     pub const ALL: &'static [Control] = &[
         Control::DeviceSelector,
         Control::GainSlider,
@@ -46,6 +48,7 @@ impl Control {
         Control::ModelSelector,
         Control::AutoSaveToggle,
         Control::OpacitySlider,
+        Control::QuitButton,
     ];
 
     /// Returns true if this control is WGPU-only (not available in TUI)
@@ -319,8 +322,8 @@ mod tests {
     }
 
     #[test]
-    fn control_all_has_ten_controls() {
-        assert_eq!(Control::ALL.len(), 10);
+    fn control_all_has_eleven_controls() {
+        assert_eq!(Control::ALL.len(), 11);
     }
 
     #[test]

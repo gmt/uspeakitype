@@ -4,14 +4,19 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, TextureView};
 
-// Single gear - style derived from gears.svg (OpenClipart, public domain)
 const GEAR_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
   <path fill="#E0E0E0" d="M10 1h4v2.3a7 7 0 0 1 2.5 1l1.6-1.6 2.8 2.8-1.6 1.6a7 7 0 0 1 1 2.5H23v4h-2.3a7 7 0 0 1-1 2.5l1.6 1.6-2.8 2.8-1.6-1.6a7 7 0 0 1-2.5 1V23h-4v-2.3a7 7 0 0 1-2.5-1l-1.6 1.6-2.8-2.8 1.6-1.6a7 7 0 0 1-1-2.5H1v-4h2.3a7 7 0 0 1 1-2.5L2.7 4.7l2.8-2.8 1.6 1.6a7 7 0 0 1 2.5-1V1z"/>
   <circle cx="12" cy="12" r="3.5" fill="#1A1A1A"/>
 </svg>"##;
 
+const QUIT_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <rect x="2" y="2" width="20" height="20" rx="3" fill="#1A1A1A" stroke="#E0E0E0" stroke-width="1.5"/>
+  <path fill="#E0E0E0" d="M7.5 6L12 10.5 16.5 6 18 7.5 13.5 12 18 16.5 16.5 18 12 13.5 7.5 18 6 16.5 10.5 12 6 7.5z"/>
+</svg>"##;
+
 pub struct IconRenderer {
-    texture_bind_group: wgpu::BindGroup,
+    gear_bind_group: wgpu::BindGroup,
+    quit_bind_group: wgpu::BindGroup,
     uniform_bind_group: wgpu::BindGroup,
     uniform_buffer: wgpu::Buffer,
     pipeline: wgpu::RenderPipeline,
@@ -26,7 +31,8 @@ impl IconRenderer {
         surface_format: wgpu::TextureFormat,
     ) -> Self {
         let size = 32u32;
-        let (_, view) = Self::render_svg_to_texture(&device, &queue, GEAR_SVG, size);
+        let (_, gear_view) = Self::render_svg_to_texture(&device, &queue, GEAR_SVG, size);
+        let (_, quit_view) = Self::render_svg_to_texture(&device, &queue, QUIT_SVG, size);
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mag_filter: wgpu::FilterMode::Linear,
@@ -57,13 +63,28 @@ impl IconRenderer {
                 ],
             });
 
-        let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Icon Texture Bind Group"),
+        let gear_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Gear Icon Bind Group"),
             layout: &texture_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
+                    resource: wgpu::BindingResource::TextureView(&gear_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
+        let quit_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Quit Icon Bind Group"),
+            layout: &texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&quit_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -174,7 +195,8 @@ impl IconRenderer {
         });
 
         Self {
-            texture_bind_group,
+            gear_bind_group,
+            quit_bind_group,
             uniform_bind_group,
             uniform_buffer,
             pipeline,
@@ -275,7 +297,51 @@ impl IconRenderer {
         });
 
         render_pass.set_pipeline(&self.pipeline);
-        render_pass.set_bind_group(0, &self.texture_bind_group, &[]);
+        render_pass.set_bind_group(0, &self.gear_bind_group, &[]);
+        render_pass.set_bind_group(1, &self.uniform_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+
+        render_pass.draw(0..6, 0..1);
+    }
+
+    pub fn render_quit(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &TextureView,
+        x: f32,
+        y: f32,
+        size: f32,
+        screen_width: f32,
+        screen_height: f32,
+    ) {
+        let uniforms: [f32; 4] = [
+            x / screen_width * 2.0 - 1.0,
+            -(y / screen_height * 2.0 - 1.0),
+            size / screen_width * 2.0,
+            size / screen_height * 2.0,
+        ];
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&uniforms));
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Quit Icon Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+            occlusion_query_set: None,
+        });
+
+        render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_bind_group(0, &self.quit_bind_group, &[]);
         render_pass.set_bind_group(1, &self.uniform_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 

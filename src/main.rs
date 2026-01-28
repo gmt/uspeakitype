@@ -347,7 +347,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    println!("usit v{}", env!("CARGO_PKG_VERSION"));
+    log::info!("usit v{}", env!("CARGO_PKG_VERSION"));
 
     let running = Arc::new(AtomicBool::new(true));
     let audio_state = ui::new_shared_state();
@@ -363,7 +363,7 @@ fn main() -> anyhow::Result<()> {
             use backend::MoonshineStreamer;
             use streaming::{StreamingConfig, StreamingTranscriber};
 
-            println!("Loading models from {:?}...", model_dir);
+            log::info!("Loading models from {:?}...", model_dir);
             let resolved_model = if args.model != ModelVariant::default() {
                 args.model
             } else {
@@ -373,13 +373,13 @@ fn main() -> anyhow::Result<()> {
 
             backend::init_ort();
 
-            println!("Initializing VAD...");
+            log::info!("Initializing VAD...");
             let vad = SileroVad::new(&model_paths.silero_vad, VadConfig::default())?;
 
-            println!("Initializing Moonshine transcriber...");
+            log::info!("Initializing Moonshine transcriber...");
             let transcriber = MoonshineStreamer::new(&model_paths.moonshine_dir)?;
 
-            println!("Creating streaming coordinator...");
+            log::info!("Creating streaming coordinator...");
             Some(StreamingTranscriber::new(
                 vad,
                 transcriber,
@@ -947,6 +947,15 @@ fn run_terminal_loop(
                                         }
                                         Some(ui::control_panel::Control::AutoSaveToggle) => {
                                             control_panel.toggle_auto_save();
+                                        }
+                                        Some(ui::control_panel::Control::QuitButton) => {
+                                            save_on_exit(
+                                                &control_panel,
+                                                args,
+                                                &audio_state,
+                                                &config_path,
+                                            );
+                                            break;
                                         }
                                         _ => {}
                                     },
