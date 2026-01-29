@@ -190,15 +190,13 @@ impl MoonshineStreamer {
         })
     }
 
-    pub fn transcribe(&self, samples: &[f32]) -> Result<String> {
-        if samples.is_empty() {
-            return Ok(String::new());
-        }
-
-        let normalized = self.preprocess(samples);
-        let encoder_states = self.encode(&normalized)?;
-        let token_ids = self.greedy_decode(&encoder_states)?;
-        self.tokenizer.decode(&token_ids)
+    /// Transcribe audio samples to text (one-shot, non-streaming).
+    ///
+    /// This resets internal state and uses the incremental decoder path,
+    /// which handles varying ONNX input naming conventions across exporters.
+    pub fn transcribe(&mut self, samples: &[f32]) -> Result<String> {
+        self.reset();
+        self.transcribe_incremental(samples)
     }
 
     pub fn transcribe_incremental(&mut self, samples: &[f32]) -> Result<String> {
@@ -336,115 +334,6 @@ impl MoonshineStreamer {
             .try_extract_array::<f32>()
             .map(|a| a.to_owned())
             .map_err(|e| anyhow::anyhow!("encoder output error: {}", e))
-    }
-
-    fn greedy_decode(&self, encoder_states: &ArrayD<f32>) -> Result<Vec<u32>> {
-        let encoder_tensor = Tensor::from_array(encoder_states.clone())?;
-
-        let mut decoder = self.decoder.lock();
-
-        // HuggingFace Moonshine uses args_* names
-        let input_ids_name = "args_0".to_string();
-        let encoder_name = "args_1".to_string();
-        let seq_len_name = "args_2".to_string();
-        let logits_name = "reversible_embedding".to_string();
-
-        let max_tokens = estimate_max_tokens(encoder_states.shape());
-        let mut tokens: Vec<u32> = vec![self.tokenizer.bos_token_id];
-
-        let input_ids_is_i64 = decoder
-            .inputs()
-            .iter()
-            .find(|i| i.name() == input_ids_name)
-            .map(|i| {
-                matches!(
-                    i.dtype(),
-                    ValueType::Tensor {
-                        ty: TensorElementType::Int64,
-                        ..
-                    }
-                )
-            })
-            .unwrap_or(false);
-
-        // Initialize KV cache tensors (args_3 to args_34) with empty seq dimension
-        // Shape: [batch=1, seq_len=0, heads=8, head_dim=52]
-        let mut kv_cache: Vec<ArrayD<f32>> = (0..32)
-            .map(|_| ArrayD::<f32>::zeros(IxDyn(&[1, 0, 8, 52])))
-            .collect();
-
-        let cache_output_names: Vec<String> = decoder
-            .outputs()
-            .iter()
-            .filter(|o| o.name() != logits_name && o.name().contains("functional"))
-            .map(|o| o.name().to_string())
-            .collect();
-
-        for step in 0..max_tokens {
-            let input_ids: Vec<i32> = if step == 0 {
-                tokens.iter().map(|&t| t as i32).collect()
-            } else {
-                vec![*tokens.last().unwrap() as i32]
-            };
-            let input_ids_tensor: SessionInputValue = if input_ids_is_i64 {
-                let ids: Vec<i64> = input_ids.into_iter().map(|v| v as i64).collect();
-                let input_ids_array = Array2::from_shape_vec((1, ids.len()), ids)?;
-                Tensor::from_array(input_ids_array)?.into()
-            } else {
-                let input_ids_array = Array2::from_shape_vec((1, input_ids.len()), input_ids)?;
-                Tensor::from_array(input_ids_array)?.into()
-            };
-
-            let seq_len = encoder_states.shape()[1] as i32;
-            let seq_len_tensor = Tensor::from_array(Array1::from(vec![seq_len]))?;
-
-            let mut inputs: Vec<(String, SessionInputValue)> = vec![
-                (input_ids_name.clone(), input_ids_tensor),
-                (encoder_name.clone(), (&encoder_tensor).into()),
-                (seq_len_name.clone(), seq_len_tensor.into()),
-            ];
-
-            // Add KV cache inputs (args_3 to args_34)
-            for (i, cache) in kv_cache.iter().enumerate() {
-                let cache_tensor = Tensor::from_array(cache.clone())?;
-                inputs.push((format!("args_{}", i + 3), cache_tensor.into()));
-            }
-
-            let outputs = decoder
-                .run(SessionInputs::from(inputs))
-                .context("decoder inference")?;
-
-            let logits = outputs
-                .get(logits_name.as_str())
-                .ok_or_else(|| anyhow::anyhow!("missing decoder logits"))?
-                .try_extract_array::<f32>()
-                .map_err(|e| anyhow::anyhow!("logits error: {}", e))?;
-
-            let next_token = select_next_token(logits.to_owned())?;
-
-            // Update KV cache from outputs
-            // The outputs have names like functional_29, functional_29_1, etc.
-            // We need to map them to our cache array
-            // For simplicity, just get all float32 outputs that look like cache
-
-            for (i, output_name) in cache_output_names.iter().enumerate() {
-                if i >= 32 {
-                    break;
-                }
-                if let Some(output) = outputs.get(output_name.as_str()) {
-                    if let Ok(arr) = output.try_extract_array::<f32>() {
-                        kv_cache[i] = arr.to_owned().into_dyn();
-                    }
-                }
-            }
-
-            if next_token == self.tokenizer.eos_token_id {
-                break;
-            }
-            tokens.push(next_token);
-        }
-
-        Ok(tokens)
     }
 
     fn greedy_decode_cached(&mut self, encoder_states: &ArrayD<f32>) -> Result<Vec<u32>> {

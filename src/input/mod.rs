@@ -113,6 +113,7 @@ mod tests {
     fn test_select_backend_respects_disabled_list() {
         let disabled = vec![
             "input_method".to_string(),
+            "fcitx5_bridge".to_string(),
             "wrtype".to_string(),
             "ydotool".to_string(),
         ];

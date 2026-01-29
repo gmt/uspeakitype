@@ -1,7 +1,7 @@
-# KDE Plasma headless Docker image for testing fcitx5_bridge
+# KDE Plasma headless Docker image for testing fcitx5_bridge and audio capture
 FROM debian:trixie-slim
 
-# KDE + fcitx5 + build deps
+# KDE + fcitx5 + PipeWire + build deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # KDE Wayland (virtual backend is built-in)
     kwin-wayland \
@@ -13,8 +13,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libwayland-dev libxkbcommon-dev \
     # Graphics (software rendering)
     mesa-vulkan-drivers libvulkan1 libegl1 libgl1-mesa-dri \
-    # Audio libs
+    # Audio libs (dev)
     libasound2-dev libpipewire-0.3-dev \
+    # PipeWire runtime (for audio capture tests)
+    pipewire pipewire-audio-client-libraries wireplumber \
     # Rust installer
     curl ca-certificates \
     # D-Bus

@@ -23,6 +23,26 @@ services:
       - ./test-output:/app/test-output
     entrypoint: /app/scripts/docker-ime-test.sh
 
+  # KDE/fcitx5 IME injection tests
+  kde-tests:
+    build:
+      context: .
+      dockerfile: docker/kde/Dockerfile
+    volumes:
+      - ./test-output:/app/test-output
+    entrypoint: /test-kde.sh
+
+  # PipeWire audio capture tests (requires models mounted or downloaded)
+  audio-tests:
+    build:
+      context: .
+      dockerfile: docker/kde/Dockerfile
+    volumes:
+      - ./test-output:/app/test-output
+      # Mount local models cache for transcription testing
+      - ~/.cache/usit/models:/root/.cache/usit/models:ro
+    entrypoint: /app/docker/kde/test-audio.sh
+
   # Optional: Interactive shell for debugging
   shell:
     build:
@@ -31,6 +51,19 @@ services:
     volumes:
       - .:/app
       - ./test-output:/app/test-output
+    entrypoint: /bin/bash
+    stdin_open: true
+    tty: true
+
+  # KDE shell for debugging audio/fcitx5 issues
+  kde-shell:
+    build:
+      context: .
+      dockerfile: docker/kde/Dockerfile
+    volumes:
+      - .:/app
+      - ./test-output:/app/test-output
+      - ~/.cache/usit/models:/root/.cache/usit/models:ro
     entrypoint: /bin/bash
     stdin_open: true
     tty: true
