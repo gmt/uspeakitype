@@ -79,6 +79,24 @@ sudo apt install fcitx5 fcitx5-modules fcitx5-modules-dev libfcitx5core-dev cmak
 
 **How it works**: The addon exposes a D-Bus interface that usit calls to inject text. When usit detects fcitx5 is running but the addon isn't loaded, it will automatically restart fcitx5 with the correct `FCITX_ADDON_DIRS` to load the addon from `~/.local`.
 
+**Recommended: Disable fcitx5's clipboard addon**
+
+fcitx5 includes a clipboard monitoring addon that can conflict with KDE's clipboard handling (klipper), potentially causing plasmashell crashes in a loop. If you experience repeated plasmashell crashes or see single-character entries flooding klipper's history, disable the fcitx5 clipboard addon:
+
+```bash
+# Edit ~/.config/fcitx5/config and set:
+# DisabledAddons=clipboard
+# in the [Behavior] section
+
+# Or use sed:
+sed -i 's/^DisabledAddons=.*/DisabledAddons=clipboard/' ~/.config/fcitx5/config
+
+# Restart fcitx5
+pkill fcitx5 && fcitx5 -d
+```
+
+This removes fcitx5 from clipboard monitoring, leaving only klipper to manage clipboard state.
+
 #### wrtype (wlroots compositors)
 No setup required - works out of the box on Sway, Hyprland, River, and other wlroots-based compositors.
 
