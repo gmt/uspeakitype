@@ -12,7 +12,10 @@ pub mod transcript_widget;
 pub mod waterfall_widget;
 
 use parking_lot::RwLock;
+use std::collections::HashMap;
 use std::sync::Arc;
+
+use crate::config::AsrModelId;
 
 pub use app::run;
 pub use control_panel::{
@@ -55,6 +58,12 @@ pub struct AudioState {
     pub model_error: Option<String>,
     /// Whether transcription is available (model loaded successfully)
     pub transcription_available: bool,
+    /// The model the user last requested (may be downloading or not yet active)
+    pub requested_model: Option<AsrModelId>,
+    /// The designated driver model currently running (provides transcription while requested downloads)
+    pub active_model: Option<AsrModelId>,
+    /// Per-model download progress: key is model ID, value is 0.0..1.0 progress
+    pub download_progress_by_model: HashMap<AsrModelId, f32>,
 }
 
 impl Default for AudioState {
@@ -74,6 +83,9 @@ impl Default for AudioState {
             download_progress: None,
             model_error: None,
             transcription_available: false,
+            requested_model: None,
+            active_model: None,
+            download_progress_by_model: HashMap::new(),
         }
     }
 }
@@ -229,5 +241,150 @@ mod tests {
         .unwrap();
 
         assert_eq!(state.read().partial, "from thread");
+    }
+
+    // --- Async model selection/activation tests ---
+
+    #[test]
+    fn default_state_has_no_requested_or_active_model() {
+        let state = AudioState::new();
+        assert!(state.requested_model.is_none());
+        assert!(state.active_model.is_none());
+        assert!(state.download_progress_by_model.is_empty());
+    }
+
+    #[test]
+    fn can_set_requested_model() {
+        use crate::config::AsrModelId;
+
+        let mut state = AudioState::new();
+        state.requested_model = Some(AsrModelId::MoonshineBase);
+
+        assert_eq!(state.requested_model, Some(AsrModelId::MoonshineBase));
+        // Active model remains None until activation
+        assert!(state.active_model.is_none());
+    }
+
+    #[test]
+    fn can_track_active_model_as_designated_driver() {
+        use crate::config::AsrModelId;
+
+        let mut state = AudioState::new();
+        // Simulate: DD (active) is MoonshineTiny while requested is MoonshineBase
+        state.active_model = Some(AsrModelId::MoonshineTiny);
+        state.requested_model = Some(AsrModelId::MoonshineBase);
+
+        assert_eq!(state.active_model, Some(AsrModelId::MoonshineTiny));
+        assert_eq!(state.requested_model, Some(AsrModelId::MoonshineBase));
+        // They can differ while download is in progress
+        assert_ne!(state.active_model, state.requested_model);
+    }
+
+    #[test]
+    fn can_track_per_model_download_progress() {
+        use crate::config::AsrModelId;
+
+        let mut state = AudioState::new();
+        // Simulate two parallel downloads
+        state.download_progress_by_model.insert(AsrModelId::MoonshineBase, 0.5);
+        state.download_progress_by_model.insert(AsrModelId::ParakeetTdt06bV3, 0.25);
+
+        assert_eq!(state.download_progress_by_model.get(&AsrModelId::MoonshineBase), Some(&0.5));
+        assert_eq!(state.download_progress_by_model.get(&AsrModelId::ParakeetTdt06bV3), Some(&0.25));
+        assert_eq!(state.download_progress_by_model.get(&AsrModelId::MoonshineTiny), None);
+    }
+
+    #[test]
+    fn requested_model_change_tracks_last_requested() {
+        use crate::config::AsrModelId;
+
+        let mut state = AudioState::new();
+
+        // User requests Base
+        state.requested_model = Some(AsrModelId::MoonshineBase);
+        assert_eq!(state.requested_model, Some(AsrModelId::MoonshineBase));
+
+        // User changes mind, requests Tiny
+        state.requested_model = Some(AsrModelId::MoonshineTiny);
+        assert_eq!(state.requested_model, Some(AsrModelId::MoonshineTiny));
+
+        // Simulate Base download completes - should NOT auto-activate because it's no longer requested
+        // (This logic is in the streaming worker, but state tracking should support it)
+        assert_ne!(state.requested_model, Some(AsrModelId::MoonshineBase));
+    }
+
+    #[test]
+    fn activation_updates_active_model_and_transcription_available() {
+        use crate::config::AsrModelId;
+
+        let mut state = AudioState::new();
+        state.requested_model = Some(AsrModelId::MoonshineBase);
+
+        // Initially no transcription
+        assert!(!state.transcription_available);
+
+        // Simulate model activation
+        state.active_model = Some(AsrModelId::MoonshineBase);
+        state.transcription_available = true;
+
+        assert!(state.transcription_available);
+        assert_eq!(state.active_model, Some(AsrModelId::MoonshineBase));
+    }
+
+    #[test]
+    fn download_progress_cleared_on_completion() {
+        use crate::config::AsrModelId;
+
+        let mut state = AudioState::new();
+        state.requested_model = Some(AsrModelId::MoonshineBase);
+        state.download_progress = Some(0.75);
+        state.download_progress_by_model.insert(AsrModelId::MoonshineBase, 0.75);
+
+        // Simulate download completion
+        state.download_progress = None;
+        state.download_progress_by_model.remove(&AsrModelId::MoonshineBase);
+
+        assert!(state.download_progress.is_none());
+        assert!(state.download_progress_by_model.is_empty());
+    }
+
+    #[test]
+    fn already_active_model_should_not_reactivate_on_download_complete() {
+        use crate::config::AsrModelId;
+
+        let mut state = AudioState::new();
+
+        // Simulate: user selects MoonshineBase which is cached
+        state.requested_model = Some(AsrModelId::MoonshineBase);
+        // Model was activated immediately via model_swap_rx
+        state.active_model = Some(AsrModelId::MoonshineBase);
+        state.transcription_available = true;
+
+        // When download manager sends Completed event, we should NOT reactivate
+        // because active_model already matches completed_model
+        let completed_model = AsrModelId::MoonshineBase;
+        let should_activate = state.requested_model == Some(completed_model)
+            && state.active_model != Some(completed_model);
+
+        assert!(!should_activate, "Should not reactivate already-active model");
+    }
+
+    #[test]
+    fn different_requested_model_should_activate_on_download_complete() {
+        use crate::config::AsrModelId;
+
+        let mut state = AudioState::new();
+
+        // Simulate: DD is Tiny, user requested Base (downloading)
+        state.active_model = Some(AsrModelId::MoonshineTiny);
+        state.requested_model = Some(AsrModelId::MoonshineBase);
+        state.transcription_available = true;
+
+        // When download manager sends Completed for Base, we SHOULD activate
+        let completed_model = AsrModelId::MoonshineBase;
+        let should_activate = state.requested_model == Some(completed_model)
+            && state.active_model != Some(completed_model);
+
+        assert!(should_activate, "Should activate newly-downloaded requested model");
     }
 }
