@@ -475,14 +475,15 @@ fn main() -> anyhow::Result<()> {
         log::debug!("Injector thread exiting");
     });
 
-    let capture_control: Option<Arc<CaptureControl>> = if args.demo || args.ansi_sweep {
-        if args.ansi_sweep {
-            run_sweep_audio(audio_state.clone());
+    let (capture_control, _capture_handle): (Option<Arc<CaptureControl>>, Option<AudioCapture>) =
+        if args.demo || args.ansi_sweep {
+            if args.ansi_sweep {
+                run_sweep_audio(audio_state.clone());
+            } else {
+                run_demo_audio(audio_state.clone(), injection_tx.clone());
+            }
+            (None, None)
         } else {
-            run_demo_audio(audio_state.clone(), injection_tx.clone());
-        }
-        None
-    } else {
         let auto_gain = args.auto_gain || config.auto_gain;
         let source = args.source.clone().or(config.source.clone());
         let capture_config = CaptureConfig {
@@ -507,8 +508,9 @@ fn main() -> anyhow::Result<()> {
             audio_state.write().auto_gain_enabled = true;
         }
 
-        std::mem::forget(capture);
-        Some(control)
+        // Keep capture alive - dropping it triggers shutdown cascade
+        // (closes audio channel → worker exits → injection channel closes → injector exits)
+        (Some(control), Some(capture))
     };
 
     if let Some(mut streamer) = streaming_transcriber {
@@ -621,8 +623,13 @@ fn main() -> anyhow::Result<()> {
         );
     }
 
-    // Graceful shutdown: close injection channel and wait for IME cleanup
-    // This ensures the Wayland IME destroy request is sent before we exit
+    // Graceful shutdown cascade:
+    // 1. Stop audio capture → closes its tx clone
+    // 2. Drop audio_tx → worker's recv() returns Err → worker exits → drops injection_tx clone
+    // 3. Drop injection_tx → injector's recv() returns Err → injector exits (IME cleanup runs)
+    // 4. Join injector to ensure cleanup completes before process exit
+    drop(_capture_handle);
+    drop(audio_tx);
     drop(injection_tx);
     log::debug!("Waiting for injector thread...");
     if injector_handle.join().is_err() {
