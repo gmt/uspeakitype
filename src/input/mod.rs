@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 
+pub mod fcitx5_bridge;
 pub mod input_method;
 pub mod wrtype;
 pub mod ydotool;
@@ -15,6 +16,7 @@ pub trait TextInjector {
     fn inject(&mut self, text: &str) -> Result<()>;
 }
 
+pub use fcitx5_bridge::Fcitx5BridgeInjector;
 pub use input_method::InputMethodInjector;
 pub use wrtype::WrtypeInjector;
 pub use ydotool::{find_ydotool_socket, YdotoolInjector};
@@ -55,6 +57,20 @@ pub fn select_backend(
         }
     } else {
         log::info!("input_method: skipped (disabled)");
+    }
+
+    // Probe fcitx5_bridge (D-Bus to fcitx5 addon - works on KDE)
+    if !disabled.iter().any(|s| s == "fcitx5_bridge") {
+        log::info!("Probing fcitx5_bridge...");
+        match Fcitx5BridgeInjector::new() {
+            Ok(inj) => {
+                log::info!("fcitx5_bridge: active");
+                return Some(Box::new(inj));
+            }
+            Err(e) => log::info!("fcitx5_bridge: unavailable ({})", e),
+        }
+    } else {
+        log::info!("fcitx5_bridge: skipped (disabled)");
     }
 
     // Probe wrtype

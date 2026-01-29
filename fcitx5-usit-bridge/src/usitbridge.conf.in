@@ -1,0 +1,11 @@
+[Addon]
+Name=Usit Bridge
+Name[en]=Usit Bridge
+Category=Module
+Library=libusitbridge
+Type=SharedLibrary
+OnDemand=False
+Configurable=False
+
+[Addon/Dependencies]
+0=dbus
