@@ -14,13 +14,14 @@
 
 ## Input Injection Backends
 
-usit automatically selects the best available input injection backend for your compositor/desktop environment. The selection follows a fallback chain: **input_method** → **wrtype** → **ydotool** → **display-only mode**.
+usit automatically selects the best available input injection backend for your compositor/desktop environment. The selection follows a fallback chain: **input_method** → **fcitx5_bridge** → **wrtype** → **ydotool** → **display-only mode**.
 
 ### Backend Comparison
 
 | Backend | Compositor/DE | Requirements | Limitations |
 |---------|---------------|--------------|-------------|
 | **input_method** | Wayland compositors with zwp_input_method_v2 (wlroots, KDE, GNOME*) | None (built-in) | May conflict with other IMEs (fcitx5, ibus); GNOME support varies |
+| **fcitx5_bridge** | KDE Plasma (or anywhere fcitx5 is the active IME) | fcitx5-usit-bridge addon | Requires addon build/install |
 | **wrtype** | wlroots-based (Sway, Hyprland, River, etc.) | None (built-in) | wlroots compositors only |
 | **ydotool** | Any Linux compositor | `ydotool` package, `ydotoold` daemon, uinput permissions | Requires daemon setup |
 | **display-only** | Any | None | No text injection (transcription display only) |
@@ -29,12 +30,12 @@ usit automatically selects the best available input injection backend for your c
 
 All backends support UTF-8 and emoji when available. The table shows what happens as you move down the fallback chain:
 
-| Feature | input_method | wrtype | ydotool | display-only |
-|---------|--------------|--------|---------|--------------|
-| Text injection | ✓ | ✓ | ✓ | ✗ |
-| UTF-8 support | ✓ | ✓ | ✓ | N/A |
-| Emoji support | ✓ | ✓ | ✓* | N/A |
-| Setup required | None | None | Package + daemon | None |
+| Feature | input_method | fcitx5_bridge | wrtype | ydotool | display-only |
+|---------|--------------|---------------|--------|---------|--------------|
+| Text injection | ✓ | ✓ | ✓ | ✓ | ✗ |
+| UTF-8 support | ✓ | ✓ | ✓ | ✓ | N/A |
+| Emoji support | ✓ | ✓ | ✓ | ✓* | N/A |
+| Setup required | None | Addon install | None | Package + daemon | None |
 
 *ydotool emoji support depends on application's input handling
 
@@ -43,7 +44,40 @@ All backends support UTF-8 and emoji when available. The table shows what happen
 #### input_method (Wayland compositors)
 No setup required - works out of the box on compositors that support the `zwp_input_method_v2` protocol (wlroots-based compositors like Sway/Hyprland, KDE Plasma, and some GNOME configurations).
 
-**Note**: If another IME (fcitx5, ibus) is already active, `input_method` will gracefully fall back to `wrtype` or `ydotool`.
+**Note**: If another IME (fcitx5, ibus) is already active, `input_method` will gracefully fall back to `fcitx5_bridge`, `wrtype`, or `ydotool`.
+
+#### fcitx5_bridge (KDE / fcitx5 users)
+For KDE Plasma users (or anyone using fcitx5 as their input method), the `fcitx5_bridge` backend injects text through fcitx5 via D-Bus using a small addon.
+
+**Build and install the addon:**
+```bash
+cd fcitx5-usit-bridge
+mkdir -p build && cd build
+cmake ..
+make
+
+# Install to ~/.local (no root required)
+mkdir -p ~/.local/lib/fcitx5 ~/.local/share/fcitx5/addon
+cp src/libusitbridge.so ~/.local/lib/fcitx5/
+cp src/usitbridge.conf ~/.local/share/fcitx5/addon/
+```
+
+**Restart fcitx5** to load the addon (usit will do this automatically if needed):
+```bash
+fcitx5 -r
+```
+
+**Dependencies** (Arch Linux):
+```bash
+sudo pacman -S fcitx5 fcitx5-qt fcitx5-gtk cmake
+```
+
+**Dependencies** (Debian/Ubuntu):
+```bash
+sudo apt install fcitx5 fcitx5-modules fcitx5-modules-dev libfcitx5core-dev cmake
+```
+
+**How it works**: The addon exposes a D-Bus interface that usit calls to inject text. When usit detects fcitx5 is running but the addon isn't loaded, it will automatically restart fcitx5 with the correct `FCITX_ADDON_DIRS` to load the addon from `~/.local`.
 
 #### wrtype (wlroots compositors)
 No setup required - works out of the box on Sway, Hyprland, River, and other wlroots-based compositors.
@@ -71,20 +105,20 @@ ydotoold &
 Skip specific backends during selection. Useful for testing or working around issues.
 
 ```bash
-# Skip input_method (use wrtype)
+# Skip input_method (try fcitx5_bridge or wrtype)
 usit --backend-disable=input_method
 
-# Force ydotool (skip input_method and wrtype)
-usit --backend-disable=input_method,wrtype
+# Force ydotool (skip all other backends)
+usit --backend-disable=input_method,fcitx5_bridge,wrtype
 
 # Test display-only mode
-usit --backend-disable=input_method,wrtype,ydotool
+usit --backend-disable=input_method,fcitx5_bridge,wrtype,ydotool
 
 # Case-insensitive, whitespace-tolerant
-usit --backend-disable="Input_Method, WrType, YdoTool"
+usit --backend-disable="Input_Method, Fcitx5_Bridge, WrType, YdoTool"
 ```
 
-Valid backend names: `input_method`, `wrtype`, `ydotool`
+Valid backend names: `input_method`, `fcitx5_bridge`, `wrtype`, `ydotool`
 
 #### `--autostart-ydotoold`
 Automatically start the ydotoold daemon if the socket is missing. Useful for systems where the daemon isn't running as a service.
