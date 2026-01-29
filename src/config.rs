@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 ///
 /// `usit` supports multiple model *families* that share the same high-level UI semantics
 /// (partial vs committed text), but differ in model packaging and decoding strategy.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Hash, ValueEnum)]
 #[serde(rename_all = "kebab-case")]
 pub enum AsrModelId {
     /// Moonshine Base model (~120MB) - better accuracy

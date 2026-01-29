@@ -238,6 +238,8 @@ pub struct TerminalVisualizer {
     is_speaking: bool,
     injection_enabled: bool,
     download_progress: Option<f32>,
+    /// Model/cache error to display prominently in red
+    model_error: Option<String>,
     panel_open: bool,
     tag: Option<String>,
     ratatui_terminal: Option<RatatuiTerminal<CrosstermBackend<std::io::Stdout>>>,
@@ -288,6 +290,7 @@ impl TerminalVisualizer {
             is_speaking: false,
             injection_enabled: true,
             download_progress: None,
+            model_error: None,
             panel_open: false,
             tag,
             ratatui_terminal: None,
@@ -395,6 +398,10 @@ impl TerminalVisualizer {
 
     pub fn set_download_progress(&mut self, progress: Option<f32>) {
         self.download_progress = progress;
+    }
+
+    pub fn set_model_error(&mut self, error: Option<String>) {
+        self.model_error = error;
     }
 
     pub fn set_panel_open(&mut self, open: bool) {
@@ -533,6 +540,7 @@ impl TerminalVisualizer {
         let theme = self.theme;
         let panel_is_open = panel.is_open;
         let download_progress = self.download_progress;
+        let model_error = self.model_error.clone();
 
         let panel_data = if panel_is_open {
             Some(self.build_panel_data(panel))
@@ -600,7 +608,17 @@ impl TerminalVisualizer {
                 }
             }
 
-            if let Some(progress) = download_progress {
+            if let Some(ref error) = model_error {
+                // Show model error prominently in red
+                let error_text = if error.len() > status_area.width as usize - 4 {
+                    format!("ERR: {}...", &error[..status_area.width as usize - 8])
+                } else {
+                    format!("ERR: {}", error)
+                };
+                let error_paragraph = Paragraph::new(error_text)
+                    .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD));
+                frame.render_widget(error_paragraph, status_area);
+            } else if let Some(progress) = download_progress {
                 let ratio = progress.clamp(0.0, 1.0) as f64;
                 let pct = (ratio * 100.0) as u16;
                 let gauge = Gauge::default()

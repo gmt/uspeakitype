@@ -122,17 +122,43 @@ impl TextRenderer {
         padding: f32,
         bounds: TextBounds,
     ) {
+        self.render_with_error(view, encoder, committed, partial, x, y, scale, area_width, _area_height, padding, bounds, false)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_with_error(
+        &mut self,
+        view: &TextureView,
+        encoder: &mut wgpu::CommandEncoder,
+        committed: &str,
+        partial: &str,
+        x: f32,
+        y: f32,
+        scale: f32,
+        area_width: u32,
+        _area_height: u32,
+        padding: f32,
+        bounds: TextBounds,
+        is_error: bool,
+    ) {
         if committed.is_empty() && partial.is_empty() {
             return;
         }
 
         let theme_wgpu = self.theme.to_wgpu();
 
+        // Use error color (red) for committed text when is_error is true
+        let committed_rgba = if is_error {
+            theme_wgpu.text_error
+        } else {
+            theme_wgpu.text_committed
+        };
+
         let committed_color = Color::rgba(
-            (theme_wgpu.text_committed[0] * 255.0) as u8,
-            (theme_wgpu.text_committed[1] * 255.0) as u8,
-            (theme_wgpu.text_committed[2] * 255.0) as u8,
-            (theme_wgpu.text_committed[3] * 255.0) as u8,
+            (committed_rgba[0] * 255.0) as u8,
+            (committed_rgba[1] * 255.0) as u8,
+            (committed_rgba[2] * 255.0) as u8,
+            (committed_rgba[3] * 255.0) as u8,
         );
 
         let partial_color = Color::rgba(

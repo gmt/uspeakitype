@@ -12,6 +12,7 @@ use terminal_size::{terminal_size, Height, Width};
 use usit::audio::{self, AudioCapture, CaptureConfig, CaptureControl};
 use usit::config::{AsrModelId, Config};
 use usit::instance::{find_duplicate_tag, find_instances};
+use usit::model_cache::{self, ActivationResult};
 use usit::spectrum::get_color_scheme;
 use usit::ui;
 use usit::ui::spectrogram::SpectrogramMode;
@@ -171,6 +172,174 @@ struct Args {
         help = "Human-readable format for --list-instances"
     )]
     human: bool,
+}
+
+/// Result of model activation attempt
+struct ModelActivation {
+    transcriber: Option<streaming::DefaultStreamingTranscriber>,
+    #[allow(dead_code)] // May be used for UI display of active model
+    active_model: Option<AsrModelId>,
+    error: Option<String>,
+}
+
+/// Attempt to activate a model, with fallback to other cached/downloadable models.
+///
+/// Order of attempts:
+/// 1. Selected model (from CLI/config)
+/// 2. Other cached models (verified integrity)
+/// 3. Download attempts in priority order (Base → Tiny → Parakeet)
+///
+/// Returns ModelActivation with transcriber if successful, or error message if all fail.
+fn activate_model_with_fallback(
+    model_dir: &Path,
+    preferred_model: AsrModelId,
+) -> ModelActivation {
+    use audio::{SileroVad, VadConfig};
+    use backend::{MoonshineStreamer, NemoTransducerStreamer};
+    use streaming::{BoxedTranscriber, StreamingConfig, StreamingTranscriber};
+
+    let mut attempted: std::collections::HashSet<AsrModelId> = std::collections::HashSet::new();
+    let mut last_error: Option<String> = None;
+
+    // Build ordered list: preferred first, then cached, then fallback order
+    let mut candidates: Vec<AsrModelId> = vec![preferred_model];
+
+    // Add cached models (except preferred, already first)
+    for cached in model_cache::find_cached_models(model_dir) {
+        if cached != preferred_model && !candidates.contains(&cached) {
+            candidates.push(cached);
+        }
+    }
+
+    // Add remaining models from fallback order
+    for fallback in model_cache::fallback_order() {
+        if !candidates.contains(&fallback) {
+            candidates.push(fallback);
+        }
+    }
+
+    for model_id in candidates {
+        if attempted.contains(&model_id) {
+            continue;
+        }
+        attempted.insert(model_id);
+
+        let asr_dir = model_dir.join(model_id.dir_name());
+
+        // Check integrity first
+        let activation_result = model_cache::prepare_for_activation(&asr_dir, model_id);
+
+        match activation_result {
+            ActivationResult::Success => {
+                // Model cache is valid, try to load it
+                log::info!("Attempting to activate model: {}", model_id);
+            }
+            ActivationResult::NeedsDownload => {
+                // Try to download
+                log::info!("Model {} not cached, attempting download...", model_id);
+                match download::ensure_models_exist(model_dir, model_id) {
+                    Ok(_) => {
+                        // Downloaded successfully, seal it
+                        if let Err(e) = model_cache::seal_model(&asr_dir, model_id) {
+                            log::warn!("Failed to seal downloaded model: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        last_error = Some(format!("Download failed for {}: {}", model_id, e));
+                        log::warn!("{}", last_error.as_ref().unwrap());
+                        continue;
+                    }
+                }
+            }
+            ActivationResult::Quarantined => {
+                // Model was corrupt and quarantined, try to re-download
+                log::warn!("Model {} was corrupt and quarantined, attempting re-download...", model_id);
+                match download::ensure_models_exist(model_dir, model_id) {
+                    Ok(_) => {
+                        if let Err(e) = model_cache::seal_model(&asr_dir, model_id) {
+                            log::warn!("Failed to seal re-downloaded model: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        last_error = Some(format!("Re-download failed for {}: {}", model_id, e));
+                        log::warn!("{}", last_error.as_ref().unwrap());
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // Now try to load VAD and transcriber
+        let silero_path = model_dir.join("silero_vad.onnx");
+
+        // Check VAD integrity (it's shared)
+        if !silero_path.exists() {
+            // Need to download VAD
+            if let Err(e) = download::ensure_models_exist(model_dir, model_id) {
+                last_error = Some(format!("VAD download failed: {}", e));
+                log::warn!("{}", last_error.as_ref().unwrap());
+                continue;
+            }
+        }
+
+        backend::init_ort();
+
+        let vad = match SileroVad::new(&silero_path, VadConfig::default()) {
+            Ok(v) => v,
+            Err(e) => {
+                last_error = Some(format!("VAD initialization failed: {}", e));
+                log::error!("{}", last_error.as_ref().unwrap());
+                // VAD is shared, if it fails we have a serious problem
+                // Quarantine it and try re-download next iteration
+                if let Err(qe) = std::fs::remove_file(&silero_path) {
+                    log::warn!("Failed to remove corrupt VAD: {}", qe);
+                }
+                continue;
+            }
+        };
+
+        let transcriber_result: Result<BoxedTranscriber, _> = match model_id {
+            AsrModelId::MoonshineBase | AsrModelId::MoonshineTiny => {
+                log::info!("Initializing Moonshine transcriber...");
+                MoonshineStreamer::new(&asr_dir).map(|t| Box::new(t) as BoxedTranscriber)
+            }
+            AsrModelId::ParakeetTdt06bV3 => {
+                log::info!("Initializing NeMo transducer transcriber...");
+                NemoTransducerStreamer::new(&asr_dir).map(|t| Box::new(t) as BoxedTranscriber)
+            }
+        };
+
+        match transcriber_result {
+            Ok(transcriber) => {
+                log::info!("Model {} activated successfully", model_id);
+                let streamer = StreamingTranscriber::new(vad, transcriber, StreamingConfig::default());
+                return ModelActivation {
+                    transcriber: Some(streamer),
+                    active_model: Some(model_id),
+                    error: None,
+                };
+            }
+            Err(e) => {
+                last_error = Some(format!("Transcriber init failed for {}: {}", model_id, e));
+                log::error!("{}", last_error.as_ref().unwrap());
+                // Quarantine the corrupt model
+                if let Err(qe) = model_cache::quarantine_model(&asr_dir, model_id) {
+                    log::warn!("Failed to quarantine corrupt model: {}", qe);
+                }
+                continue;
+            }
+        }
+    }
+
+    // All attempts failed
+    let error_msg = last_error.unwrap_or_else(|| "No models available".to_string());
+    log::error!("All model activation attempts failed: {}", error_msg);
+
+    ModelActivation {
+        transcriber: None,
+        active_model: None,
+        error: Some(error_msg),
+    }
 }
 
 /// RAII guard to restore tmux pane size on drop
@@ -367,44 +536,39 @@ fn main() -> anyhow::Result<()> {
     // Apply config: injection_enabled
     audio_state.write().injection_enabled = config.injection_enabled;
 
-    let streaming_transcriber: Option<streaming::DefaultStreamingTranscriber> =
+    // Model activation with fallback - non-fatal on failure
+    let (streaming_transcriber, transcription_available): (Option<streaming::DefaultStreamingTranscriber>, bool) =
         if args.demo || args.ansi_sweep {
-            None
+            // Demo mode: no transcription, just visualization
+            (None, false)
         } else {
-            use audio::{SileroVad, VadConfig};
-            use backend::{MoonshineStreamer, NemoTransducerStreamer};
-            use streaming::{BoxedTranscriber, StreamingConfig, StreamingTranscriber};
-
             log::info!("Loading models from {:?}...", model_dir);
             let resolved_model = if args.model != AsrModelId::default() {
                 args.model
             } else {
                 config.model
             };
-            let model_paths = download::ensure_models_exist(&model_dir, resolved_model)?;
 
-            backend::init_ort();
+            let activation = activate_model_with_fallback(&model_dir, resolved_model);
 
-            log::info!("Initializing VAD...");
-            let vad = SileroVad::new(&model_paths.silero_vad, VadConfig::default())?;
+            if let Some(error) = &activation.error {
+                // Set error state for UI display
+                audio_state.write().model_error = Some(error.clone());
 
-            let transcriber: BoxedTranscriber = match resolved_model {
-                AsrModelId::MoonshineBase | AsrModelId::MoonshineTiny => {
-                    log::info!("Initializing Moonshine transcriber...");
-                    Box::new(MoonshineStreamer::new(&model_paths.asr_dir)?)
+                if args.headless {
+                    // In headless mode with no model, exit cleanly
+                    log::error!("No model available in headless mode, exiting");
+                    eprintln!("Error: {}", error);
+                    std::process::exit(0);
                 }
-                AsrModelId::ParakeetTdt06bV3 => {
-                    log::info!("Initializing NeMo transducer transcriber...");
-                    Box::new(NemoTransducerStreamer::new(&model_paths.asr_dir)?)
-                }
-            };
+            }
 
-            log::info!("Creating streaming coordinator...");
-            Some(StreamingTranscriber::new(
-                vad,
-                transcriber,
-                StreamingConfig::default(),
-            ))
+            if activation.transcriber.is_some() {
+                audio_state.write().transcription_available = true;
+            }
+
+            let has_transcriber = activation.transcriber.is_some();
+            (activation.transcriber, has_transcriber)
         };
 
     let (audio_tx, audio_rx): (
@@ -434,8 +598,20 @@ fn main() -> anyhow::Result<()> {
 
     // Spawn injector thread - handle stored so we can join on shutdown
     // to ensure proper Wayland IME cleanup (Drop runs before process exit)
+    //
+    // IMPORTANT: If transcription is not available, we do NOT register as an input device.
+    // This ensures we never break the user's input system when models fail to load.
     let injector_handle = std::thread::spawn(move || {
         use usit::input::{find_ydotool_socket, select_backend, TextInjector};
+
+        // If no transcription is available, skip input injection entirely.
+        // This ensures we don't register as an input device when we can't transcribe.
+        if !transcription_available {
+            log::info!("Input injection: disabled (no transcription model available)");
+            // Still consume the channel to prevent sender blocking
+            while injection_rx.recv().is_ok() {}
+            return;
+        }
 
         // 1. Normalize backend-disable list
         let disabled = normalize_backend_names(&backend_disable);
@@ -1067,7 +1243,7 @@ fn run_terminal_loop(
                 }
             }
 
-            let (samples, committed, partial, is_speaking, injection_enabled, download_progress) = {
+            let (samples, committed, partial, is_speaking, injection_enabled, download_progress, model_error) = {
                 let state = audio_state.read();
                 (
                     state.samples.clone(),
@@ -1076,6 +1252,7 @@ fn run_terminal_loop(
                     state.is_speaking,
                     state.injection_enabled,
                     state.download_progress,
+                    state.model_error.clone(),
                 )
             };
 
@@ -1085,6 +1262,7 @@ fn run_terminal_loop(
 
             visualizer.set_transcript(committed, partial);
             visualizer.set_download_progress(download_progress);
+            visualizer.set_model_error(model_error);
 
             let status_info = match capture_control {
                 Some(ctrl) => {

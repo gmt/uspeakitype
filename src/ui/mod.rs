@@ -51,6 +51,10 @@ pub struct AudioState {
     pub injection_enabled: bool,
     /// Download progress: None when not downloading, Some(0.0..1.0) during download
     pub download_progress: Option<f32>,
+    /// Model/cache error message to display prominently
+    pub model_error: Option<String>,
+    /// Whether transcription is available (model loaded successfully)
+    pub transcription_available: bool,
 }
 
 impl Default for AudioState {
@@ -68,6 +72,8 @@ impl Default for AudioState {
             selected_source_id: None,
             injection_enabled: true,
             download_progress: None,
+            model_error: None,
+            transcription_available: false,
         }
     }
 }

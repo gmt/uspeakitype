@@ -20,6 +20,8 @@ pub struct Theme {
     pub text_committed: Color,
     /// Partial (in-progress) text color
     pub text_partial: Color,
+    /// Error text color (red)
+    pub text_error: Color,
     /// Control panel background color
     pub panel_bg: Color,
 }
@@ -31,6 +33,7 @@ pub struct ThemeWgpu {
     pub shadow: [f32; 4],
     pub text_committed: [f32; 4],
     pub text_partial: [f32; 4],
+    pub text_error: [f32; 4],
     pub panel_bg: [f32; 4],
 }
 
@@ -41,6 +44,7 @@ pub struct ThemeAnsi {
     pub shadow: String,
     pub text_committed: String,
     pub text_partial: String,
+    pub text_error: String,
     pub panel_bg: String,
 }
 
@@ -52,6 +56,7 @@ impl Theme {
             shadow: self.shadow.to_array(),
             text_committed: self.text_committed.to_array(),
             text_partial: self.text_partial.to_array(),
+            text_error: self.text_error.to_array(),
             panel_bg: self.panel_bg.to_array(),
         }
     }
@@ -63,6 +68,7 @@ impl Theme {
             shadow: self.shadow.to_ansi_bg(),
             text_committed: self.text_committed.to_ansi_fg(),
             text_partial: self.text_partial.to_ansi_fg(),
+            text_error: self.text_error.to_ansi_fg(),
             panel_bg: self.panel_bg.to_ansi_bg(),
         }
     }
@@ -77,6 +83,7 @@ pub const DEFAULT_THEME: Theme = Theme {
     shadow: Color::rgb(0.0, 0.0, 0.0),         // black
     text_committed: Color::rgb(1.0, 1.0, 1.0), // white
     text_partial: Color::rgb(0.6, 0.6, 0.6),   // gray
+    text_error: Color::rgb(1.0, 0.3, 0.3),     // red
     panel_bg: Color::rgb(0.15, 0.15, 0.15),    // slightly lighter gray
 };
 
@@ -91,6 +98,7 @@ mod tests {
         assert_eq!(wgpu.background, [0.1, 0.1, 0.1, 1.0]);
         assert_eq!(wgpu.text_committed, [1.0, 1.0, 1.0, 1.0]);
         assert_eq!(wgpu.text_partial, [0.6, 0.6, 0.6, 1.0]);
+        assert_eq!(wgpu.text_error, [1.0, 0.3, 0.3, 1.0]);
         assert_eq!(wgpu.shadow, [0.0, 0.0, 0.0, 1.0]);
         assert_eq!(wgpu.panel_bg, [0.15, 0.15, 0.15, 1.0]);
     }
@@ -125,6 +133,7 @@ mod tests {
         assert_eq!(theme.shadow.a, 1.0);
         assert_eq!(theme.text_committed.a, 1.0);
         assert_eq!(theme.text_partial.a, 1.0);
+        assert_eq!(theme.text_error.a, 1.0);
         assert_eq!(theme.panel_bg.a, 1.0);
 
         // All RGB components should be in [0.0, 1.0]
@@ -133,6 +142,7 @@ mod tests {
             theme.shadow,
             theme.text_committed,
             theme.text_partial,
+            theme.text_error,
             theme.panel_bg,
         ] {
             assert!(color.r >= 0.0 && color.r <= 1.0);

@@ -450,12 +450,13 @@ impl Renderer {
             pass.draw(0..4, 0..1);
         }
 
-        let (committed, partial, samples) = {
+        let (committed, partial, samples, model_error) = {
             let state = self.audio_state.read();
             (
                 state.committed.clone(),
                 state.partial.clone(),
                 state.samples.clone(),
+                state.model_error.clone(),
             )
         };
 
@@ -478,11 +479,18 @@ impl Renderer {
 
             let transcript_bounds = transcript_text_bounds(&text_rect);
 
-            self.text_renderer.render(
+            // If there's a model error, display it prominently in red
+            let (display_committed, display_partial, is_error) = if let Some(ref error) = model_error {
+                (format!("ERROR: {}", error), String::new(), true)
+            } else {
+                (committed.clone(), partial.clone(), false)
+            };
+
+            self.text_renderer.render_with_error(
                 &view,
                 &mut encoder,
-                &committed,
-                &partial,
+                &display_committed,
+                &display_partial,
                 0.0,
                 text_panel_y,
                 1.0,
@@ -490,6 +498,7 @@ impl Renderer {
                 actual_text_panel_height,
                 10.0,
                 transcript_bounds,
+                is_error,
             );
         }
 
