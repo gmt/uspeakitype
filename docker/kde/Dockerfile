@@ -1,17 +1,23 @@
 # KDE Plasma headless Docker image for testing fcitx5_bridge
 FROM debian:trixie-slim
 
-# KDE minimal + fcitx5 + build tools
+# KDE + fcitx5 + build deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # KDE Wayland (minimal)
-    kwin-wayland kwin-wayland-backend-virtual \
+    # KDE Wayland (virtual backend is built-in)
+    kwin-wayland \
     # fcitx5
-    fcitx5 fcitx5-modules libfcitx5core-dev libfcitx5utils-dev \
-    # Build tools for our addon
-    build-essential cmake pkg-config \
-    # Rust
+    fcitx5 fcitx5-modules fcitx5-modules-dev libfcitx5core-dev libfcitx5utils-dev \
+    # Build tools
+    build-essential cmake pkg-config libssl-dev libclang-dev \
+    # Wayland dev
+    libwayland-dev libxkbcommon-dev \
+    # Graphics (software rendering)
+    mesa-vulkan-drivers libvulkan1 libegl1 libgl1-mesa-dri \
+    # Audio libs
+    libasound2-dev libpipewire-0.3-dev \
+    # Rust installer
     curl ca-certificates \
-    # D-Bus (required)
+    # D-Bus
     dbus dbus-x11 \
     # Misc
     procps \

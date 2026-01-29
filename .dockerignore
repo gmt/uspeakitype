@@ -1,5 +1,6 @@
 # Build artifacts
 target/
+fcitx5-usit-bridge/build/
 
 # Git
 .git/
