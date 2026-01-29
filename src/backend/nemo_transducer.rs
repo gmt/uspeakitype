@@ -27,6 +27,9 @@ const DEFAULT_CHUNK_SECS: f32 = 0.8;
 const DEFAULT_LEFT_CONTEXT_SECS: f32 = 4.0;
 const DEFAULT_RIGHT_CONTEXT_SECS: f32 = 0.2;
 
+/// Result of a single decoder step: (logits, duration, new_state1, new_state2)
+type DecodeStepResult = (Vec<f32>, usize, Array3<f32>, Array3<f32>);
+
 #[derive(Debug, Clone)]
 struct NemoTransducerConfig {
     features_size: usize,
@@ -482,7 +485,7 @@ impl NemoTransducerStreamer {
         last_token: u32,
         state1: &Array3<f32>,
         state2: &Array3<f32>,
-    ) -> Result<(Vec<f32>, usize, Array3<f32>, Array3<f32>)> {
+    ) -> Result<DecodeStepResult> {
         let dim = enc_vec.len();
         let encoder_outputs = Array3::from_shape_vec((1, dim, 1), enc_vec.to_vec())
             .context("building encoder_outputs")?;
@@ -856,7 +859,7 @@ fn ceil_div(n: usize, d: usize) -> usize {
     if d == 0 {
         return 0;
     }
-    (n + d - 1) / d
+    n.div_ceil(d)
 }
 
 #[cfg(test)]

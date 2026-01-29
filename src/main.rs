@@ -113,7 +113,7 @@ impl DownloadManager {
                 }
                 Ok(DownloadCommand::Shutdown) => {
                     // Cancel all active downloads
-                    for (_, token) in &self.cancel_tokens {
+                    for token in self.cancel_tokens.values() {
                         token.store(true, Ordering::Relaxed);
                     }
                     log::debug!("Download manager shutting down");
@@ -688,7 +688,7 @@ fn main() -> anyhow::Result<()> {
                 println!("No usit instances running");
             }
         } else if args.human {
-            println!("{:<10} {}", "PID", "TAG");
+            println!("{:<10} TAG", "PID");
             for inst in &instances {
                 let tag_display = match &inst.tag {
                     None => "(untagged)",
@@ -1024,6 +1024,9 @@ fn main() -> anyhow::Result<()> {
         ) -> Option<streaming::DefaultStreamingTranscriber> {
             use audio::{SileroVad, VadConfig};
             use streaming::{BoxedTranscriber, StreamingConfig, StreamingTranscriber};
+
+            // Initialize ONNX Runtime before creating VAD or transcriber
+            backend::init_ort();
 
             let asr_dir = model_dir.join(model_id.dir_name());
             let silero_path = model_dir.join("silero_vad.onnx");
@@ -1443,6 +1446,7 @@ fn save_on_exit(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_terminal_loop(
     audio_state: ui::SharedAudioState,
     running: Arc<AtomicBool>,

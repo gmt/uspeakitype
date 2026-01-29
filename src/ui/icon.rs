@@ -260,6 +260,7 @@ impl IconRenderer {
         (texture, view)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn render_gear(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -304,6 +305,7 @@ impl IconRenderer {
         render_pass.draw(0..6, 0..1);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn render_quit(
         &self,
         encoder: &mut wgpu::CommandEncoder,

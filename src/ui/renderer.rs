@@ -450,13 +450,14 @@ impl Renderer {
             pass.draw(0..4, 0..1);
         }
 
-        let (committed, partial, samples, model_error) = {
+        let (committed, partial, samples, model_error, download_progress) = {
             let state = self.audio_state.read();
             (
                 state.committed.clone(),
                 state.partial.clone(),
                 state.samples.clone(),
                 state.model_error.clone(),
+                state.download_progress,
             )
         };
 
@@ -479,9 +480,14 @@ impl Renderer {
 
             let transcript_bounds = transcript_text_bounds(&text_rect);
 
-            // If there's a model error, display it prominently in red
+            // Priority display: error > download progress > transcript
             let (display_committed, display_partial, is_error) = if let Some(ref error) = model_error {
+                // Show model error in red
                 (format!("ERROR: {}", error), String::new(), true)
+            } else if let Some(progress) = download_progress {
+                // Show download progress as status message
+                let pct = (progress * 100.0).round() as u32;
+                (format!("Downloading model... {}%", pct), String::new(), false)
             } else {
                 (committed.clone(), partial.clone(), false)
             };

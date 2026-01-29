@@ -381,3 +381,71 @@ Valid rejections (with explanation required):
 - "Golden image comparison insufficient for this visual property" → Explain why, propose alternative
 
 When in doubt: try it in Docker first, then report specific failures and why they can't be fixed (hint: they can probably be fixed).
+
+## Model Cache Integrity Chain-of-Trust
+
+The model cache system (`src/model_cache.rs`) provides deterministic integrity verification that is **independent of model choice**. Corruption detection is not a consequence of which inference engine is selected - it flows from a chain of trust anchored in file hashes and metadata.
+
+### Integrity Verification Hierarchy
+
+1. **Remote manifest** (preferred): If upstream provides checksums (e.g., HuggingFace LFS), fetch and verify against them.
+2. **Local manifest** (fallback): After successful download, we generate and persist a `.manifest.json` containing SHA-256 hashes, file sizes, and timestamps.
+3. **Heuristic validation** (last resort): Size bounds + ONNX Runtime load validation. If this fails, data is treated as corrupt.
+
+If none of these can verify integrity, the cache is quarantined.
+
+### Quarantine and Backup Policy
+
+When corruption is detected:
+
+1. **Quarantine**: Move the entire model directory to `~/.cache/usit/models/.backup/<timestamp>-<model-id>/`
+2. **Archive rotation**: If `.backup` already contains data for this model, move it to `.backup_archive/`
+3. **Archive cleanup**: If `.backup_archive` entry already exists or is older than 30 days, discard it and log an error
+4. **Logging**: Every corruption detection and mitigation MUST be logged as `error` level (except resumable `.downloading` partials)
+
+### Partial Downloads
+
+Files with `.downloading` extension are in-progress downloads. They are:
+- Ignored during integrity checks (not corruption)
+- Cleaned up before download attempts
+- Not logged as errors when removed
+
+### Model Fallback Order
+
+When the selected model fails to activate:
+
+1. Try other already-cached models (verified or unverified integrity)
+2. If none cached, attempt downloads in priority order: MoonshineBase → MoonshineTiny → Parakeet
+3. Track attempted models in memory to prevent infinite download loops
+4. If all fail, continue as audio visualizer with red error message
+
+## Input Device Safety Rule
+
+**CRITICAL**: When model activation fails (no transcription available), we MUST NOT register as an input device.
+
+This ensures:
+- We never break the user's input system when models fail to load
+- The IME/input method framework never sees us if we can't transcribe
+- Deactivation and garbage collection follow all framework rules
+
+Implementation (`src/main.rs`):
+- `transcription_available` flag gates injection thread registration
+- If no model loads, injector thread consumes the channel but never calls `select_backend()`
+- On shutdown, injector thread joins to ensure proper Wayland IME cleanup
+
+### Graceful Degradation
+
+| Condition | Behavior |
+|-----------|----------|
+| No model, headless mode | Exit cleanly with error message (exit code 0) |
+| No model, TUI/WGPU mode | Continue as audio visualizer with red error text |
+| Model load fails mid-session | Log error, continue with previous model if hot-swapping |
+| Download fails | Try next model in fallback order, then show error |
+
+### Error Display
+
+Errors are displayed prominently in both UIs:
+- **TUI**: Red bold text in status area: `ERR: <message>`
+- **WGPU**: Red text in transcript panel: `ERROR: <message>`
+
+The spectrogram continues to function as an audio visualizer even when transcription is unavailable.
