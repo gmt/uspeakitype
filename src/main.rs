@@ -1489,11 +1489,7 @@ fn run_terminal_loop(
         .map(|(Width(w), Height(h))| (w as usize, h as usize))
         .unwrap_or((80, 24));
 
-    let width = args
-        .ansi_width
-        .unwrap_or(((term_width as f32) * 0.6).round() as usize)
-        .max(1)
-        .min(term_width.saturating_sub(2));
+    let width = args.ansi_width.unwrap_or(term_width).max(1).min(term_width);
     let height = args
         .ansi_height
         .unwrap_or(6)

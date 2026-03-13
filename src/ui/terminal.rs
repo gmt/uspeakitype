@@ -365,7 +365,7 @@ impl TerminalVisualizer {
         self.config.term_width = new_width;
         self.config.term_height = new_height;
 
-        let new_spec_width = (new_width as f32 * 0.6).round() as usize;
+        let new_spec_width = new_width;
         let width_changed = self.config.width != new_spec_width;
         self.config.width = new_spec_width;
 
@@ -613,16 +613,7 @@ impl TerminalVisualizer {
             let main_area = areas[1];
             let transcript_area = areas[2];
 
-            // Center visualization at 60% width (matching config.width calculation)
-            let viz_width = (main_area.width as f32 * 0.6).round() as u16;
-            let viz_area = {
-                let h_layout = Layout::horizontal([
-                    Constraint::Fill(1),
-                    Constraint::Length(viz_width),
-                    Constraint::Fill(1),
-                ]);
-                h_layout.split(main_area)[1]
-            };
+            let viz_area = main_area;
 
             match terminal_mode {
                 TerminalMode::BarMeter => {
@@ -813,6 +804,7 @@ mod tests {
         // Verify config was updated
         assert_eq!(visualizer.config.term_width, 120);
         assert_eq!(visualizer.config.term_height, 40);
+        assert_eq!(visualizer.config.width, 120);
     }
 
     #[test]
