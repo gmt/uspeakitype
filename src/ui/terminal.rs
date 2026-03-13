@@ -253,9 +253,10 @@ const BOTTOM_MARGIN: usize = 2;
 
 impl TerminalVisualizer {
     pub fn new(config: TerminalConfig, tag: Option<String>) -> Self {
+        let waterfall_bands = config.term_height.saturating_sub(2).max(1);
         let num_bands = match config.mode {
             TerminalMode::BarMeter => config.width,
-            TerminalMode::Waterfall => config.height,
+            TerminalMode::Waterfall => waterfall_bands,
         };
 
         let spectrum_config = SpectrumConfig {
@@ -317,26 +318,36 @@ impl TerminalVisualizer {
         self.partial_text = partial;
     }
 
+    fn waterfall_surface_height(&self) -> usize {
+        self.config.term_height.saturating_sub(2).max(1)
+    }
+
+    fn analyzer_num_bands_for_mode(&self, mode: TerminalMode) -> usize {
+        match mode {
+            TerminalMode::BarMeter => self.config.width,
+            TerminalMode::Waterfall => self.waterfall_surface_height(),
+        }
+    }
+
+    fn reset_spectrum_state(&mut self) {
+        let num_bands = self.analyzer_num_bands_for_mode(self.config.mode);
+        let spectrum_config = SpectrumConfig {
+            num_bands,
+            ..Default::default()
+        };
+
+        self.analyzer = SpectrumAnalyzer::new(spectrum_config);
+        self.history = WaterfallHistory::new(self.config.width, num_bands);
+        self.waterfall_pacer.reset();
+        self.last_waterfall_column_at = Instant::now();
+    }
+
     pub fn toggle_mode(&mut self) {
         self.config.mode = match self.config.mode {
             TerminalMode::BarMeter => TerminalMode::Waterfall,
             TerminalMode::Waterfall => TerminalMode::BarMeter,
         };
-
-        let num_bands = match self.config.mode {
-            TerminalMode::BarMeter => self.config.width,
-            TerminalMode::Waterfall => self.config.height,
-        };
-
-        let spectrum_config = SpectrumConfig {
-            num_bands,
-            ..Default::default()
-        };
-        self.analyzer = SpectrumAnalyzer::new(spectrum_config);
-
-        self.history = WaterfallHistory::new(self.config.width, num_bands);
-        self.waterfall_pacer.reset();
-        self.last_waterfall_column_at = Instant::now();
+        self.reset_spectrum_state();
     }
 
     /// Resize the terminal visualizer to new dimensions.
@@ -355,23 +366,14 @@ impl TerminalVisualizer {
         self.config.term_height = new_height;
 
         let new_spec_width = (new_width as f32 * 0.6).round() as usize;
+        let width_changed = self.config.width != new_spec_width;
+        self.config.width = new_spec_width;
 
-        if self.config.width != new_spec_width {
-            self.config.width = new_spec_width;
+        let target_num_bands = self.analyzer_num_bands_for_mode(self.config.mode);
+        let bands_changed = self.analyzer.config().num_bands != target_num_bands;
 
-            let num_bands = match self.config.mode {
-                TerminalMode::BarMeter => self.config.width,
-                TerminalMode::Waterfall => self.config.height,
-            };
-
-            let spectrum_config = SpectrumConfig {
-                num_bands,
-                ..Default::default()
-            };
-            self.analyzer = SpectrumAnalyzer::new(spectrum_config);
-            self.history = WaterfallHistory::new(self.config.width, num_bands);
-            self.waterfall_pacer.reset();
-            self.last_waterfall_column_at = Instant::now();
+        if width_changed || bands_changed {
+            self.reset_spectrum_state();
         }
 
         let box_width = self.config.width + 2;
@@ -854,5 +856,39 @@ mod tests {
 
         // Verify layout_mode() returns Degenerate
         assert_eq!(visualizer.layout_mode(), LayoutMode::Degenerate);
+    }
+
+    #[test]
+    fn test_waterfall_mode_uses_surface_height_for_band_count() {
+        let config = TerminalConfig {
+            width: 48,
+            height: 6,
+            mode: TerminalMode::Waterfall,
+            use_color: true,
+            use_unicode: false,
+            term_width: 80,
+            term_height: 24,
+        };
+        let visualizer = TerminalVisualizer::new(config, None);
+
+        assert_eq!(visualizer.analyzer.config().num_bands, 22);
+    }
+
+    #[test]
+    fn test_waterfall_resize_updates_band_count_with_surface_height() {
+        let config = TerminalConfig {
+            width: 48,
+            height: 6,
+            mode: TerminalMode::Waterfall,
+            use_color: true,
+            use_unicode: false,
+            term_width: 80,
+            term_height: 24,
+        };
+        let mut visualizer = TerminalVisualizer::new(config, None);
+
+        visualizer.resize(120, 40);
+
+        assert_eq!(visualizer.analyzer.config().num_bands, 38);
     }
 }

@@ -453,6 +453,28 @@ impl WaterfallHistory {
     }
 
     #[inline]
+    pub fn sample_intensity(&self, col: usize, band_position: f32) -> f32 {
+        if self.num_bands == 0 {
+            return 0.0;
+        }
+
+        let max_band = (self.num_bands - 1) as f32;
+        let band_position = band_position.clamp(0.0, max_band);
+        let lower = band_position.floor() as usize;
+        let upper = band_position.ceil() as usize;
+
+        if lower == upper {
+            return self.get_intensity(col, lower);
+        }
+
+        let lower_intensity = self.get_intensity(col, lower);
+        let upper_intensity = self.get_intensity(col, upper);
+        let t = band_position - lower as f32;
+
+        lower_intensity + (upper_intensity - lower_intensity) * t
+    }
+
+    #[inline]
     pub fn get_color(&self, col: usize, band: usize, scheme: &dyn ColorScheme) -> Color {
         let intensity = self.get_intensity(col, band);
         scheme.color_for_intensity(intensity)
@@ -621,6 +643,18 @@ mod tests {
     fn ansi_color_format() {
         let red = Color::rgb(1.0, 0.0, 0.0);
         assert_eq!(red.to_ansi_fg(), "\x1b[38;2;255;0;0m");
+    }
+
+    #[test]
+    fn waterfall_history_interpolates_between_bands() {
+        let mut history = WaterfallHistory::new(2, 3);
+        history.push(&[0.0, 0.6, 1.0]);
+
+        assert!((history.sample_intensity(0, 0.0) - 0.0).abs() < 0.001);
+        assert!((history.sample_intensity(0, 1.0) - 0.6).abs() < 0.001);
+        assert!((history.sample_intensity(0, 2.0) - 1.0).abs() < 0.001);
+        assert!((history.sample_intensity(0, 0.5) - 0.3).abs() < 0.001);
+        assert!((history.sample_intensity(0, 1.5) - 0.8).abs() < 0.001);
     }
 
     #[test]
