@@ -27,6 +27,19 @@ pub struct SpectrogramWidget<'a> {
     pub charset: &'a [char; 9],
 }
 
+fn boosted_intensity_for_tight_viewport(intensity: f32, area: Rect) -> f32 {
+    let intensity = intensity.clamp(0.0, 1.0);
+
+    // At very small terminal sizes, low-energy bins collapse into pure black
+    // "holes" that read more like rendering corruption than useful detail.
+    // Apply a small visibility floor so narrow ANSI layouts stay legible.
+    if intensity > 0.0 && (area.width <= 36 || area.height <= 8) {
+        intensity.max(0.18)
+    } else {
+        intensity
+    }
+}
+
 impl<'a> SpectrogramWidget<'a> {
     /// Create a new spectrogram widget
     pub fn new(
@@ -55,7 +68,8 @@ impl<'a> Widget for SpectrogramWidget<'a> {
         let x_offset = (area.width.saturating_sub(width as u16)) / 2;
 
         for col in 0..width {
-            let intensity = self.bands.get(col).copied().unwrap_or(0.0);
+            let raw_intensity = self.bands.get(col).copied().unwrap_or(0.0);
+            let intensity = boosted_intensity_for_tight_viewport(raw_intensity, area);
             let x = area.left() + x_offset + col as u16;
 
             // Iterate rows bottom-to-top (reversed)
@@ -69,7 +83,13 @@ impl<'a> Widget for SpectrogramWidget<'a> {
                 let cell_fill = ((intensity - threshold) * height as f32 + 0.5).clamp(0.0, 1.0);
 
                 // Quantize to charset index
-                let char_idx = quantize_intensity(cell_fill, num_levels);
+                let mut char_idx = quantize_intensity(cell_fill, num_levels);
+
+                // In very tight views, preserve at least a faint visible mark for
+                // nonzero bins so the display doesn't turn into black striped gaps.
+                if raw_intensity > 0.0 && (area.width <= 36 || area.height <= 8) && char_idx == 0 {
+                    char_idx = 1;
+                }
 
                 // Get color for this intensity
                 let color = self.color_scheme.color_for_intensity(intensity);
@@ -160,5 +180,28 @@ mod tests {
         widget.render(ratatui::layout::Rect::new(0, 0, 3, 3), &mut buf);
 
         assert!(buf.cell((0, 0)).is_some());
+    }
+
+    #[test]
+    fn spectrogram_widget_tight_viewport_keeps_nonzero_bins_visible() {
+        let bands = vec![0.01, 0.02, 0.03];
+        let scheme = FlameScheme;
+        let widget = SpectrogramWidget::new(&bands, &scheme, &BLOCK_CHARS);
+
+        let area = ratatui::layout::Rect::new(0, 0, 3, 3);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        widget.render(area, &mut buf);
+
+        for x in 0..3 {
+            let mut saw_non_space = false;
+            for y in 0..3 {
+                let cell = buf.cell((x, y)).unwrap();
+                if cell.symbol() != " " {
+                    saw_non_space = true;
+                    break;
+                }
+            }
+            assert!(saw_non_space, "column {} disappeared in a tight viewport", x);
+        }
     }
 }
