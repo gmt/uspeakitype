@@ -52,7 +52,6 @@ impl<'a> Widget for WaterfallWidget<'a> {
         }
 
         let width = area.width as usize;
-        // Use full area height (scale bands to fit), not limited by num_bands
         let height = area.height as usize;
         let history_len = self.history.len();
         let num_levels = self.charset.len();
@@ -79,11 +78,17 @@ impl<'a> Widget for WaterfallWidget<'a> {
             for row in (0..height).rev() {
                 let y = area.bottom().saturating_sub((height - row) as u16);
 
-                // Get intensity for this time/frequency cell
-                // Scale row index to band index (allows rendering more rows than bands)
-                // Low frequencies at bottom (row height-1 on screen = band 0)
-                let band_idx = ((height - 1 - row) * num_bands) / height.max(1);
-                let intensity = self.history.get_intensity(hist_col, band_idx);
+                // Sample a continuous band position so tall surfaces interpolate
+                // across the available spectrum instead of snapping every row
+                // to a single source band.
+                let band_position = if height <= 1 || num_bands <= 1 {
+                    0.0
+                } else {
+                    let row_from_bottom = (height - 1 - row) as f32;
+                    let max_band = (num_bands - 1) as f32;
+                    row_from_bottom * max_band / (height - 1) as f32
+                };
+                let intensity = self.history.sample_intensity(hist_col, band_position);
 
                 // Skip cells with very low intensity for efficiency
                 if intensity <= 0.0 {
