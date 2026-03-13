@@ -240,11 +240,7 @@ impl ControlPanelState {
     }
 
     pub fn toggle_model(&mut self) {
-        self.model = match self.model {
-            AsrModelId::MoonshineBase => AsrModelId::MoonshineTiny,
-            AsrModelId::MoonshineTiny => AsrModelId::ParakeetTdt06bV3,
-            AsrModelId::ParakeetTdt06bV3 => AsrModelId::MoonshineBase,
-        };
+        self.model = self.model.next();
     }
 
     pub fn toggle_auto_save(&mut self) {
@@ -436,8 +432,12 @@ mod tests {
         state.toggle_model();
         assert_eq!(state.model, AsrModelId::MoonshineTiny);
         state.toggle_model();
-        assert_eq!(state.model, AsrModelId::ParakeetTdt06bV3);
-        state.toggle_model();
+        assert_eq!(state.model, AsrModelId::MoonshineTinyArabic);
+
+        for _ in 0..(AsrModelId::all().len() - 2) {
+            state.toggle_model();
+        }
+
         assert_eq!(state.model, AsrModelId::MoonshineBase);
     }
 

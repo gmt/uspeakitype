@@ -23,6 +23,24 @@ pub enum AsrModelId {
     /// Moonshine Tiny model (~100MB) - faster, lower memory
     #[value(name = "moonshine-tiny")]
     MoonshineTiny,
+    /// Moonshine Tiny Arabic model (community release).
+    #[value(name = "moonshine-tiny-ar")]
+    MoonshineTinyArabic,
+    /// Moonshine Tiny Chinese model (community release).
+    #[value(name = "moonshine-tiny-zh")]
+    MoonshineTinyChinese,
+    /// Moonshine Tiny Japanese model (community release).
+    #[value(name = "moonshine-tiny-ja")]
+    MoonshineTinyJapanese,
+    /// Moonshine Tiny Korean model (community release).
+    #[value(name = "moonshine-tiny-ko")]
+    MoonshineTinyKorean,
+    /// Moonshine Tiny Ukrainian model (community release).
+    #[value(name = "moonshine-tiny-uk")]
+    MoonshineTinyUkrainian,
+    /// Moonshine Tiny Vietnamese model (community release).
+    #[value(name = "moonshine-tiny-vi")]
+    MoonshineTinyVietnamese,
     /// NVIDIA Parakeet TDT 0.6B v3 (multilingual) exported to ONNX (local files).
     #[value(name = "parakeet-tdt-0.6b-v3")]
     ParakeetTdt06bV3,
@@ -33,17 +51,56 @@ impl fmt::Display for AsrModelId {
         match self {
             AsrModelId::MoonshineBase => write!(f, "Moonshine Base"),
             AsrModelId::MoonshineTiny => write!(f, "Moonshine Tiny"),
+            AsrModelId::MoonshineTinyArabic => write!(f, "Moonshine Tiny Arabic"),
+            AsrModelId::MoonshineTinyChinese => write!(f, "Moonshine Tiny Chinese"),
+            AsrModelId::MoonshineTinyJapanese => write!(f, "Moonshine Tiny Japanese"),
+            AsrModelId::MoonshineTinyKorean => write!(f, "Moonshine Tiny Korean"),
+            AsrModelId::MoonshineTinyUkrainian => write!(f, "Moonshine Tiny Ukrainian"),
+            AsrModelId::MoonshineTinyVietnamese => write!(f, "Moonshine Tiny Vietnamese"),
             AsrModelId::ParakeetTdt06bV3 => write!(f, "Parakeet"),
         }
     }
 }
 
 impl AsrModelId {
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::MoonshineBase,
+            Self::MoonshineTiny,
+            Self::MoonshineTinyArabic,
+            Self::MoonshineTinyChinese,
+            Self::MoonshineTinyJapanese,
+            Self::MoonshineTinyKorean,
+            Self::MoonshineTinyUkrainian,
+            Self::MoonshineTinyVietnamese,
+            Self::ParakeetTdt06bV3,
+        ]
+    }
+
+    pub const fn is_moonshine(self) -> bool {
+        !matches!(self, Self::ParakeetTdt06bV3)
+    }
+
+    pub fn next(self) -> Self {
+        let variants = Self::all();
+        let index = variants
+            .iter()
+            .position(|variant| *variant == self)
+            .unwrap_or(0);
+        variants[(index + 1) % variants.len()]
+    }
+
     /// Directory name for model storage (e.g., "moonshine-base")
     pub fn dir_name(&self) -> &str {
         match self {
             AsrModelId::MoonshineBase => "moonshine-base",
             AsrModelId::MoonshineTiny => "moonshine-tiny",
+            AsrModelId::MoonshineTinyArabic => "moonshine-tiny-ar",
+            AsrModelId::MoonshineTinyChinese => "moonshine-tiny-zh",
+            AsrModelId::MoonshineTinyJapanese => "moonshine-tiny-ja",
+            AsrModelId::MoonshineTinyKorean => "moonshine-tiny-ko",
+            AsrModelId::MoonshineTinyUkrainian => "moonshine-tiny-uk",
+            AsrModelId::MoonshineTinyVietnamese => "moonshine-tiny-vi",
             AsrModelId::ParakeetTdt06bV3 => "parakeet-tdt-0.6b-v3",
         }
     }
@@ -53,6 +110,12 @@ impl AsrModelId {
         match self {
             AsrModelId::MoonshineBase => Some("base"),
             AsrModelId::MoonshineTiny => Some("tiny"),
+            AsrModelId::MoonshineTinyArabic => Some("tiny-ar"),
+            AsrModelId::MoonshineTinyChinese => Some("tiny-zh"),
+            AsrModelId::MoonshineTinyJapanese => Some("tiny-ja"),
+            AsrModelId::MoonshineTinyKorean => Some("tiny-ko"),
+            AsrModelId::MoonshineTinyUkrainian => Some("tiny-uk"),
+            AsrModelId::MoonshineTinyVietnamese => Some("tiny-vi"),
             AsrModelId::ParakeetTdt06bV3 => None,
         }
     }
@@ -373,6 +436,10 @@ gain = 1.5
     fn test_model_variant_display() {
         assert_eq!(AsrModelId::MoonshineBase.to_string(), "Moonshine Base");
         assert_eq!(AsrModelId::MoonshineTiny.to_string(), "Moonshine Tiny");
+        assert_eq!(
+            AsrModelId::MoonshineTinyJapanese.to_string(),
+            "Moonshine Tiny Japanese"
+        );
         assert_eq!(AsrModelId::ParakeetTdt06bV3.to_string(), "Parakeet");
     }
 
@@ -380,6 +447,10 @@ gain = 1.5
     fn test_model_variant_dir_name() {
         assert_eq!(AsrModelId::MoonshineBase.dir_name(), "moonshine-base");
         assert_eq!(AsrModelId::MoonshineTiny.dir_name(), "moonshine-tiny");
+        assert_eq!(
+            AsrModelId::MoonshineTinyJapanese.dir_name(),
+            "moonshine-tiny-ja"
+        );
         assert_eq!(
             AsrModelId::ParakeetTdt06bV3.dir_name(),
             "parakeet-tdt-0.6b-v3"
@@ -397,8 +468,29 @@ gain = 1.5
             Some("tiny")
         );
         assert_eq!(
+            AsrModelId::MoonshineTinyJapanese.moonshine_download_url_segment(),
+            Some("tiny-ja")
+        );
+        assert_eq!(
             AsrModelId::ParakeetTdt06bV3.moonshine_download_url_segment(),
             None
+        );
+    }
+
+    #[test]
+    fn test_model_variant_iteration_and_next() {
+        assert_eq!(AsrModelId::all().first(), Some(&AsrModelId::MoonshineBase));
+        assert_eq!(
+            AsrModelId::all().last(),
+            Some(&AsrModelId::ParakeetTdt06bV3)
+        );
+        assert_eq!(
+            AsrModelId::MoonshineTiny.next(),
+            AsrModelId::MoonshineTinyArabic
+        );
+        assert_eq!(
+            AsrModelId::ParakeetTdt06bV3.next(),
+            AsrModelId::MoonshineBase
         );
     }
 
@@ -425,14 +517,10 @@ gain = 1.5
 
     #[test]
     fn test_model_variant_serde_roundtrip() {
-        for variant in [
-            AsrModelId::MoonshineBase,
-            AsrModelId::MoonshineTiny,
-            AsrModelId::ParakeetTdt06bV3,
-        ] {
+        for variant in AsrModelId::all() {
             let json = serde_json::to_string(&variant).unwrap();
             let deserialized: AsrModelId = serde_json::from_str(&json).unwrap();
-            assert_eq!(variant, deserialized);
+            assert_eq!(*variant, deserialized);
         }
     }
 }

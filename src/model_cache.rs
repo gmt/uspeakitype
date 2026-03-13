@@ -153,9 +153,17 @@ pub enum IntegrityError {
     /// File exists in manifest but not on disk
     MissingFile(String),
     /// File hash doesn't match manifest
-    HashMismatch { path: String, expected: String, actual: String },
+    HashMismatch {
+        path: String,
+        expected: String,
+        actual: String,
+    },
     /// File size doesn't match manifest
-    SizeMismatch { path: String, expected: u64, actual: u64 },
+    SizeMismatch {
+        path: String,
+        expected: u64,
+        actual: u64,
+    },
     /// File is suspiciously small (likely truncated)
     FileTooSmall { path: String, size: u64 },
     /// ONNX file failed to load (structural corruption)
@@ -170,14 +178,34 @@ impl std::fmt::Display for IntegrityError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingFile(path) => write!(f, "missing file: {}", path),
-            Self::HashMismatch { path, expected, actual } => {
-                write!(f, "hash mismatch for {}: expected {}, got {}", path, expected, actual)
+            Self::HashMismatch {
+                path,
+                expected,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "hash mismatch for {}: expected {}, got {}",
+                    path, expected, actual
+                )
             }
-            Self::SizeMismatch { path, expected, actual } => {
-                write!(f, "size mismatch for {}: expected {} bytes, got {}", path, expected, actual)
+            Self::SizeMismatch {
+                path,
+                expected,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "size mismatch for {}: expected {} bytes, got {}",
+                    path, expected, actual
+                )
             }
             Self::FileTooSmall { path, size } => {
-                write!(f, "file {} is too small ({} bytes), likely truncated", path, size)
+                write!(
+                    f,
+                    "file {} is too small ({} bytes), likely truncated",
+                    path, size
+                )
             }
             Self::OnnxLoadFailed { path, error } => {
                 write!(f, "ONNX load failed for {}: {}", path, error)
@@ -194,8 +222,8 @@ impl std::fmt::Display for IntegrityError {
 
 /// Compute SHA-256 hash of a file
 pub fn compute_sha256(path: &Path) -> Result<String> {
-    let file = File::open(path)
-        .with_context(|| format!("opening {} for hashing", path.display()))?;
+    let file =
+        File::open(path).with_context(|| format!("opening {} for hashing", path.display()))?;
     let mut reader = BufReader::new(file);
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 8192];
@@ -305,36 +333,52 @@ fn heuristic_validate(model_dir: &Path, model_id: AsrModelId) -> Vec<IntegrityEr
     let mut errors = Vec::new();
 
     // Check required files exist and have reasonable sizes
-    let required_files: Vec<&str> = match model_id {
-        AsrModelId::MoonshineBase | AsrModelId::MoonshineTiny => {
-            vec!["encoder_model.onnx", "decoder_model_merged.onnx", "tokenizer.json"]
-        }
-        AsrModelId::ParakeetTdt06bV3 => {
-            // Parakeet has multiple naming conventions - check at least one exists
-            let encoder_exists = ["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"]
+    let required_files: Vec<&str> = if model_id.is_moonshine() {
+        vec![
+            "encoder_model.onnx",
+            "decoder_model_merged.onnx",
+            "tokenizer.json",
+        ]
+    } else {
+        match model_id {
+            AsrModelId::ParakeetTdt06bV3 => {
+                // Parakeet has multiple naming conventions - check at least one exists
+                let encoder_exists = ["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"]
+                    .iter()
+                    .any(|f| model_dir.join(f).exists());
+                let decoder_exists = [
+                    "decoder_joint-model.onnx",
+                    "decoder_joint.onnx",
+                    "decoder_joint_model.onnx",
+                ]
                 .iter()
                 .any(|f| model_dir.join(f).exists());
-            let decoder_exists = ["decoder_joint-model.onnx", "decoder_joint.onnx", "decoder_joint_model.onnx"]
-                .iter()
-                .any(|f| model_dir.join(f).exists());
-            let nemo_exists = ["nemo128.onnx", "nemo80.onnx"]
-                .iter()
-                .any(|f| model_dir.join(f).exists());
+                let nemo_exists = ["nemo128.onnx", "nemo80.onnx"]
+                    .iter()
+                    .any(|f| model_dir.join(f).exists());
 
-            if !encoder_exists {
-                errors.push(IntegrityError::MissingFile("encoder-model.onnx (or variant)".to_string()));
-            }
-            if !decoder_exists {
-                errors.push(IntegrityError::MissingFile("decoder_joint-model.onnx (or variant)".to_string()));
-            }
-            if !nemo_exists {
-                errors.push(IntegrityError::MissingFile("nemo128.onnx or nemo80.onnx".to_string()));
-            }
-            if !model_dir.join("vocab.txt").exists() {
-                errors.push(IntegrityError::MissingFile("vocab.txt".to_string()));
-            }
+                if !encoder_exists {
+                    errors.push(IntegrityError::MissingFile(
+                        "encoder-model.onnx (or variant)".to_string(),
+                    ));
+                }
+                if !decoder_exists {
+                    errors.push(IntegrityError::MissingFile(
+                        "decoder_joint-model.onnx (or variant)".to_string(),
+                    ));
+                }
+                if !nemo_exists {
+                    errors.push(IntegrityError::MissingFile(
+                        "nemo128.onnx or nemo80.onnx".to_string(),
+                    ));
+                }
+                if !model_dir.join("vocab.txt").exists() {
+                    errors.push(IntegrityError::MissingFile("vocab.txt".to_string()));
+                }
 
-            return errors;
+                return errors;
+            }
+            _ => unreachable!("non-Moonshine model should be handled above"),
         }
     };
 

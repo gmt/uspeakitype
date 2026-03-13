@@ -323,157 +323,154 @@ pub fn ensure_models_exist_with_progress(
         .context("Failed to download Silero VAD model")?;
     }
 
-    match variant {
-        AsrModelId::MoonshineBase | AsrModelId::MoonshineTiny => {
-            let asr_dir = model_dir.join(variant.dir_name());
-            let encoder = asr_dir.join("encoder_model.onnx");
-            let decoder = asr_dir.join("decoder_model_merged.onnx");
-            let tokenizer = asr_dir.join("tokenizer.json");
+    if variant.is_moonshine() {
+        let asr_dir = model_dir.join(variant.dir_name());
+        let encoder = asr_dir.join("encoder_model.onnx");
+        let decoder = asr_dir.join("decoder_model_merged.onnx");
+        let tokenizer = asr_dir.join("tokenizer.json");
 
-            let all_exist = encoder.exists() && decoder.exists() && tokenizer.exists();
-            if all_exist {
-                if progress_callback.is_none() {
-                    println!("All models found at {:?}", model_dir);
-                }
-                return Ok(ModelPaths {
-                    silero_vad: silero_vad_path,
-                    asr_dir,
-                });
-            }
-
-            if !asr_dir.exists() {
-                fs::create_dir_all(&asr_dir)
-                    .context("Failed to create Moonshine model directory")?;
-            }
-
-            let onnx_url = moonshine_onnx_url(variant)?;
-            for filename in MOONSHINE_ONNX_FILES.iter() {
-                let file_path = asr_dir.join(filename);
-                if !file_path.exists() {
-                    let url = format!("{}/{}", onnx_url, filename);
-                    rt.block_on(async {
-                        download_file(&url, &file_path, cb_ref, cancel_token).await
-                    })
-                    .context(format!("Failed to download Moonshine file: {}", filename))?;
-                }
-            }
-
-            let variant_url = moonshine_variant_url(variant)?;
-            for filename in MOONSHINE_VARIANT_FILES.iter() {
-                let file_path = asr_dir.join(filename);
-                if !file_path.exists() {
-                    let url = format!("{}/{}", variant_url, filename);
-                    rt.block_on(async {
-                        download_file(&url, &file_path, cb_ref, cancel_token).await
-                    })
-                    .context(format!("Failed to download Moonshine file: {}", filename))?;
-                }
-            }
-
+        let all_exist = encoder.exists() && decoder.exists() && tokenizer.exists();
+        if all_exist {
             if progress_callback.is_none() {
-                println!("All models ready at {:?}", model_dir);
+                println!("All models found at {:?}", model_dir);
             }
-
-            Ok(ModelPaths {
+            return Ok(ModelPaths {
                 silero_vad: silero_vad_path,
                 asr_dir,
-            })
+            });
         }
-        AsrModelId::ParakeetTdt06bV3 => {
-            // Ensure Parakeet artifacts exist (download if missing).
-            let asr_dir = model_dir.join(variant.dir_name());
 
-            std::fs::create_dir_all(&asr_dir).context(format!(
-                "Failed to create Parakeet model directory at {}",
-                asr_dir.display()
-            ))?;
+        if !asr_dir.exists() {
+            fs::create_dir_all(&asr_dir).context("Failed to create Moonshine model directory")?;
+        }
 
-            let required_any =
-                |candidates: &[&str]| candidates.iter().any(|f| asr_dir.join(f).exists());
-
-            if !required_any(&["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"]) {
-                let dest = asr_dir.join("encoder-model.onnx");
-                let url = format!("{}/{}", PARAKEET_ONNX_URL, "encoder-model.onnx");
-                rt.block_on(async { download_file(&url, &dest, cb_ref, cancel_token).await })
-                    .context("Failed to download Parakeet encoder")?;
+        let onnx_url = moonshine_onnx_url(variant)?;
+        for filename in MOONSHINE_ONNX_FILES.iter() {
+            let file_path = asr_dir.join(filename);
+            if !file_path.exists() {
+                let url = format!("{}/{}", onnx_url, filename);
+                rt.block_on(async { download_file(&url, &file_path, cb_ref, cancel_token).await })
+                    .context(format!("Failed to download Moonshine file: {}", filename))?;
             }
+        }
 
-            if !required_any(&[
-                "decoder_joint-model.onnx",
-                "decoder_joint.onnx",
-                "decoder_joint_model.onnx",
-            ]) {
-                let dest = asr_dir.join("decoder_joint-model.onnx");
-                let url = format!("{}/{}", PARAKEET_ONNX_URL, "decoder_joint-model.onnx");
-                rt.block_on(async { download_file(&url, &dest, cb_ref, cancel_token).await })
-                    .context("Failed to download Parakeet decoder/joint")?;
+        let variant_url = moonshine_variant_url(variant)?;
+        for filename in MOONSHINE_VARIANT_FILES.iter() {
+            let file_path = asr_dir.join(filename);
+            if !file_path.exists() {
+                let url = format!("{}/{}", variant_url, filename);
+                rt.block_on(async { download_file(&url, &file_path, cb_ref, cancel_token).await })
+                    .context(format!("Failed to download Moonshine file: {}", filename))?;
             }
+        }
 
-            if !asr_dir.join("vocab.txt").exists() {
-                let dest = asr_dir.join("vocab.txt");
-                let url = format!("{}/{}", PARAKEET_ONNX_URL, "vocab.txt");
-                rt.block_on(async { download_file(&url, &dest, cb_ref, cancel_token).await })
-                    .context("Failed to download Parakeet vocab")?;
-            }
+        if progress_callback.is_none() {
+            println!("All models ready at {:?}", model_dir);
+        }
 
-            for filename in PARAKEET_OPTIONAL_FILES.iter() {
-                let dest = asr_dir.join(filename);
-                if !dest.exists() {
-                    let url = format!("{}/{}", PARAKEET_ONNX_URL, filename);
-                    match rt.block_on(async {
-                        download_file_optional(&url, &dest, cb_ref, cancel_token).await
-                    }) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            log::warn!(
-                                "Failed to download Parakeet optional file {}: {}",
-                                filename,
-                                e
-                            );
-                        }
-                    }
+        Ok(ModelPaths {
+            silero_vad: silero_vad_path,
+            asr_dir,
+        })
+    } else {
+        match variant {
+            AsrModelId::ParakeetTdt06bV3 => {
+                // Ensure Parakeet artifacts exist (download if missing).
+                let asr_dir = model_dir.join(variant.dir_name());
+
+                std::fs::create_dir_all(&asr_dir).context(format!(
+                    "Failed to create Parakeet model directory at {}",
+                    asr_dir.display()
+                ))?;
+
+                let required_any =
+                    |candidates: &[&str]| candidates.iter().any(|f| asr_dir.join(f).exists());
+
+                if !required_any(&["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"]) {
+                    let dest = asr_dir.join("encoder-model.onnx");
+                    let url = format!("{}/{}", PARAKEET_ONNX_URL, "encoder-model.onnx");
+                    rt.block_on(async { download_file(&url, &dest, cb_ref, cancel_token).await })
+                        .context("Failed to download Parakeet encoder")?;
                 }
-            }
 
-            if !required_any(&PARAKEET_NEMO_FILES) {
-                for filename in PARAKEET_NEMO_FILES.iter() {
-                    let dest = asr_dir.join(filename);
-                    let url = format!("{}/{}", PARAKEET_ONNX_URL, filename);
-                    match rt.block_on(async {
-                        download_file_optional(&url, &dest, cb_ref, cancel_token).await
-                    }) {
-                        Ok(downloaded) => {
-                            if downloaded {
-                                break;
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!(
-                                "Failed to download Parakeet preprocessor {}: {}",
-                                filename,
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-
-            if !required_any(&["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"])
-                || !required_any(&[
+                if !required_any(&[
                     "decoder_joint-model.onnx",
                     "decoder_joint.onnx",
                     "decoder_joint_model.onnx",
-                ])
-                || !asr_dir.join("vocab.txt").exists()
-                || !required_any(&PARAKEET_NEMO_FILES)
-            {
-                return Err(parakeet_not_found_error(&asr_dir));
-            }
+                ]) {
+                    let dest = asr_dir.join("decoder_joint-model.onnx");
+                    let url = format!("{}/{}", PARAKEET_ONNX_URL, "decoder_joint-model.onnx");
+                    rt.block_on(async { download_file(&url, &dest, cb_ref, cancel_token).await })
+                        .context("Failed to download Parakeet decoder/joint")?;
+                }
 
-            Ok(ModelPaths {
-                silero_vad: silero_vad_path,
-                asr_dir,
-            })
+                if !asr_dir.join("vocab.txt").exists() {
+                    let dest = asr_dir.join("vocab.txt");
+                    let url = format!("{}/{}", PARAKEET_ONNX_URL, "vocab.txt");
+                    rt.block_on(async { download_file(&url, &dest, cb_ref, cancel_token).await })
+                        .context("Failed to download Parakeet vocab")?;
+                }
+
+                for filename in PARAKEET_OPTIONAL_FILES.iter() {
+                    let dest = asr_dir.join(filename);
+                    if !dest.exists() {
+                        let url = format!("{}/{}", PARAKEET_ONNX_URL, filename);
+                        match rt.block_on(async {
+                            download_file_optional(&url, &dest, cb_ref, cancel_token).await
+                        }) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                log::warn!(
+                                    "Failed to download Parakeet optional file {}: {}",
+                                    filename,
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+
+                if !required_any(&PARAKEET_NEMO_FILES) {
+                    for filename in PARAKEET_NEMO_FILES.iter() {
+                        let dest = asr_dir.join(filename);
+                        let url = format!("{}/{}", PARAKEET_ONNX_URL, filename);
+                        match rt.block_on(async {
+                            download_file_optional(&url, &dest, cb_ref, cancel_token).await
+                        }) {
+                            Ok(downloaded) => {
+                                if downloaded {
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "Failed to download Parakeet preprocessor {}: {}",
+                                    filename,
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+
+                if !required_any(&["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"])
+                    || !required_any(&[
+                        "decoder_joint-model.onnx",
+                        "decoder_joint.onnx",
+                        "decoder_joint_model.onnx",
+                    ])
+                    || !asr_dir.join("vocab.txt").exists()
+                    || !required_any(&PARAKEET_NEMO_FILES)
+                {
+                    return Err(parakeet_not_found_error(&asr_dir));
+                }
+
+                Ok(ModelPaths {
+                    silero_vad: silero_vad_path,
+                    asr_dir,
+                })
+            }
+            _ => unreachable!("non-Moonshine model should be handled above"),
         }
     }
 }
@@ -481,46 +478,40 @@ pub fn ensure_models_exist_with_progress(
 /// Check if a specific model variant is fully downloaded (ONNX + tokenizer)
 pub fn is_model_downloaded(model_dir: &Path, variant: AsrModelId) -> bool {
     let asr_dir = model_dir.join(variant.dir_name());
-    match variant {
-        AsrModelId::MoonshineBase | AsrModelId::MoonshineTiny => {
-            let encoder = asr_dir.join("encoder_model.onnx");
-            let decoder = asr_dir.join("decoder_model_merged.onnx");
-            let tokenizer = asr_dir.join("tokenizer.json");
-            encoder.exists() && decoder.exists() && tokenizer.exists()
-        }
-        AsrModelId::ParakeetTdt06bV3 => {
-            if !asr_dir.exists() {
-                return false;
+    if variant.is_moonshine() {
+        let encoder = asr_dir.join("encoder_model.onnx");
+        let decoder = asr_dir.join("decoder_model_merged.onnx");
+        let tokenizer = asr_dir.join("tokenizer.json");
+        encoder.exists() && decoder.exists() && tokenizer.exists()
+    } else {
+        match variant {
+            AsrModelId::ParakeetTdt06bV3 => {
+                if !asr_dir.exists() {
+                    return false;
+                }
+                let required_any =
+                    |candidates: &[&str]| candidates.iter().any(|f| asr_dir.join(f).exists());
+                required_any(&["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"])
+                    && required_any(&[
+                        "decoder_joint-model.onnx",
+                        "decoder_joint.onnx",
+                        "decoder_joint_model.onnx",
+                    ])
+                    && asr_dir.join("vocab.txt").exists()
+                    && required_any(&["nemo128.onnx", "nemo80.onnx"])
             }
-            let required_any =
-                |candidates: &[&str]| candidates.iter().any(|f| asr_dir.join(f).exists());
-            required_any(&["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"])
-                && required_any(&[
-                    "decoder_joint-model.onnx",
-                    "decoder_joint.onnx",
-                    "decoder_joint_model.onnx",
-                ])
-                && asr_dir.join("vocab.txt").exists()
-                && required_any(&["nemo128.onnx", "nemo80.onnx"])
+            _ => unreachable!("non-Moonshine model should be handled above"),
         }
     }
 }
 
 /// List all available model variants in the model directory
 pub fn available_models(model_dir: &Path) -> Vec<AsrModelId> {
-    let mut available = Vec::new();
-
-    if is_model_downloaded(model_dir, AsrModelId::MoonshineBase) {
-        available.push(AsrModelId::MoonshineBase);
-    }
-    if is_model_downloaded(model_dir, AsrModelId::MoonshineTiny) {
-        available.push(AsrModelId::MoonshineTiny);
-    }
-    if is_model_downloaded(model_dir, AsrModelId::ParakeetTdt06bV3) {
-        available.push(AsrModelId::ParakeetTdt06bV3);
-    }
-
-    available
+    AsrModelId::all()
+        .iter()
+        .copied()
+        .filter(|variant| is_model_downloaded(model_dir, *variant))
+        .collect()
 }
 
 #[cfg(test)]
@@ -589,6 +580,19 @@ mod tests {
             tiny_variant,
             "https://huggingface.co/UsefulSensors/moonshine-tiny/resolve/main"
         );
+
+        let tiny_japanese_onnx = moonshine_onnx_url(AsrModelId::MoonshineTinyJapanese).unwrap();
+        assert_eq!(
+            tiny_japanese_onnx,
+            "https://huggingface.co/UsefulSensors/moonshine/resolve/main/onnx/merged/tiny-ja/float"
+        );
+
+        let tiny_japanese_variant =
+            moonshine_variant_url(AsrModelId::MoonshineTinyJapanese).unwrap();
+        assert_eq!(
+            tiny_japanese_variant,
+            "https://huggingface.co/UsefulSensors/moonshine-tiny-ja/resolve/main"
+        );
     }
 
     #[test]
@@ -601,6 +605,10 @@ mod tests {
         // No models downloaded initially
         assert!(!is_model_downloaded(model_dir, AsrModelId::MoonshineBase));
         assert!(!is_model_downloaded(model_dir, AsrModelId::MoonshineTiny));
+        assert!(!is_model_downloaded(
+            model_dir,
+            AsrModelId::MoonshineTinyJapanese
+        ));
 
         // Create Base model files
         let base_dir = model_dir.join("moonshine-base");
@@ -625,6 +633,20 @@ mod tests {
         // Both should be detected
         assert!(is_model_downloaded(model_dir, AsrModelId::MoonshineBase));
         assert!(is_model_downloaded(model_dir, AsrModelId::MoonshineTiny));
+
+        let tiny_japanese_dir = model_dir.join("moonshine-tiny-ja");
+        fs::create_dir_all(&tiny_japanese_dir).expect("Failed to create tiny Japanese dir");
+        fs::write(tiny_japanese_dir.join("encoder_model.onnx"), b"")
+            .expect("Failed to write encoder");
+        fs::write(tiny_japanese_dir.join("decoder_model_merged.onnx"), b"")
+            .expect("Failed to write decoder");
+        fs::write(tiny_japanese_dir.join("tokenizer.json"), b"{}")
+            .expect("Failed to write tokenizer");
+
+        assert!(is_model_downloaded(
+            model_dir,
+            AsrModelId::MoonshineTinyJapanese
+        ));
     }
 
     #[test]
@@ -662,5 +684,18 @@ mod tests {
         assert_eq!(available.len(), 2);
         assert_eq!(available[0], AsrModelId::MoonshineBase);
         assert_eq!(available[1], AsrModelId::MoonshineTiny);
+
+        let tiny_japanese_dir = model_dir.join("moonshine-tiny-ja");
+        fs::create_dir_all(&tiny_japanese_dir).expect("Failed to create tiny Japanese dir");
+        fs::write(tiny_japanese_dir.join("encoder_model.onnx"), b"")
+            .expect("Failed to write encoder");
+        fs::write(tiny_japanese_dir.join("decoder_model_merged.onnx"), b"")
+            .expect("Failed to write decoder");
+        fs::write(tiny_japanese_dir.join("tokenizer.json"), b"{}")
+            .expect("Failed to write tokenizer");
+
+        let available = available_models(model_dir);
+        assert_eq!(available.len(), 3);
+        assert_eq!(available[2], AsrModelId::MoonshineTinyJapanese);
     }
 }

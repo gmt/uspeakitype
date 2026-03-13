@@ -9,8 +9,24 @@
 - **Dual interfaces**: Terminal (ANSI) mode and graphical overlay (Wayland layer shell)
 - **Spectrogram visualization**: Real-time audio feedback with bars or waterfall display
 - **Voice Activity Detection**: Silero VAD for commit detection
-- **Moonshine-based**: Fast, efficient ONNX-based ASR
+- **Moonshine-based**: Fast, efficient ONNX-based ASR, including the newer official `moonshine-tiny-{ar,zh,ja,ko,uk,vi}` flavors
 - **Control panel**: Runtime configuration of audio input, gain and AGC.
+
+## Model Support
+
+`usit` currently supports:
+
+- `moonshine-base`
+- `moonshine-tiny`
+- `moonshine-tiny-ar`
+- `moonshine-tiny-zh`
+- `moonshine-tiny-ja`
+- `moonshine-tiny-ko`
+- `moonshine-tiny-uk`
+- `moonshine-tiny-vi`
+- `parakeet-tdt-0.6b-v3`
+
+Recent upstream audit notes live in [`docs/upstream-audit-2026-03.md`](docs/upstream-audit-2026-03.md).
 
 ## Input Injection Backends
 

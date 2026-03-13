@@ -76,7 +76,8 @@ impl DownloadManager {
     fn run(mut self) {
         loop {
             // Clean up completed downloads
-            self.active_downloads.retain(|_, handle| !handle.is_finished());
+            self.active_downloads
+                .retain(|_, handle| !handle.is_finished());
 
             // Process commands (non-blocking poll with timeout)
             match self.cmd_rx.recv_timeout(Duration::from_millis(100)) {
@@ -147,7 +148,9 @@ impl DownloadManager {
             let progress_callback: Box<dyn Fn(f64) + Send + Sync> =
                 Box::new(move |progress: f64| {
                     let mut state = progress_state.write();
-                    state.download_progress_by_model.insert(model_id, progress as f32);
+                    state
+                        .download_progress_by_model
+                        .insert(model_id, progress as f32);
                     // Also set legacy download_progress if this is the requested model
                     if state.requested_model == Some(model_id) {
                         state.download_progress = Some(progress as f32);
@@ -299,7 +302,7 @@ struct Args {
         default_value = "moonshine-base",
         hide_possible_values = true,
         hide_default_value = true,
-        help = "ASR model: moonshine-base, moonshine-tiny, parakeet-tdt-0.6b-v3 [default: moonshine-base]"
+        help = "ASR model: moonshine-base, moonshine-tiny, moonshine-tiny-{ar,zh,ja,ko,uk,vi}, parakeet-tdt-0.6b-v3 [default: moonshine-base]"
     )]
     model: AsrModelId,
 
@@ -367,10 +370,7 @@ struct ModelActivation {
 /// 3. Download attempts in priority order (Base → Tiny → Parakeet)
 ///
 /// Returns ModelActivation with transcriber if successful, or error message if all fail.
-fn activate_model_with_fallback(
-    model_dir: &Path,
-    preferred_model: AsrModelId,
-) -> ModelActivation {
+fn activate_model_with_fallback(model_dir: &Path, preferred_model: AsrModelId) -> ModelActivation {
     use audio::{SileroVad, VadConfig};
     use backend::{MoonshineStreamer, NemoTransducerStreamer};
     use streaming::{BoxedTranscriber, StreamingConfig, StreamingTranscriber};
@@ -430,7 +430,10 @@ fn activate_model_with_fallback(
             }
             ActivationResult::Quarantined => {
                 // Model was corrupt and quarantined, try to re-download
-                log::warn!("Model {} was corrupt and quarantined, attempting re-download...", model_id);
+                log::warn!(
+                    "Model {} was corrupt and quarantined, attempting re-download...",
+                    model_id
+                );
                 match download::ensure_models_exist(model_dir, model_id) {
                     Ok(_) => {
                         if let Err(e) = model_cache::seal_model(&asr_dir, model_id) {
@@ -475,21 +478,19 @@ fn activate_model_with_fallback(
             }
         };
 
-        let transcriber_result: Result<BoxedTranscriber, _> = match model_id {
-            AsrModelId::MoonshineBase | AsrModelId::MoonshineTiny => {
-                log::info!("Initializing Moonshine transcriber...");
-                MoonshineStreamer::new(&asr_dir).map(|t| Box::new(t) as BoxedTranscriber)
-            }
-            AsrModelId::ParakeetTdt06bV3 => {
-                log::info!("Initializing NeMo transducer transcriber...");
-                NemoTransducerStreamer::new(&asr_dir).map(|t| Box::new(t) as BoxedTranscriber)
-            }
+        let transcriber_result: Result<BoxedTranscriber, _> = if model_id.is_moonshine() {
+            log::info!("Initializing Moonshine transcriber...");
+            MoonshineStreamer::new(&asr_dir).map(|t| Box::new(t) as BoxedTranscriber)
+        } else {
+            log::info!("Initializing NeMo transducer transcriber...");
+            NemoTransducerStreamer::new(&asr_dir).map(|t| Box::new(t) as BoxedTranscriber)
         };
 
         match transcriber_result {
             Ok(transcriber) => {
                 log::info!("Model {} activated successfully", model_id);
-                let streamer = StreamingTranscriber::new(vad, transcriber, StreamingConfig::default());
+                let streamer =
+                    StreamingTranscriber::new(vad, transcriber, StreamingConfig::default());
                 return ModelActivation {
                     transcriber: Some(streamer),
                     active_model: Some(model_id),
@@ -521,10 +522,7 @@ fn activate_model_with_fallback(
 
 /// Attempt to activate a single model without fallback.
 /// Used for DD activation where we want quick success/failure.
-fn activate_single_model(
-    model_dir: &Path,
-    model_id: AsrModelId,
-) -> ModelActivation {
+fn activate_single_model(model_dir: &Path, model_id: AsrModelId) -> ModelActivation {
     use audio::{SileroVad, VadConfig};
     use backend::{MoonshineStreamer, NemoTransducerStreamer};
     use streaming::{BoxedTranscriber, StreamingConfig, StreamingTranscriber};
@@ -554,15 +552,12 @@ fn activate_single_model(
         }
     };
 
-    let transcriber_result: Result<BoxedTranscriber, _> = match model_id {
-        AsrModelId::MoonshineBase | AsrModelId::MoonshineTiny => {
-            log::info!("Initializing Moonshine transcriber...");
-            MoonshineStreamer::new(&asr_dir).map(|t| Box::new(t) as BoxedTranscriber)
-        }
-        AsrModelId::ParakeetTdt06bV3 => {
-            log::info!("Initializing NeMo transducer transcriber...");
-            NemoTransducerStreamer::new(&asr_dir).map(|t| Box::new(t) as BoxedTranscriber)
-        }
+    let transcriber_result: Result<BoxedTranscriber, _> = if model_id.is_moonshine() {
+        log::info!("Initializing Moonshine transcriber...");
+        MoonshineStreamer::new(&asr_dir).map(|t| Box::new(t) as BoxedTranscriber)
+    } else {
+        log::info!("Initializing NeMo transducer transcriber...");
+        NemoTransducerStreamer::new(&asr_dir).map(|t| Box::new(t) as BoxedTranscriber)
     };
 
     match transcriber_result {
@@ -575,13 +570,11 @@ fn activate_single_model(
                 error: None,
             }
         }
-        Err(e) => {
-            ModelActivation {
-                transcriber: None,
-                active_model: None,
-                error: Some(format!("Transcriber init failed: {}", e)),
-            }
-        }
+        Err(e) => ModelActivation {
+            transcriber: None,
+            active_model: None,
+            error: Some(format!("Transcriber init failed: {}", e)),
+        },
     }
 }
 
@@ -800,92 +793,94 @@ fn main() -> anyhow::Result<()> {
 
     // Model activation with fallback - non-fatal on failure
     // Phase 2: Non-blocking startup with designated driver
-    let (streaming_transcriber, transcription_available): (Option<streaming::DefaultStreamingTranscriber>, bool) =
-        if args.demo || args.ansi_sweep {
-            // Demo mode: no transcription, just visualization
-            (None, false)
+    let (streaming_transcriber, transcription_available): (
+        Option<streaming::DefaultStreamingTranscriber>,
+        bool,
+    ) = if args.demo || args.ansi_sweep {
+        // Demo mode: no transcription, just visualization
+        (None, false)
+    } else {
+        log::info!("Loading models from {:?}...", model_dir);
+        let resolved_model = if args.model != AsrModelId::default() {
+            args.model
         } else {
-            log::info!("Loading models from {:?}...", model_dir);
-            let resolved_model = if args.model != AsrModelId::default() {
-                args.model
-            } else {
-                config.model
-            };
-
-            // Set as requested model
-            audio_state.write().requested_model = Some(resolved_model);
-
-            // Try to find a DD (designated driver) - a cached model we can use immediately
-            let cached_models = model_cache::find_cached_models(&model_dir);
-            let dd_candidate = if cached_models.contains(&resolved_model) {
-                // Preferred model is cached, use it as DD
-                Some(resolved_model)
-            } else if !cached_models.is_empty() {
-                // Use first available cached model as DD
-                Some(cached_models[0])
-            } else {
-                None
-            };
-
-            // Try to activate DD immediately (non-blocking for downloads)
-            let activation = if let Some(dd_model) = dd_candidate {
-                let asr_dir = model_dir.join(dd_model.dir_name());
-                match model_cache::prepare_for_activation(&asr_dir, dd_model) {
-                    ActivationResult::Success => {
-                        // DD is valid, activate it
-                        log::info!("Activating designated driver model: {}", dd_model);
-                        activate_single_model(&model_dir, dd_model)
-                    }
-                    _ => {
-                        // DD needs download or was quarantined, try others
-                        log::warn!("DD candidate {} not ready, trying fallback", dd_model);
-                        activate_model_with_fallback(&model_dir, resolved_model)
-                    }
-                }
-            } else {
-                // No cached models, try fallback (may block on downloads)
-                // In future we could skip this and start async download instead
-                activate_model_with_fallback(&model_dir, resolved_model)
-            };
-
-            // If requested model is different from active and needs download, start async download
-            if activation.active_model != Some(resolved_model) {
-                let asr_dir = model_dir.join(resolved_model.dir_name());
-                match model_cache::prepare_for_activation(&asr_dir, resolved_model) {
-                    ActivationResult::NeedsDownload | ActivationResult::Quarantined => {
-                        log::info!("Requesting async download for {}", resolved_model);
-                        let _ = download_cmd_tx.send(DownloadCommand::Request(resolved_model));
-                    }
-                    ActivationResult::Success => {
-                        // Requested model is already cached, will be swapped later
-                    }
-                }
-            }
-
-            // Update shared state
-            if let Some(active) = activation.active_model {
-                audio_state.write().active_model = Some(active);
-            }
-
-            if let Some(error) = &activation.error {
-                // Set error state for UI display
-                audio_state.write().model_error = Some(error.clone());
-
-                if args.headless {
-                    // In headless mode with no model, exit cleanly
-                    log::error!("No model available in headless mode, exiting");
-                    eprintln!("Error: {}", error);
-                    std::process::exit(0);
-                }
-            }
-
-            if activation.transcriber.is_some() {
-                audio_state.write().transcription_available = true;
-            }
-
-            let has_transcriber = activation.transcriber.is_some();
-            (activation.transcriber, has_transcriber)
+            config.model
         };
+
+        // Set as requested model
+        audio_state.write().requested_model = Some(resolved_model);
+
+        // Try to find a DD (designated driver) - a cached model we can use immediately
+        let cached_models = model_cache::find_cached_models(&model_dir);
+        let dd_candidate = if cached_models.contains(&resolved_model) {
+            // Preferred model is cached, use it as DD
+            Some(resolved_model)
+        } else if !cached_models.is_empty() {
+            // Use first available cached model as DD
+            Some(cached_models[0])
+        } else {
+            None
+        };
+
+        // Try to activate DD immediately (non-blocking for downloads)
+        let activation = if let Some(dd_model) = dd_candidate {
+            let asr_dir = model_dir.join(dd_model.dir_name());
+            match model_cache::prepare_for_activation(&asr_dir, dd_model) {
+                ActivationResult::Success => {
+                    // DD is valid, activate it
+                    log::info!("Activating designated driver model: {}", dd_model);
+                    activate_single_model(&model_dir, dd_model)
+                }
+                _ => {
+                    // DD needs download or was quarantined, try others
+                    log::warn!("DD candidate {} not ready, trying fallback", dd_model);
+                    activate_model_with_fallback(&model_dir, resolved_model)
+                }
+            }
+        } else {
+            // No cached models, try fallback (may block on downloads)
+            // In future we could skip this and start async download instead
+            activate_model_with_fallback(&model_dir, resolved_model)
+        };
+
+        // If requested model is different from active and needs download, start async download
+        if activation.active_model != Some(resolved_model) {
+            let asr_dir = model_dir.join(resolved_model.dir_name());
+            match model_cache::prepare_for_activation(&asr_dir, resolved_model) {
+                ActivationResult::NeedsDownload | ActivationResult::Quarantined => {
+                    log::info!("Requesting async download for {}", resolved_model);
+                    let _ = download_cmd_tx.send(DownloadCommand::Request(resolved_model));
+                }
+                ActivationResult::Success => {
+                    // Requested model is already cached, will be swapped later
+                }
+            }
+        }
+
+        // Update shared state
+        if let Some(active) = activation.active_model {
+            audio_state.write().active_model = Some(active);
+        }
+
+        if let Some(error) = &activation.error {
+            // Set error state for UI display
+            audio_state.write().model_error = Some(error.clone());
+
+            if args.headless {
+                // In headless mode with no model, exit cleanly
+                log::error!("No model available in headless mode, exiting");
+                eprintln!("Error: {}", error);
+                std::process::exit(0);
+            }
+        }
+
+        if activation.transcriber.is_some() {
+            audio_state.write().transcription_available = true;
+        }
+
+        let has_transcriber = activation.transcriber.is_some();
+        (activation.transcriber, has_transcriber)
+    };
 
     let (audio_tx, audio_rx): (
         std::sync::mpsc::SyncSender<Vec<f32>>,
@@ -977,34 +972,34 @@ fn main() -> anyhow::Result<()> {
             }
             (None, None)
         } else {
-        let auto_gain = args.auto_gain || config.auto_gain;
-        let source = args.source.clone().or(config.source.clone());
-        let capture_config = CaptureConfig {
-            auto_gain_enabled: auto_gain,
-            agc: Default::default(),
-            source,
+            let auto_gain = args.auto_gain || config.auto_gain;
+            let source = args.source.clone().or(config.source.clone());
+            let capture_config = CaptureConfig {
+                auto_gain_enabled: auto_gain,
+                agc: Default::default(),
+                source,
+            };
+
+            let state = audio_state.clone();
+            let tx = audio_tx.clone();
+            let capture = AudioCapture::new(
+                Box::new(move |samples| {
+                    state.write().update_samples(samples);
+                    if tx.try_send(samples.to_vec()).is_err() {}
+                }),
+                capture_config,
+            )?;
+
+            let control = capture.control().clone();
+
+            if auto_gain {
+                audio_state.write().auto_gain_enabled = true;
+            }
+
+            // Keep capture alive - dropping it triggers shutdown cascade
+            // (closes audio channel → worker exits → injection channel closes → injector exits)
+            (Some(control), Some(capture))
         };
-
-        let state = audio_state.clone();
-        let tx = audio_tx.clone();
-        let capture = AudioCapture::new(
-            Box::new(move |samples| {
-                state.write().update_samples(samples);
-                if tx.try_send(samples.to_vec()).is_err() {}
-            }),
-            capture_config,
-        )?;
-
-        let control = capture.control().clone();
-
-        if auto_gain {
-            audio_state.write().auto_gain_enabled = true;
-        }
-
-        // Keep capture alive - dropping it triggers shutdown cascade
-        // (closes audio channel → worker exits → injection channel closes → injector exits)
-        (Some(control), Some(capture))
-    };
 
     // Clone download_cmd_tx for TUI use (the original will be moved to shutdown)
     let download_cmd_tx_for_tui = download_cmd_tx.clone();
@@ -1044,19 +1039,19 @@ fn main() -> anyhow::Result<()> {
                 }
             };
 
-            let transcriber_result: Result<BoxedTranscriber, _> = match model_id {
-                AsrModelId::MoonshineBase | AsrModelId::MoonshineTiny => {
-                    backend::MoonshineStreamer::new(&asr_dir)
-                        .map(|t| Box::new(t) as BoxedTranscriber)
-                }
-                AsrModelId::ParakeetTdt06bV3 => {
-                    backend::NemoTransducerStreamer::new(&asr_dir)
-                        .map(|t| Box::new(t) as BoxedTranscriber)
-                }
+            let transcriber_result: Result<BoxedTranscriber, _> = if model_id.is_moonshine() {
+                backend::MoonshineStreamer::new(&asr_dir).map(|t| Box::new(t) as BoxedTranscriber)
+            } else {
+                backend::NemoTransducerStreamer::new(&asr_dir)
+                    .map(|t| Box::new(t) as BoxedTranscriber)
             };
 
             match transcriber_result {
-                Ok(transcriber) => Some(StreamingTranscriber::new(vad, transcriber, StreamingConfig::default())),
+                Ok(transcriber) => Some(StreamingTranscriber::new(
+                    vad,
+                    transcriber,
+                    StreamingConfig::default(),
+                )),
                 Err(e) => {
                     log::error!("Transcriber init failed: {}", e);
                     None
@@ -1081,15 +1076,12 @@ fn main() -> anyhow::Result<()> {
                             // Model is cached and valid, activate/swap
                             if let Some(ref mut s) = streamer {
                                 // Swap transcriber in existing streamer
-                                let new_transcriber = match new_variant {
-                                    AsrModelId::MoonshineBase | AsrModelId::MoonshineTiny => {
-                                        backend::MoonshineStreamer::new(&asr_dir)
-                                            .map(|t| Box::new(t) as streaming::BoxedTranscriber)
-                                    }
-                                    AsrModelId::ParakeetTdt06bV3 => {
-                                        backend::NemoTransducerStreamer::new(&asr_dir)
-                                            .map(|t| Box::new(t) as streaming::BoxedTranscriber)
-                                    }
+                                let new_transcriber = if new_variant.is_moonshine() {
+                                    backend::MoonshineStreamer::new(&asr_dir)
+                                        .map(|t| Box::new(t) as streaming::BoxedTranscriber)
+                                } else {
+                                    backend::NemoTransducerStreamer::new(&asr_dir)
+                                        .map(|t| Box::new(t) as streaming::BoxedTranscriber)
                                 };
 
                                 match new_transcriber {
@@ -1107,7 +1099,9 @@ fn main() -> anyhow::Result<()> {
                                 }
                             } else {
                                 // No streamer yet, create one
-                                if let Some(new_streamer) = create_streamer(&model_dir_for_worker, new_variant) {
+                                if let Some(new_streamer) =
+                                    create_streamer(&model_dir_for_worker, new_variant)
+                                {
                                     streamer = Some(new_streamer);
                                     let mut state = audio_state_for_worker.write();
                                     state.active_model = Some(new_variant);
@@ -1119,7 +1113,10 @@ fn main() -> anyhow::Result<()> {
                         }
                         ActivationResult::NeedsDownload | ActivationResult::Quarantined => {
                             // Download manager will handle this via download_cmd_tx
-                            log::info!("Model {} needs download, waiting for download manager", new_variant);
+                            log::info!(
+                                "Model {} needs download, waiting for download manager",
+                                new_variant
+                            );
                         }
                     }
                 }
@@ -1134,21 +1131,22 @@ fn main() -> anyhow::Result<()> {
                                 let state = audio_state_for_worker.read();
                                 (state.requested_model, state.active_model)
                             };
-                            if requested == Some(completed_model) && active != Some(completed_model) {
-                                log::info!("Download completed for requested model {}, activating", completed_model);
+                            if requested == Some(completed_model) && active != Some(completed_model)
+                            {
+                                log::info!(
+                                    "Download completed for requested model {}, activating",
+                                    completed_model
+                                );
                                 let asr_dir = model_dir_for_worker.join(completed_model.dir_name());
 
                                 if let Some(ref mut s) = streamer {
                                     // Swap transcriber in existing streamer
-                                    let new_transcriber = match completed_model {
-                                        AsrModelId::MoonshineBase | AsrModelId::MoonshineTiny => {
-                                            backend::MoonshineStreamer::new(&asr_dir)
-                                                .map(|t| Box::new(t) as streaming::BoxedTranscriber)
-                                        }
-                                        AsrModelId::ParakeetTdt06bV3 => {
-                                            backend::NemoTransducerStreamer::new(&asr_dir)
-                                                .map(|t| Box::new(t) as streaming::BoxedTranscriber)
-                                        }
+                                    let new_transcriber = if completed_model.is_moonshine() {
+                                        backend::MoonshineStreamer::new(&asr_dir)
+                                            .map(|t| Box::new(t) as streaming::BoxedTranscriber)
+                                    } else {
+                                        backend::NemoTransducerStreamer::new(&asr_dir)
+                                            .map(|t| Box::new(t) as streaming::BoxedTranscriber)
                                     };
 
                                     match new_transcriber {
@@ -1161,23 +1159,34 @@ fn main() -> anyhow::Result<()> {
                                             log::info!("Model swapped to {}", completed_model);
                                         }
                                         Err(e) => {
-                                            log::error!("Failed to activate downloaded model: {}", e);
+                                            log::error!(
+                                                "Failed to activate downloaded model: {}",
+                                                e
+                                            );
                                         }
                                     }
                                 } else {
                                     // No streamer yet, create one
-                                    if let Some(new_streamer) = create_streamer(&model_dir_for_worker, completed_model) {
+                                    if let Some(new_streamer) =
+                                        create_streamer(&model_dir_for_worker, completed_model)
+                                    {
                                         streamer = Some(new_streamer);
                                         let mut state = audio_state_for_worker.write();
                                         state.active_model = Some(completed_model);
                                         state.transcription_available = true;
                                         state.model_error = None;
-                                        log::info!("Model activated after download: {}", completed_model);
+                                        log::info!(
+                                            "Model activated after download: {}",
+                                            completed_model
+                                        );
                                     }
                                 }
                             } else if active == Some(completed_model) {
                                 // Model is already active (likely activated via model_swap_rx)
-                                log::debug!("Download completed for {} but it's already active, skipping", completed_model);
+                                log::debug!(
+                                    "Download completed for {} but it's already active, skipping",
+                                    completed_model
+                                );
                             } else {
                                 log::info!("Download completed for {} but requested model is {:?}, not activating",
                                     completed_model, requested);
@@ -1630,13 +1639,17 @@ fn run_terminal_loop(
                                                     true,
                                                     std::sync::atomic::Ordering::Relaxed,
                                                 );
-                                                let _ = download_cmd_tx.send(DownloadCommand::Cancel(control_panel.model));
+                                                let _ = download_cmd_tx.send(
+                                                    DownloadCommand::Cancel(control_panel.model),
+                                                );
                                             } else {
                                                 control_panel.toggle_model();
                                                 // Send to streaming worker for immediate swap if cached
                                                 let _ = model_swap_tx.send(control_panel.model);
                                                 // Also request download via download manager (handles caching check)
-                                                let _ = download_cmd_tx.send(DownloadCommand::Request(control_panel.model));
+                                                let _ = download_cmd_tx.send(
+                                                    DownloadCommand::Request(control_panel.model),
+                                                );
                                             }
                                         }
                                         Some(ui::control_panel::Control::AutoSaveToggle) => {
@@ -1711,7 +1724,15 @@ fn run_terminal_loop(
                 }
             }
 
-            let (samples, committed, partial, is_speaking, injection_enabled, download_progress, model_error) = {
+            let (
+                samples,
+                committed,
+                partial,
+                is_speaking,
+                injection_enabled,
+                download_progress,
+                model_error,
+            ) = {
                 let state = audio_state.read();
                 (
                     state.samples.clone(),
