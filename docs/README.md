@@ -13,6 +13,7 @@ This directory holds the durable project notes that are still useful after the i
 
 ## Model Notes
 
+- [`bridge-to-moonshine-voice.md`](./bridge-to-moonshine-voice.md) - design note for bridging to the newer Moonshine runtime family
 - [`nemo-tdt-onnx-workflow.md`](./nemo-tdt-onnx-workflow.md) - NeMo/Parakeet export layout expected by `usit`
 - [`upstream-audit-2026-03.md`](./upstream-audit-2026-03.md) - recent upstream model and project audit
 
