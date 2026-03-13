@@ -437,7 +437,7 @@ usit's demo mode generates synthetic transcription events at specific times:
 
 ## References
 
-- **Plan**: `.sisyphus/plans/visual-testing.md` - Full specification and rationale
+- **Spec**: [`docs/testing-visual.md`](../../docs/testing-visual.md) - Stable visual-testing contract and rationale
 - **Demo mode**: `src/main.rs:521-575` - Synthetic event timeline
 - **Layer shell config**: `src/ui/app.rs:353-355` - Wayland layer shell setup
 - **Text rendering**: `src/ui/text_renderer.rs` - WGPU text rendering

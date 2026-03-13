@@ -42,6 +42,33 @@ Design choice: prefer disabling the slider for simplicity; aggressiveness contro
 - **Limits**: Gain clamped to [min_gain, max_gain] (default 0.1 - 10.0).
 - **Output clamping**: Samples clamped to [-1.0, 1.0] to prevent digital clipping.
 
+### Soft AGC Sidechain Contract
+
+The current AGC implementation follows a sidechain pattern:
+
+- measure speech-band energy, not full-band energy
+- apply the resulting gain to the full signal path
+- stay peak-aware so loud out-of-band content still avoids clipping
+
+Why this split exists:
+
+- low-frequency rumble should not trick the AGC into thinking speech is already loud enough
+- gain decisions should follow intelligibility, not just broadband power
+- the final audio should still sound natural rather than "bandpassed"
+
+The practical design is:
+
+- a speech-oriented bandpass informs the control signal
+- a soft limiter and peak awareness guard the output path
+- silence handling stays conservative to avoid pumping background noise
+
+### AGC Test Heuristics
+
+Two testing rules turned out to be worth preserving:
+
+- ignore the earliest filter-settling region when asserting AGC behavior
+- choose test frequencies well away from the bandpass edges when you want stable expectations
+
 ### Hard AGC (Future Implementation)
 - **Mechanism**: Adjusts PipeWire device volume via WirePlumber-compatible methods.
 - **Objective**: Keep the selected device out of the red (clipping) and balance noise floor against signal headroom.
