@@ -829,7 +829,22 @@ fn main() -> anyhow::Result<()> {
                 ActivationResult::Success => {
                     // DD is valid, activate it
                     log::info!("Activating designated driver model: {}", dd_model);
-                    activate_single_model(&model_dir, dd_model)
+                    let quick_activation = activate_single_model(&model_dir, dd_model);
+
+                    if quick_activation.active_model.is_some() {
+                        quick_activation
+                    } else {
+                        let reason = quick_activation
+                            .error
+                            .as_deref()
+                            .unwrap_or("unknown activation error");
+                        log::warn!(
+                            "Designated driver {} failed fast activation ({}), trying fallback",
+                            dd_model,
+                            reason
+                        );
+                        activate_model_with_fallback(&model_dir, resolved_model)
+                    }
                 }
                 _ => {
                     // DD needs download or was quarantined, try others
