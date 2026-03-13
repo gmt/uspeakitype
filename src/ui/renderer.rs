@@ -481,16 +481,21 @@ impl Renderer {
             let transcript_bounds = transcript_text_bounds(&text_rect);
 
             // Priority display: error > download progress > transcript
-            let (display_committed, display_partial, is_error) = if let Some(ref error) = model_error {
-                // Show model error in red
-                (format!("ERROR: {}", error), String::new(), true)
-            } else if let Some(progress) = download_progress {
-                // Show download progress as status message
-                let pct = (progress * 100.0).round() as u32;
-                (format!("Downloading model... {}%", pct), String::new(), false)
-            } else {
-                (committed.clone(), partial.clone(), false)
-            };
+            let (display_committed, display_partial, is_error) =
+                if let Some(ref error) = model_error {
+                    // Show model error in red
+                    (format!("ERROR: {}", error), String::new(), true)
+                } else if let Some(progress) = download_progress {
+                    // Show download progress as status message
+                    let pct = (progress * 100.0).round() as u32;
+                    (
+                        format!("Downloading model... {}%", pct),
+                        String::new(),
+                        false,
+                    )
+                } else {
+                    (committed.clone(), partial.clone(), false)
+                };
 
             self.text_renderer.render_with_error(
                 &view,

@@ -96,8 +96,8 @@ impl Fcitx5BridgeInjector {
     }
 
     pub fn new() -> Result<Self> {
-        let connection = Connection::session()
-            .map_err(|e| anyhow!("D-Bus session connection failed: {}", e))?;
+        let connection =
+            Connection::session().map_err(|e| anyhow!("D-Bus session connection failed: {}", e))?;
 
         // First try: maybe addon is already loaded
         if Self::addon_is_loaded(&connection) {
@@ -122,8 +122,8 @@ impl Fcitx5BridgeInjector {
         Self::restart_fcitx5_with_addon()?;
 
         // Reconnect after restart
-        let connection = Connection::session()
-            .map_err(|e| anyhow!("D-Bus reconnect failed: {}", e))?;
+        let connection =
+            Connection::session().map_err(|e| anyhow!("D-Bus reconnect failed: {}", e))?;
 
         // Verify addon is now loaded
         if Self::addon_is_loaded(&connection) {

@@ -122,7 +122,20 @@ impl TextRenderer {
         padding: f32,
         bounds: TextBounds,
     ) {
-        self.render_with_error(view, encoder, committed, partial, x, y, scale, area_width, _area_height, padding, bounds, false)
+        self.render_with_error(
+            view,
+            encoder,
+            committed,
+            partial,
+            x,
+            y,
+            scale,
+            area_width,
+            _area_height,
+            padding,
+            bounds,
+            false,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]

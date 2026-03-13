@@ -10,12 +10,11 @@ pub fn init(_is_tui: bool) -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
     {
         // Try journald first, fall back to env_logger if unavailable (e.g., Docker)
-        let journal_result = JournalLog::new()
-            .map(|j| {
-                j.with_syslog_identifier("usit".to_string())
-                    .with_extra_fields(vec![("VERSION", env!("CARGO_PKG_VERSION"))])
-                    .install()
-            });
+        let journal_result = JournalLog::new().map(|j| {
+            j.with_syslog_identifier("usit".to_string())
+                .with_extra_fields(vec![("VERSION", env!("CARGO_PKG_VERSION"))])
+                .install()
+        });
 
         match journal_result {
             Ok(Ok(())) => {

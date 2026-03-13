@@ -73,7 +73,12 @@ fn test_injection_channel_flow() {
 
     // Verify the mock injector received the text
     let texts = injected_texts.lock().unwrap();
-    assert_eq!(texts.len(), 2, "Expected 2 injected texts, got {}", texts.len());
+    assert_eq!(
+        texts.len(),
+        2,
+        "Expected 2 injected texts, got {}",
+        texts.len()
+    );
     assert_eq!(texts[0], "Hello world");
     assert_eq!(texts[1], "Testing injection");
 }
@@ -224,7 +229,10 @@ fn test_audio_state_defaults_allow_injection() {
 
     // These defaults MUST allow injection
     assert!(!state.is_paused, "Default is_paused should be false");
-    assert!(state.injection_enabled, "Default injection_enabled should be true");
+    assert!(
+        state.injection_enabled,
+        "Default injection_enabled should be true"
+    );
 
     // The condition from main.rs line 582
     let should_inject = !state.is_paused && state.injection_enabled;

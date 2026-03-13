@@ -47,10 +47,7 @@ fn test_moonshine_transcribes_speech_sample() {
 
     let model_dir = default_model_dir().join("moonshine-base");
     if !model_dir.exists() {
-        eprintln!(
-            "Skipping: model not found at {}",
-            model_dir.display()
-        );
+        eprintln!("Skipping: model not found at {}", model_dir.display());
         return;
     }
 
@@ -117,10 +114,7 @@ fn test_moonshine_tiny_transcribes_speech_sample() {
 
     let model_dir = default_model_dir().join("moonshine-tiny");
     if !model_dir.exists() {
-        eprintln!(
-            "Skipping: model not found at {}",
-            model_dir.display()
-        );
+        eprintln!("Skipping: model not found at {}", model_dir.display());
         return;
     }
 

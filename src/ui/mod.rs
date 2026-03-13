@@ -286,12 +286,31 @@ mod tests {
 
         let mut state = AudioState::new();
         // Simulate two parallel downloads
-        state.download_progress_by_model.insert(AsrModelId::MoonshineBase, 0.5);
-        state.download_progress_by_model.insert(AsrModelId::ParakeetTdt06bV3, 0.25);
+        state
+            .download_progress_by_model
+            .insert(AsrModelId::MoonshineBase, 0.5);
+        state
+            .download_progress_by_model
+            .insert(AsrModelId::ParakeetTdt06bV3, 0.25);
 
-        assert_eq!(state.download_progress_by_model.get(&AsrModelId::MoonshineBase), Some(&0.5));
-        assert_eq!(state.download_progress_by_model.get(&AsrModelId::ParakeetTdt06bV3), Some(&0.25));
-        assert_eq!(state.download_progress_by_model.get(&AsrModelId::MoonshineTiny), None);
+        assert_eq!(
+            state
+                .download_progress_by_model
+                .get(&AsrModelId::MoonshineBase),
+            Some(&0.5)
+        );
+        assert_eq!(
+            state
+                .download_progress_by_model
+                .get(&AsrModelId::ParakeetTdt06bV3),
+            Some(&0.25)
+        );
+        assert_eq!(
+            state
+                .download_progress_by_model
+                .get(&AsrModelId::MoonshineTiny),
+            None
+        );
     }
 
     #[test]
@@ -338,11 +357,15 @@ mod tests {
         let mut state = AudioState::new();
         state.requested_model = Some(AsrModelId::MoonshineBase);
         state.download_progress = Some(0.75);
-        state.download_progress_by_model.insert(AsrModelId::MoonshineBase, 0.75);
+        state
+            .download_progress_by_model
+            .insert(AsrModelId::MoonshineBase, 0.75);
 
         // Simulate download completion
         state.download_progress = None;
-        state.download_progress_by_model.remove(&AsrModelId::MoonshineBase);
+        state
+            .download_progress_by_model
+            .remove(&AsrModelId::MoonshineBase);
 
         assert!(state.download_progress.is_none());
         assert!(state.download_progress_by_model.is_empty());
@@ -366,7 +389,10 @@ mod tests {
         let should_activate = state.requested_model == Some(completed_model)
             && state.active_model != Some(completed_model);
 
-        assert!(!should_activate, "Should not reactivate already-active model");
+        assert!(
+            !should_activate,
+            "Should not reactivate already-active model"
+        );
     }
 
     #[test]
@@ -385,6 +411,9 @@ mod tests {
         let should_activate = state.requested_model == Some(completed_model)
             && state.active_model != Some(completed_model);
 
-        assert!(should_activate, "Should activate newly-downloaded requested model");
+        assert!(
+            should_activate,
+            "Should activate newly-downloaded requested model"
+        );
     }
 }
