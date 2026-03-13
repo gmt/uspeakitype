@@ -8,6 +8,9 @@ use rustfft::num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::Duration;
+
+pub const DEFAULT_WATERFALL_SECONDS_PER_SCREEN: f32 = 15.0;
 
 /// RGBA color with components in [0.0, 1.0]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -480,6 +483,68 @@ impl WaterfallHistory {
     }
 }
 
+/// Pace waterfall history by a fixed time per visible screenful.
+pub struct WaterfallPacer {
+    seconds_per_screen: f32,
+    accumulated_seconds: f32,
+    seeded: bool,
+}
+
+impl WaterfallPacer {
+    pub fn new(seconds_per_screen: f32) -> Self {
+        Self {
+            seconds_per_screen: seconds_per_screen.max(0.001),
+            accumulated_seconds: 0.0,
+            seeded: false,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.accumulated_seconds = 0.0;
+        self.seeded = false;
+    }
+
+    pub fn push_for_elapsed(
+        &mut self,
+        history: &mut WaterfallHistory,
+        bands: &[f32],
+        elapsed: Duration,
+    ) -> usize {
+        if history.capacity() == 0 {
+            return 0;
+        }
+
+        if !self.seeded {
+            history.push(bands);
+            self.seeded = true;
+            return 1;
+        }
+
+        self.accumulated_seconds =
+            (self.accumulated_seconds + elapsed.as_secs_f32()).min(self.seconds_per_screen);
+
+        let column_period = self.column_period(history.capacity());
+        let columns_to_push = (self.accumulated_seconds / column_period).floor().max(0.0) as usize;
+
+        if columns_to_push == 0 {
+            return 0;
+        }
+
+        let columns_to_push = columns_to_push.min(history.capacity());
+        self.accumulated_seconds -= column_period * columns_to_push as f32;
+
+        for _ in 0..columns_to_push {
+            history.push(bands);
+        }
+
+        columns_to_push
+    }
+
+    fn column_period(&self, columns: usize) -> f32 {
+        self.seconds_per_screen / columns.max(1) as f32
+    }
+}
+
 #[inline]
 pub fn quantize_intensity(intensity: f32, num_levels: usize) -> usize {
     let intensity = intensity.clamp(0.0, 1.0);
@@ -606,5 +671,46 @@ mod tests {
             lowest_band_with,
             lowest_band_without
         );
+    }
+
+    #[test]
+    fn waterfall_pacer_seeds_immediately() {
+        let mut pacer = WaterfallPacer::new(DEFAULT_WATERFALL_SECONDS_PER_SCREEN);
+        let mut history = WaterfallHistory::new(10, 4);
+
+        let pushed = pacer.push_for_elapsed(
+            &mut history,
+            &[0.1, 0.2, 0.3, 0.4],
+            Duration::from_millis(1),
+        );
+
+        assert_eq!(pushed, 1);
+        assert_eq!(history.len(), 1);
+    }
+
+    #[test]
+    fn waterfall_pacer_uses_screenful_timing() {
+        let mut pacer = WaterfallPacer::new(15.0);
+        let mut history = WaterfallHistory::new(15, 2);
+
+        pacer.push_for_elapsed(&mut history, &[0.2, 0.4], Duration::from_millis(1));
+        let pushed = pacer.push_for_elapsed(&mut history, &[0.3, 0.5], Duration::from_millis(999));
+        assert_eq!(pushed, 0);
+
+        let pushed = pacer.push_for_elapsed(&mut history, &[0.4, 0.6], Duration::from_millis(2));
+        assert_eq!(pushed, 1);
+        assert_eq!(history.len(), 2);
+    }
+
+    #[test]
+    fn waterfall_pacer_scales_with_surface_width() {
+        let mut pacer = WaterfallPacer::new(15.0);
+        let mut history = WaterfallHistory::new(30, 2);
+
+        pacer.push_for_elapsed(&mut history, &[0.2, 0.4], Duration::from_millis(1));
+        let pushed = pacer.push_for_elapsed(&mut history, &[0.3, 0.5], Duration::from_millis(500));
+
+        assert_eq!(pushed, 1);
+        assert_eq!(history.len(), 2);
     }
 }

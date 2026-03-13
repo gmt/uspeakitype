@@ -6,7 +6,7 @@ use winit::dpi::PhysicalSize;
 
 use crate::spectrum::{
     intensity_to_height, ColorScheme, FlameScheme, SpectrumAnalyzer, SpectrumConfig,
-    WaterfallHistory,
+    WaterfallHistory, WaterfallPacer, DEFAULT_WATERFALL_SECONDS_PER_SCREEN,
 };
 
 const ANIMATION_SPEED: f32 = 0.85;
@@ -30,10 +30,12 @@ pub struct Spectrogram {
     size: PhysicalSize<u32>,
     window_height: u32,
     last_update: Instant,
+    last_waterfall_column_at: Instant,
 
     mode: SpectrogramMode,
     analyzer: SpectrumAnalyzer,
     history: WaterfallHistory,
+    waterfall_pacer: WaterfallPacer,
     color_scheme: Box<dyn ColorScheme>,
 
     bar_data: Vec<f32>,
@@ -233,9 +235,11 @@ impl Spectrogram {
             size,
             window_height,
             last_update: Instant::now(),
+            last_waterfall_column_at: Instant::now(),
             mode,
             analyzer,
             history,
+            waterfall_pacer: WaterfallPacer::new(DEFAULT_WATERFALL_SECONDS_PER_SCREEN),
             color_scheme,
             bar_data,
             target_bar_data,
@@ -270,6 +274,8 @@ impl Spectrogram {
         self.analyzer = SpectrumAnalyzer::new(config);
 
         self.history = WaterfallHistory::new(self.size.width as usize, num_bands);
+        self.waterfall_pacer.reset();
+        self.last_waterfall_column_at = Instant::now();
 
         self.bar_data = vec![MIN_AMPLITUDE; num_bands];
         self.target_bar_data = vec![MIN_AMPLITUDE; num_bands];
@@ -293,6 +299,8 @@ impl Spectrogram {
                     new_size.width as usize,
                     self.analyzer.config().num_bands,
                 );
+                self.waterfall_pacer.reset();
+                self.last_waterfall_column_at = Instant::now();
             }
             self.update_instance_buffer();
         }
@@ -308,7 +316,13 @@ impl Spectrogram {
         self.analyzer.push_samples(samples);
         if self.analyzer.process() {
             let bands = self.analyzer.data().bands.clone();
-            self.history.push(&bands);
+            if matches!(self.mode, SpectrogramMode::Waterfall) {
+                let now = Instant::now();
+                let elapsed = now.duration_since(self.last_waterfall_column_at);
+                self.last_waterfall_column_at = now;
+                self.waterfall_pacer
+                    .push_for_elapsed(&mut self.history, &bands, elapsed);
+            }
 
             for (i, &band) in bands.iter().enumerate() {
                 if i < self.target_bar_data.len() {
