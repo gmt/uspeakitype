@@ -82,6 +82,12 @@ The prototype is mainly asking:
 - does a Qt-owned shell make the spectrogram feel more intentional instead of more debug-like?
 - is there enough value in the container/chrome layer alone to justify a deeper experiment?
 
+The current mockup also leans on a more realistic viewport placeholder than the first pass did:
+
+- a wider, fuller host surface instead of a cramped inner island
+- stronger visual continuity in the fake spectrogram/waterfall content
+- clearer labeling of the renderer seam so the shell reads as intentional rather than as a fake rewrite
+
 ## Recommendation
 
 If the visual direction feels promising, the next real spike should still be conservative:

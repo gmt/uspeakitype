@@ -18,11 +18,20 @@ Rectangle {
     color: "#12181c"
     border.width: 1
     border.color: "#233740"
+    clip: true
+
+    Rectangle {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: 126
+        color: "#18242b"
+    }
 
     Text {
         id: title
         visible: root.expanded
-        text: "Container Concept"
+        text: "Control Dock"
         color: "#f1f3ed"
         font.pixelSize: 22
         font.weight: Font.DemiBold
@@ -45,7 +54,7 @@ Rectangle {
 
     Text {
         visible: root.expanded
-        text: "Qt Quick owns the shell, transcript chrome, and settings surface. The spectrogram itself can stay Rust-first until we decide otherwise."
+        text: "Qt Quick can handle the shell, drawer, and transcript chrome while the spectrogram remains a dedicated surface."
         color: "#9dafb2"
         font.pixelSize: 15
         wrapMode: Text.WordWrap
@@ -109,7 +118,7 @@ Rectangle {
 
     Text {
         visible: root.expanded
-        text: "Cheap Wins"
+        text: "Immediate Wins"
         color: "#f1f3ed"
         font.pixelSize: 18
         font.weight: Font.Medium
@@ -121,7 +130,7 @@ Rectangle {
 
     Text {
         visible: root.expanded
-        text: "- proper layout primitives\n- polished drawer and sheet behavior\n- better typography and focus affordances\n- less custom hit-testing and panel math"
+        text: "- proper layout primitives\n- polished drawer and sheet behavior\n- stronger focus and hover affordances\n- less custom panel geometry and hit-testing"
         color: "#9dafb2"
         font.pixelSize: 14
         wrapMode: Text.WordWrap
@@ -146,7 +155,7 @@ Rectangle {
         border.color: "#314149"
 
         Text {
-            text: "Reality Check"
+            text: "Bridge Risk"
             color: "#f3d4c4"
             font.pixelSize: 15
             font.weight: Font.DemiBold
@@ -156,7 +165,7 @@ Rectangle {
         }
 
         Text {
-            text: "This only solves container chrome. Input injection, Wayland integration, and renderer ownership still need a real bridge."
+            text: "This only solves container chrome. Input injection, Wayland embedding, and renderer ownership still need a real bridge."
             color: "#d6d0ca"
             font.pixelSize: 13
             wrapMode: Text.WordWrap

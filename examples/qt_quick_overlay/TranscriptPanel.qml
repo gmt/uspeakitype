@@ -11,6 +11,26 @@ Rectangle {
     border.width: 1
     border.color: "#304048"
 
+    Rectangle {
+        anchors.fill: parent
+        radius: parent.radius
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: "#1b1f20" }
+            GradientStop { position: 1.0; color: "#171a1b" }
+        }
+    }
+
+    Text {
+        text: "Transcript"
+        color: "#90a1a5"
+        font.pixelSize: 13
+        font.letterSpacing: 1.2
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.leftMargin: 18
+        anchors.topMargin: 12
+    }
+
     Text {
         id: committed
         text: root.committedText
@@ -22,6 +42,7 @@ Rectangle {
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.margins: 18
+        anchors.topMargin: 34
     }
 
     Text {

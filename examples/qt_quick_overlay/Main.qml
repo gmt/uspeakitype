@@ -3,8 +3,8 @@ import QtQuick.Window 2.15
 
 Window {
     id: root
-    width: 1180
-    height: 760
+    width: 1240
+    height: 780
     visible: true
     color: "#0b1216"
     title: "usit Qt Quick Overlay Concept"
@@ -13,7 +13,7 @@ Window {
     property bool listening: true
     property bool injectionEnabled: true
     property bool paused: false
-    property bool showWaterfall: false
+    property bool showWaterfall: true
     property real fakeLevel: 0.62
 
     Timer {
@@ -33,23 +33,23 @@ Window {
     }
 
     Rectangle {
-        width: 420
-        height: 420
+        width: 460
+        height: 460
         radius: width / 2
-        color: "#1f4b4d"
-        opacity: 0.18
-        x: parent.width * 0.63
-        y: -120
+        color: "#204e52"
+        opacity: 0.16
+        x: parent.width * 0.58
+        y: -150
     }
 
     Rectangle {
-        width: 360
-        height: 360
+        width: 390
+        height: 390
         radius: width / 2
         color: "#d36b35"
-        opacity: 0.10
-        x: -80
-        y: parent.height - 240
+        opacity: 0.12
+        x: -100
+        y: parent.height - 260
     }
 
     Item {
@@ -154,7 +154,7 @@ Window {
                     }
 
                     ActionButton {
-                        label: root.controlDrawerOpen ? "Hide Controls" : "Show Controls"
+                        label: root.controlDrawerOpen ? "Dock Controls" : "Open Controls"
                         onActivated: root.controlDrawerOpen = !root.controlDrawerOpen
                     }
                 }
@@ -164,11 +164,11 @@ Window {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    anchors.topMargin: 64
+                    anchors.topMargin: 62
                     anchors.bottom: transcript.top
-                    anchors.leftMargin: 18
-                    anchors.rightMargin: 18
-                    anchors.bottomMargin: 16
+                    anchors.leftMargin: 14
+                    anchors.rightMargin: 14
+                    anchors.bottomMargin: 14
                     waterfallMode: root.showWaterfall
                     energyLevel: root.fakeLevel
                 }
@@ -179,10 +179,10 @@ Window {
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
                     anchors.margins: 18
-                    height: 122
-                    committedText: "the control panel is fighting the renderer less when it is clearly a separate thing"
-                    partialText: "and that seems promising"
-                    footerText: "Requested: moonshine-voice   Active: moonshine-base   Download: idle"
+                    height: 132
+                    committedText: "the shell should feel deliberate while the renderer stays free to be specialized"
+                    partialText: "and the viewport seam ought to be obvious without looking temporary"
+                    footerText: "Requested: moonshine-voice   Active: moonshine-base   Surface: Rust/WGPU seam   Download: idle"
                 }
             }
         }
