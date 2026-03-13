@@ -28,6 +28,7 @@
 //! - 24px margins on all sides
 
 use std::io::{self, Write};
+use std::time::Instant;
 
 use ratatui::{
     backend::CrosstermBackend,
@@ -44,7 +45,8 @@ use super::transcript_widget::TranscriptWidget;
 use super::waterfall_widget::WaterfallWidget;
 
 use crate::spectrum::{
-    ColorScheme, FlameScheme, SpectrumAnalyzer, SpectrumConfig, WaterfallHistory,
+    ColorScheme, FlameScheme, SpectrumAnalyzer, SpectrumConfig, WaterfallHistory, WaterfallPacer,
+    DEFAULT_WATERFALL_SECONDS_PER_SCREEN,
 };
 
 use super::control_panel::{Control, ControlPanelState};
@@ -226,6 +228,8 @@ pub struct TerminalVisualizer {
     config: TerminalConfig,
     analyzer: SpectrumAnalyzer,
     history: WaterfallHistory,
+    waterfall_pacer: WaterfallPacer,
+    last_waterfall_column_at: Instant,
     color_scheme: Box<dyn ColorScheme>,
     charset: &'static [char; 9],
     box_left: usize,
@@ -261,6 +265,7 @@ impl TerminalVisualizer {
 
         let analyzer = SpectrumAnalyzer::new(spectrum_config);
         let history = WaterfallHistory::new(config.width, num_bands);
+        let waterfall_pacer = WaterfallPacer::new(DEFAULT_WATERFALL_SECONDS_PER_SCREEN);
         let charset = if config.use_unicode {
             &BLOCK_CHARS
         } else {
@@ -278,6 +283,8 @@ impl TerminalVisualizer {
             config,
             analyzer,
             history,
+            waterfall_pacer,
+            last_waterfall_column_at: Instant::now(),
             color_scheme: Box::new(FlameScheme),
             charset,
             box_left,
@@ -328,6 +335,8 @@ impl TerminalVisualizer {
         self.analyzer = SpectrumAnalyzer::new(spectrum_config);
 
         self.history = WaterfallHistory::new(self.config.width, num_bands);
+        self.waterfall_pacer.reset();
+        self.last_waterfall_column_at = Instant::now();
     }
 
     /// Resize the terminal visualizer to new dimensions.
@@ -361,6 +370,8 @@ impl TerminalVisualizer {
             };
             self.analyzer = SpectrumAnalyzer::new(spectrum_config);
             self.history = WaterfallHistory::new(self.config.width, num_bands);
+            self.waterfall_pacer.reset();
+            self.last_waterfall_column_at = Instant::now();
         }
 
         let box_width = self.config.width + 2;
@@ -408,6 +419,18 @@ impl TerminalVisualizer {
         self.panel_open = open;
     }
 
+    fn push_waterfall_column(&mut self, bands: &[f32]) {
+        if !matches!(self.config.mode, TerminalMode::Waterfall) {
+            return;
+        }
+
+        let now = Instant::now();
+        let elapsed = now.duration_since(self.last_waterfall_column_at);
+        self.last_waterfall_column_at = now;
+        self.waterfall_pacer
+            .push_for_elapsed(&mut self.history, bands, elapsed);
+    }
+
     pub fn process_and_render(&mut self) -> io::Result<()> {
         if self.layout_mode() == LayoutMode::Degenerate {
             print!("\x1b[2J\x1b[1;1H");
@@ -434,7 +457,8 @@ impl TerminalVisualizer {
             return Ok(());
         }
 
-        self.history.push(&self.analyzer.data().bands);
+        let bands = self.analyzer.data().bands.clone();
+        self.push_waterfall_column(&bands);
 
         // Legacy ANSI rendering path - now handled by process_and_render_ratatui()
         Ok(())
@@ -525,7 +549,8 @@ impl TerminalVisualizer {
             if !self.analyzer.process() {
                 return Ok(());
             }
-            self.history.push(&self.analyzer.data().bands);
+            let bands = self.analyzer.data().bands.clone();
+            self.push_waterfall_column(&bands);
         }
 
         let layout_mode = self.layout_mode();
