@@ -300,6 +300,10 @@ pub fn check_integrity(model_dir: &Path, model_id: AsrModelId) -> IntegrityStatu
                 }
             }
 
+            // Some models ship ONNX external-data sidecars that older manifests never recorded.
+            // Keep validating those required files so broken legacy caches don't look healthy forever.
+            errors.extend(extra_required_file_checks(model_dir, model_id));
+
             if errors.is_empty() {
                 IntegrityStatus::Verified
             } else {
@@ -325,6 +329,30 @@ pub fn check_integrity(model_dir: &Path, model_id: AsrModelId) -> IntegrityStatu
                 IntegrityStatus::Corrupt(errors)
             }
         }
+    }
+}
+
+fn extra_required_file_checks(model_dir: &Path, model_id: AsrModelId) -> Vec<IntegrityError> {
+    match model_id {
+        AsrModelId::ParakeetTdt06bV3 => {
+            let sidecar_candidates = [
+                "encoder-model.onnx.data",
+                "encoder.onnx.data",
+                "encoder_model.onnx.data",
+            ];
+
+            if sidecar_candidates
+                .iter()
+                .any(|f| model_dir.join(f).exists())
+            {
+                Vec::new()
+            } else {
+                vec![IntegrityError::MissingFile(
+                    "encoder-model.onnx.data (or variant)".to_string(),
+                )]
+            }
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -360,6 +388,18 @@ fn heuristic_validate(model_dir: &Path, model_id: AsrModelId) -> Vec<IntegrityEr
                 if !encoder_exists {
                     errors.push(IntegrityError::MissingFile(
                         "encoder-model.onnx (or variant)".to_string(),
+                    ));
+                }
+                if ![
+                    "encoder-model.onnx.data",
+                    "encoder.onnx.data",
+                    "encoder_model.onnx.data",
+                ]
+                .iter()
+                .any(|f| model_dir.join(f).exists())
+                {
+                    errors.push(IntegrityError::MissingFile(
+                        "encoder-model.onnx.data (or variant)".to_string(),
                     ));
                 }
                 if !decoder_exists {
@@ -805,5 +845,27 @@ mod tests {
         assert!(matches!(status, ActivationResult::NeedsDownload));
         assert!(model_dir.exists());
         assert!(!models_dir.join(".backup").exists());
+    }
+
+    #[test]
+    fn test_prepare_for_activation_quarantines_manifest_missing_parakeet_sidecar() {
+        let temp_dir = TempDir::new().unwrap();
+        let models_dir = temp_dir.path();
+        let model_dir = models_dir.join(AsrModelId::ParakeetTdt06bV3.dir_name());
+        fs::create_dir_all(&model_dir).unwrap();
+        fs::write(model_dir.join("encoder-model.onnx"), vec![0u8; 2048]).unwrap();
+        fs::write(model_dir.join("decoder_joint-model.onnx"), vec![0u8; 2048]).unwrap();
+        fs::write(model_dir.join("nemo128.onnx"), vec![0u8; 2048]).unwrap();
+        fs::write(model_dir.join("vocab.txt"), b"vocab").unwrap();
+
+        let manifest =
+            ModelManifest::generate(&model_dir, AsrModelId::ParakeetTdt06bV3.dir_name()).unwrap();
+        manifest.save(&model_dir).unwrap();
+
+        let status = prepare_for_activation(&model_dir, AsrModelId::ParakeetTdt06bV3);
+
+        assert!(matches!(status, ActivationResult::Quarantined));
+        assert!(!model_dir.exists());
+        assert!(models_dir.join(".backup").exists());
     }
 }

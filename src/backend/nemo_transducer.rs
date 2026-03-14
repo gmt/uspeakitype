@@ -13,7 +13,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use ndarray::{Array1, Array2, Array3, Axis, Ix3};
 use ort::session::{builder::GraphOptimizationLevel, Session, SessionInputValue, SessionInputs};
-use ort::value::{Tensor, ValueType};
+use ort::tensor::TensorElementType;
+use ort::value::{Outlet, Tensor, ValueType};
 use serde::Deserialize;
 
 use crate::backend::init_ort;
@@ -65,7 +66,9 @@ struct EncoderIo {
 struct DecoderJointIo {
     in_encoder_outputs: String,
     in_targets: String,
+    in_targets_ty: TensorElementType,
     in_target_length: String,
+    in_target_length_ty: TensorElementType,
     in_state1: String,
     in_state2: String,
     out_outputs: String,
@@ -224,24 +227,40 @@ impl NemoTransducerStreamer {
             .unwrap_or_else(|| "encoded_lengths".to_string()),
         };
 
+        let in_encoder_outputs = find_input_name(decoder_joint.inputs(), &["encoder_outputs"])
+            .unwrap_or_else(|| "encoder_outputs".to_string());
+        let in_targets = find_input_name(decoder_joint.inputs(), &["targets"])
+            .unwrap_or_else(|| "targets".to_string());
+        let in_target_length = find_input_name(decoder_joint.inputs(), &["target_length"])
+            .unwrap_or_else(|| "target_length".to_string());
+        let in_state1 = find_input_name(decoder_joint.inputs(), &["input_states_1"])
+            .unwrap_or_else(|| "input_states_1".to_string());
+        let in_state2 = find_input_name(decoder_joint.inputs(), &["input_states_2"])
+            .unwrap_or_else(|| "input_states_2".to_string());
+        let out_outputs = find_output_name(decoder_joint.outputs(), &["outputs", "output"])
+            .unwrap_or_else(|| "outputs".to_string());
+        let out_state1 = find_output_name(decoder_joint.outputs(), &["output_states_1"])
+            .unwrap_or_else(|| "output_states_1".to_string());
+        let out_state2 = find_output_name(decoder_joint.outputs(), &["output_states_2"])
+            .unwrap_or_else(|| "output_states_2".to_string());
+
         let dec_io = DecoderJointIo {
-            in_encoder_outputs: find_input_name(decoder_joint.inputs(), &["encoder_outputs"])
-                .unwrap_or_else(|| "encoder_outputs".to_string()),
-            in_targets: find_input_name(decoder_joint.inputs(), &["targets"])
-                .unwrap_or_else(|| "targets".to_string()),
-            in_target_length: find_input_name(decoder_joint.inputs(), &["target_length"])
-                .unwrap_or_else(|| "target_length".to_string()),
-            in_state1: find_input_name(decoder_joint.inputs(), &["input_states_1"])
-                .unwrap_or_else(|| "input_states_1".to_string()),
-            in_state2: find_input_name(decoder_joint.inputs(), &["input_states_2"])
-                .unwrap_or_else(|| "input_states_2".to_string()),
-            out_outputs: find_output_name(decoder_joint.outputs(), &["outputs", "output"])
-                .unwrap_or_else(|| "outputs".to_string()),
-            out_state1: find_output_name(decoder_joint.outputs(), &["output_states_1"])
-                .unwrap_or_else(|| "output_states_1".to_string()),
-            out_state2: find_output_name(decoder_joint.outputs(), &["output_states_2"])
-                .unwrap_or_else(|| "output_states_2".to_string()),
+            in_encoder_outputs,
+            in_targets_ty: integer_input_type(decoder_joint.inputs(), &in_targets)?,
+            in_targets,
+            in_target_length_ty: integer_input_type(decoder_joint.inputs(), &in_target_length)?,
+            in_target_length,
+            in_state1,
+            in_state2,
+            out_outputs,
+            out_state1,
+            out_state2,
         };
+        log::info!(
+            "NeMo decoder_joint input types: targets={}, target_length={}",
+            dec_io.in_targets_ty,
+            dec_io.in_target_length_ty
+        );
 
         let (vocab, blank_idx) = load_vocab(&vocab_path)?;
         let (state1, state2) = init_decoder_states(&decoder_joint, &dec_io)?;
@@ -490,13 +509,17 @@ impl NemoTransducerStreamer {
         let encoder_outputs = Array3::from_shape_vec((1, dim, 1), enc_vec.to_vec())
             .context("building encoder_outputs")?;
 
-        let targets =
-            Array2::from_shape_vec((1, 1), vec![last_token as i64]).context("building targets")?;
-        let target_length = Array1::from(vec![1i64]);
-
         let encoder_outputs_tensor: SessionInputValue = Tensor::from_array(encoder_outputs)?.into();
-        let targets_tensor: SessionInputValue = Tensor::from_array(targets)?.into();
-        let target_length_tensor: SessionInputValue = Tensor::from_array(target_length)?.into();
+        let targets_tensor = singleton_token_input(
+            last_token,
+            self.dec_io.in_targets_ty,
+            &self.dec_io.in_targets,
+        )?;
+        let target_length_tensor = singleton_length_input(
+            1,
+            self.dec_io.in_target_length_ty,
+            &self.dec_io.in_target_length,
+        )?;
         let state1_tensor: SessionInputValue = Tensor::from_array(state1.clone())?.into();
         let state2_tensor: SessionInputValue = Tensor::from_array(state2.clone())?.into();
 
@@ -512,7 +535,15 @@ impl NemoTransducerStreamer {
                 (self.dec_io.in_state1.clone(), state1_tensor),
                 (self.dec_io.in_state2.clone(), state2_tensor),
             ]))
-            .context("decoder_joint inference")?;
+            .with_context(|| {
+                format!(
+                    "decoder_joint inference (encoder_dim={}, last_token={}, state1_shape={:?}, state2_shape={:?})",
+                    dim,
+                    last_token,
+                    state1.raw_dim(),
+                    state2.raw_dim()
+                )
+            })?;
 
         let out = outputs
             .get(self.dec_io.out_outputs.as_str())
@@ -757,7 +788,74 @@ fn state_shape(decoder_joint: &Session, name: &str) -> Result<(usize, usize)> {
     Ok((batch, hidden))
 }
 
-fn find_input_name(inputs: &[ort::value::Outlet], candidates: &[&str]) -> Option<String> {
+fn integer_input_type(inputs: &[Outlet], name: &str) -> Result<TensorElementType> {
+    let outlet = inputs
+        .iter()
+        .find(|input| input.name() == name)
+        .ok_or_else(|| anyhow::anyhow!("missing decoder_joint input: {}", name))?;
+
+    match outlet.dtype().tensor_type() {
+        Some(TensorElementType::Int32) => Ok(TensorElementType::Int32),
+        Some(TensorElementType::Int64) => Ok(TensorElementType::Int64),
+        Some(other) => anyhow::bail!(
+            "decoder_joint input {} has unsupported integer tensor type {}",
+            name,
+            other
+        ),
+        None => anyhow::bail!("decoder_joint input {} is not a tensor", name),
+    }
+}
+
+fn singleton_token_input(
+    value: u32,
+    tensor_type: TensorElementType,
+    input_name: &str,
+) -> Result<SessionInputValue<'static>> {
+    match tensor_type {
+        TensorElementType::Int32 => {
+            let value = i32::try_from(value)
+                .with_context(|| format!("converting {} value {} to i32", input_name, value))?;
+            let tensor = Array2::from_shape_vec((1, 1), vec![value]).context("building targets")?;
+            Ok(Tensor::from_array(tensor)?.into())
+        }
+        TensorElementType::Int64 => {
+            let tensor = Array2::from_shape_vec((1, 1), vec![i64::from(value)])
+                .context("building targets")?;
+            Ok(Tensor::from_array(tensor)?.into())
+        }
+        other => anyhow::bail!(
+            "unsupported tensor type {} for decoder_joint input {}",
+            other,
+            input_name
+        ),
+    }
+}
+
+fn singleton_length_input(
+    value: usize,
+    tensor_type: TensorElementType,
+    input_name: &str,
+) -> Result<SessionInputValue<'static>> {
+    match tensor_type {
+        TensorElementType::Int32 => {
+            let value = i32::try_from(value)
+                .with_context(|| format!("converting {} value {} to i32", input_name, value))?;
+            Ok(Tensor::from_array(Array1::from(vec![value]))?.into())
+        }
+        TensorElementType::Int64 => {
+            let value = i64::try_from(value)
+                .with_context(|| format!("converting {} value {} to i64", input_name, value))?;
+            Ok(Tensor::from_array(Array1::from(vec![value]))?.into())
+        }
+        other => anyhow::bail!(
+            "unsupported tensor type {} for decoder_joint input {}",
+            other,
+            input_name
+        ),
+    }
+}
+
+fn find_input_name(inputs: &[Outlet], candidates: &[&str]) -> Option<String> {
     for candidate in candidates {
         for input in inputs {
             let name = input.name();
@@ -771,7 +869,7 @@ fn find_input_name(inputs: &[ort::value::Outlet], candidates: &[&str]) -> Option
     None
 }
 
-fn find_output_name(outputs: &[ort::value::Outlet], candidates: &[&str]) -> Option<String> {
+fn find_output_name(outputs: &[Outlet], candidates: &[&str]) -> Option<String> {
     for candidate in candidates {
         for output in outputs {
             let name = output.name();
@@ -870,6 +968,8 @@ mod tests {
 
     use tempfile::TempDir;
 
+    use ort::tensor::{Shape, SymbolicDimensions};
+
     #[test]
     fn load_vocab_parses_and_finds_blank() {
         let dir = TempDir::new().unwrap();
@@ -927,5 +1027,53 @@ mod tests {
         assert_eq!(advance_tdt_cursor(5, 123, blank, 0, 1, 10), (5, 1));
         // When we reach max_tokens_per_step, advance to the next frame.
         assert_eq!(advance_tdt_cursor(5, 123, blank, 0, 10, 10), (6, 0));
+    }
+
+    #[test]
+    fn integer_input_type_accepts_int32_and_int64() {
+        let inputs = vec![
+            Outlet::new(
+                "targets",
+                ValueType::Tensor {
+                    ty: TensorElementType::Int32,
+                    shape: Shape::from(vec![1usize, 1]),
+                    dimension_symbols: SymbolicDimensions::empty(2),
+                },
+            ),
+            Outlet::new(
+                "target_length",
+                ValueType::Tensor {
+                    ty: TensorElementType::Int64,
+                    shape: Shape::from(vec![1usize]),
+                    dimension_symbols: SymbolicDimensions::empty(1),
+                },
+            ),
+        ];
+
+        assert_eq!(
+            integer_input_type(&inputs, "targets").unwrap(),
+            TensorElementType::Int32
+        );
+        assert_eq!(
+            integer_input_type(&inputs, "target_length").unwrap(),
+            TensorElementType::Int64
+        );
+    }
+
+    #[test]
+    fn integer_input_type_rejects_non_integer_tensors() {
+        let inputs = vec![Outlet::new(
+            "targets",
+            ValueType::Tensor {
+                ty: TensorElementType::Float32,
+                shape: Shape::from(vec![1usize, 1]),
+                dimension_symbols: SymbolicDimensions::empty(2),
+            },
+        )];
+
+        let err = integer_input_type(&inputs, "targets")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("unsupported integer tensor type"));
     }
 }

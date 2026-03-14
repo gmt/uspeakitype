@@ -1267,7 +1267,7 @@ fn main() -> anyhow::Result<()> {
                             }
                         }
                         Err(e) => {
-                            log::error!("Streaming transcription error: {}", e);
+                            log::error!("Streaming transcription error: {:#}", e);
                         }
                     }
                 }

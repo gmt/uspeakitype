@@ -193,6 +193,28 @@ impl Drop for AudioCapture {
     }
 }
 
+fn format_source_summary(source: &AudioSource) -> String {
+    format!("[{}] {} ({})", source.id, source.name, source.description)
+}
+
+fn log_startup_sources(sources: &[AudioSource]) {
+    if sources.is_empty() {
+        log::warn!("Audio capture discovered no input sources during startup");
+        return;
+    }
+
+    let summary = sources
+        .iter()
+        .map(format_source_summary)
+        .collect::<Vec<_>>()
+        .join(", ");
+    log::info!(
+        "Audio capture startup discovered {} source(s): {}",
+        sources.len(),
+        summary
+    );
+}
+
 struct UserData {
     format: AudioInfoRaw,
     callback: AudioCallback,
@@ -518,30 +540,90 @@ fn apply_auto_gain(
     control.set_current_gain(gain);
 }
 
-fn resolve_source(source: &str) -> Result<u32> {
+fn resolve_source_with_known_sources(source: &str, sources: &[AudioSource]) -> Result<u32> {
     if let Ok(id) = source.parse::<u32>() {
+        if let Some(found) = sources.iter().find(|candidate| candidate.id == id) {
+            log::info!(
+                "Audio capture requested source {:?} resolved by id to {}",
+                source,
+                format_source_summary(found)
+            );
+        } else {
+            log::warn!(
+                "Audio capture requested numeric source id {} which was not present in the startup source list",
+                id
+            );
+        }
         return Ok(id);
     }
 
-    let sources = list_audio_sources()?;
     sources
         .iter()
         .find(|s| s.name == source || s.description == source)
-        .map(|s| s.id)
-        .ok_or_else(|| anyhow::anyhow!("audio source not found: {}", source))
+        .map(|s| {
+            log::info!(
+                "Audio capture requested source {:?} resolved to {}",
+                source,
+                format_source_summary(s)
+            );
+            s.id
+        })
+        .ok_or_else(|| {
+            let available = if sources.is_empty() {
+                "none".to_string()
+            } else {
+                sources
+                    .iter()
+                    .map(format_source_summary)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            anyhow::anyhow!(
+                "audio source not found: {} (available sources: {})",
+                source,
+                available
+            )
+        })
 }
 
 fn run_capture_loop(
     control: Arc<CaptureControl>,
     callback: AudioCallback,
-    _sources: Arc<RwLock<Vec<AudioSource>>>,
+    sources: Arc<RwLock<Vec<AudioSource>>>,
     config: CaptureConfig,
 ) -> Result<()> {
+    log::info!(
+        "Audio capture startup: requested_source={}, auto_gain={}, role=Communication, autoconnect=true",
+        config.source.as_deref().unwrap_or("<default>"),
+        config.auto_gain_enabled
+    );
+
+    let startup_sources = match list_audio_sources() {
+        Ok(startup_sources) => {
+            log_startup_sources(&startup_sources);
+            *sources.write() = startup_sources.clone();
+            startup_sources
+        }
+        Err(e) => {
+            log::warn!(
+                "Audio capture could not enumerate sources during startup: {}",
+                e
+            );
+            Vec::new()
+        }
+    };
+
     let target_id = config
         .source
         .as_ref()
-        .map(|s| resolve_source(s))
+        .map(|s| resolve_source_with_known_sources(s, &startup_sources))
         .transpose()?;
+
+    if target_id.is_none() {
+        log::warn!(
+            "Audio capture is using default-source mode; PipeWire will autoconnect a Communication-role stream to whatever source policy chooses at connect time"
+        );
+    }
 
     pw::init();
 
@@ -574,6 +656,13 @@ fn run_capture_loop(
 
     let _listener = stream
         .add_local_listener_with_user_data(user_data)
+        .state_changed(|_, _, old_state, new_state| {
+            log::info!(
+                "Audio capture stream state changed: {:?} -> {:?}",
+                old_state,
+                new_state
+            );
+        })
         .param_changed(|_, user_data, id, param| {
             let Some(param) = param else { return };
             if id != spa::param::ParamType::Format.as_raw() {
@@ -593,6 +682,11 @@ fn run_capture_loop(
                 let rate = user_data.format.rate();
                 let channels = user_data.format.channels();
                 user_data.control.set_format(rate, channels);
+                log::info!(
+                    "Audio capture negotiated format: rate={}Hz channels={}",
+                    rate,
+                    channels
+                );
             }
         })
         .process(|stream, user_data| {
@@ -687,6 +781,10 @@ fn run_capture_loop(
             &mut params,
         )
         .context("connecting audio stream")?;
+    log::info!(
+        "Audio capture connect request submitted: target_id={:?}, role=Communication",
+        target_id
+    );
 
     let mainloop_weak = mainloop.downgrade();
     let control_for_timer = control.clone();
