@@ -598,29 +598,10 @@ fn run_capture_loop(
         config.auto_gain_enabled
     );
 
-    let startup_sources = match list_audio_sources() {
-        Ok(startup_sources) => {
-            log_startup_sources(&startup_sources);
-            *sources.write() = startup_sources.clone();
-            startup_sources
-        }
-        Err(e) => {
-            log::warn!(
-                "Audio capture could not enumerate sources during startup: {}",
-                e
-            );
-            Vec::new()
-        }
-    };
-
-    let target_id = config
-        .source
-        .as_ref()
-        .map(|s| resolve_source_with_known_sources(s, &startup_sources))
-        .transpose()?;
+    let target_id = resolve_startup_target_id(config.source.as_deref(), &sources)?;
 
     if target_id.is_none() {
-        log::warn!(
+        log::info!(
             "Audio capture is using default-source mode; PipeWire will autoconnect a Communication-role stream to whatever source policy chooses at connect time"
         );
     }
@@ -809,6 +790,32 @@ fn run_capture_loop(
     Ok(())
 }
 
+fn resolve_startup_target_id(
+    requested_source: Option<&str>,
+    sources: &Arc<RwLock<Vec<AudioSource>>>,
+) -> Result<Option<u32>> {
+    resolve_startup_target_id_with(requested_source, sources, list_audio_sources)
+}
+
+fn resolve_startup_target_id_with<F>(
+    requested_source: Option<&str>,
+    sources: &Arc<RwLock<Vec<AudioSource>>>,
+    discover_sources: F,
+) -> Result<Option<u32>>
+where
+    F: FnOnce() -> Result<Vec<AudioSource>>,
+{
+    let Some(requested_source) = requested_source else {
+        return Ok(None);
+    };
+
+    let startup_sources = discover_sources().context("enumerating audio sources during startup")?;
+    log_startup_sources(&startup_sources);
+    *sources.write() = startup_sources.clone();
+
+    resolve_source_with_known_sources(requested_source, &startup_sources).map(Some)
+}
+
 pub fn list_audio_sources() -> Result<Vec<AudioSource>> {
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -929,6 +936,36 @@ mod tests {
 
         control.set_auto_gain(false);
         assert!(!control.is_auto_gain_enabled());
+    }
+
+    #[test]
+    fn startup_target_resolution_skips_enumeration_in_default_mode() {
+        let sources = Arc::new(RwLock::new(Vec::new()));
+        let enumerated = std::sync::atomic::AtomicBool::new(false);
+
+        let target_id = resolve_startup_target_id_with(None, &sources, || {
+            enumerated.store(true, Ordering::SeqCst);
+            Ok(Vec::new())
+        })
+        .unwrap();
+
+        assert_eq!(target_id, None);
+        assert!(!enumerated.load(Ordering::SeqCst));
+        assert!(sources.read().is_empty());
+    }
+
+    #[test]
+    fn startup_target_resolution_preserves_discovery_errors() {
+        let sources = Arc::new(RwLock::new(Vec::new()));
+
+        let error = resolve_startup_target_id_with(Some("desk mic"), &sources, || {
+            Err(anyhow::anyhow!("connecting to PipeWire server"))
+        })
+        .unwrap_err();
+
+        let message = format!("{:#}", error);
+        assert!(message.contains("enumerating audio sources during startup"));
+        assert!(message.contains("connecting to PipeWire server"));
     }
 
     #[test]
