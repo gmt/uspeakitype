@@ -8,13 +8,13 @@ Rectangle {
 
     height: 54
     radius: 16
-    color: root.value ? "#20342f" : "#171e22"
+    color: root.value ? "#241718" : "#171012"
     border.width: 1
-    border.color: root.value ? "#3f8b70" : "#2d3a42"
+    border.color: root.value ? "#7a332d" : "#43332e"
 
     Text {
         text: root.label
-        color: "#edf1eb"
+        color: "#f4ece2"
         font.pixelSize: 16
         font.weight: Font.Medium
         anchors.left: parent.left
@@ -26,7 +26,7 @@ Rectangle {
         width: 54
         height: 28
         radius: 14
-        color: root.value ? "#3b8e74" : "#4b5459"
+        color: root.value ? "#af7b3f" : "#4d403b"
         anchors.right: parent.right
         anchors.rightMargin: 14
         anchors.verticalCenter: parent.verticalCenter
@@ -37,7 +37,7 @@ Rectangle {
             radius: 11
             y: 3
             x: root.value ? parent.width - width - 3 : 3
-            color: "#f4f4ee"
+            color: "#f5eee4"
 
             Behavior on x {
                 NumberAnimation { duration: 120; easing.type: Easing.OutCubic }

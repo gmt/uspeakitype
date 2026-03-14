@@ -5,11 +5,19 @@ Rectangle {
     property bool waterfallMode: false
     property real energyLevel: 0.5
     property real phase: 0.0
+    property var spectralPalette: [
+        [0.08, 0.06, 0.07],
+        [0.34, 0.27, 0.36],
+        [0.47, 0.23, 0.19],
+        [0.78, 0.55, 0.26],
+        [0.87, 0.66, 0.31],
+        [0.50, 0.56, 0.47]
+    ]
 
-    radius: 24
-    color: "#091015"
+    radius: 38
+    color: "#080607"
     border.width: 1
-    border.color: "#1f313a"
+    border.color: "#4b3b33"
     clip: true
 
     function pseudoNoise(a, b) {
@@ -18,6 +26,26 @@ Rectangle {
 
     function clamp(v, lo, hi) {
         return Math.max(lo, Math.min(hi, v))
+    }
+
+    function mix(a, b, t) {
+        return a + (b - a) * t
+    }
+
+    function paletteColor(t, alpha) {
+        const stops = root.spectralPalette
+        const scaled = root.clamp(t, 0.0, 1.0) * (stops.length - 1)
+        const i = Math.floor(scaled)
+        const j = Math.min(stops.length - 1, i + 1)
+        const frac = scaled - i
+        const a = stops[i]
+        const b = stops[j]
+        return Qt.rgba(
+            root.mix(a[0], b[0], frac),
+            root.mix(a[1], b[1], frac),
+            root.mix(a[2], b[2], frac),
+            alpha
+        )
     }
 
     Timer {
@@ -33,9 +61,10 @@ Rectangle {
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {
-            GradientStop { position: 0.0; color: "#081015" }
-            GradientStop { position: 0.58; color: "#0d1b23" }
-            GradientStop { position: 1.0; color: "#15100c" }
+            GradientStop { position: 0.0; color: "#0a0708" }
+            GradientStop { position: 0.4; color: "#10090b" }
+            GradientStop { position: 0.75; color: "#150f12" }
+            GradientStop { position: 1.0; color: "#1d1613" }
         }
     }
 
@@ -54,9 +83,9 @@ Rectangle {
             ctx.clearRect(0, 0, w, h)
 
             const bg = ctx.createLinearGradient(0, 0, 0, h)
-            bg.addColorStop(0.0, "#081117")
-            bg.addColorStop(0.62, "#0b161d")
-            bg.addColorStop(1.0, "#140e0a")
+            bg.addColorStop(0.0, "#090607")
+            bg.addColorStop(0.52, "#120b0d")
+            bg.addColorStop(1.0, "#1d1511")
             ctx.fillStyle = bg
             ctx.fillRect(0, 0, w, h)
 
@@ -85,10 +114,8 @@ Rectangle {
                         intensity *= 0.68 + Math.pow(1.0 - freq, 1.7) * 0.7
                         intensity = root.clamp(intensity, 0.0, 1.0)
 
-                        const hue = 0.62 - intensity * 0.56 + freq * 0.03
-                        const sat = 0.84
-                        const light = 0.18 + intensity * 0.5
-                        ctx.fillStyle = Qt.hsla(hue, sat, light, 0.96)
+                        const tint = root.clamp(intensity * 0.8 + (1.0 - freq) * 0.2, 0.0, 1.0)
+                        ctx.fillStyle = root.paletteColor(tint, 0.95)
                         ctx.fillRect(x * cellW, y * cellH, cellW + 0.9, cellH + 0.9)
                     }
                 }
@@ -97,7 +124,7 @@ Rectangle {
                 const barW = w / bars
                 const floorY = h - 16
 
-                ctx.fillStyle = "rgba(255,185,84,0.08)"
+                ctx.fillStyle = "rgba(214,157,76,0.12)"
                 ctx.fillRect(0, floorY - 2, w, 3)
 
                 for (let i = 0; i < bars; ++i) {
@@ -118,17 +145,35 @@ Rectangle {
                     const y = floorY - barH
 
                     const grad = ctx.createLinearGradient(0, y, 0, floorY)
-                    grad.addColorStop(0.0, "rgba(255,247,182,0.98)")
-                    grad.addColorStop(0.35, "rgba(255,176,62,0.95)")
-                    grad.addColorStop(1.0, "rgba(154,56,13,0.75)")
+                    grad.addColorStop(0.0, "rgba(244,229,196,0.98)")
+                    grad.addColorStop(0.28, "rgba(219,167,77,0.96)")
+                    grad.addColorStop(0.72, "rgba(122,51,45,0.88)")
+                    grad.addColorStop(1.0, "rgba(63,32,38,0.72)")
                     ctx.fillStyle = grad
                     ctx.fillRect(x + 0.6, y, Math.max(2.0, barW - 1.8), barH)
                 }
             }
 
+            const refractors = [
+                { x: 0.18, width: 0.11, color: "rgba(214,157,76,0.09)", tilt: -8 },
+                { x: 0.46, width: 0.14, color: "rgba(111,79,108,0.12)", tilt: 5 },
+                { x: 0.67, width: 0.1, color: "rgba(122,51,45,0.11)", tilt: -4 },
+                { x: 0.84, width: 0.12, color: "rgba(123,134,95,0.1)", tilt: 6 }
+            ]
+
+            for (let r = 0; r < refractors.length; ++r) {
+                const band = refractors[r]
+                ctx.save()
+                ctx.translate(w * band.x, -h * 0.08)
+                ctx.rotate(band.tilt * Math.PI / 180.0)
+                ctx.fillStyle = band.color
+                ctx.fillRect(0, 0, w * band.width, h * 1.16)
+                ctx.restore()
+            }
+
             for (let row = 0; row < 7; ++row) {
                 const y = row / 6 * h
-                ctx.strokeStyle = row === 6 ? "rgba(255,214,149,0.14)" : "rgba(132,164,177,0.08)"
+                ctx.strokeStyle = row === 6 ? "rgba(214,157,76,0.18)" : "rgba(154,124,108,0.08)"
                 ctx.lineWidth = 1
                 ctx.beginPath()
                 ctx.moveTo(0, y + 0.5)
@@ -137,9 +182,9 @@ Rectangle {
             }
 
             const vignette = ctx.createLinearGradient(0, 0, 0, h)
-            vignette.addColorStop(0.0, "rgba(0,0,0,0.04)")
+            vignette.addColorStop(0.0, "rgba(255,255,255,0.02)")
             vignette.addColorStop(0.7, "rgba(0,0,0,0.0)")
-            vignette.addColorStop(1.0, "rgba(0,0,0,0.22)")
+            vignette.addColorStop(1.0, "rgba(0,0,0,0.28)")
             ctx.fillStyle = vignette
             ctx.fillRect(0, 0, w, h)
         }
@@ -155,15 +200,15 @@ Rectangle {
             width: modeLabel.implicitWidth + 18
             height: 28
             radius: 14
-            color: "#18232a"
+            color: "#1a1113"
             border.width: 1
-            border.color: "#29414d"
+            border.color: "#58402d"
 
             Text {
                 id: modeLabel
                 anchors.centerIn: parent
                 text: root.waterfallMode ? "Waterfall Draft" : "Bar Meter Draft"
-                color: "#eef1ea"
+                color: "#f3ebe1"
                 font.pixelSize: 13
                 font.weight: Font.Medium
             }
@@ -173,15 +218,15 @@ Rectangle {
             width: seamLabel.implicitWidth + 18
             height: 28
             radius: 14
-            color: "#211b15"
+            color: "#171012"
             border.width: 1
-            border.color: "#58402d"
+            border.color: "#6f4f6c"
 
             Text {
                 id: seamLabel
                 anchors.centerIn: parent
                 text: "Renderer seam"
-                color: "#f3d7bd"
+                color: "#d9c0d0"
                 font.pixelSize: 13
                 font.weight: Font.Medium
             }
@@ -194,7 +239,7 @@ Rectangle {
         anchors.bottom: parent.bottom
         anchors.margins: 18
         text: "Qt Quick can own the frame, meter rails, status chrome, and overlays while this viewport later becomes a Rust/WGPU host surface."
-        color: "#90a3a8"
+        color: "#b29f97"
         font.pixelSize: 14
         wrapMode: Text.WordWrap
     }

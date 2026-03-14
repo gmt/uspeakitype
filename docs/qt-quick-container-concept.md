@@ -88,6 +88,16 @@ The current mockup also leans on a more realistic viewport placeholder than the 
 - stronger visual continuity in the fake spectrogram/waterfall content
 - clearer labeling of the renderer seam so the shell reads as intentional rather than as a fake rewrite
 
+The latest pass also pushes the mockup away from neutral-metal overlay UI and toward a darker,
+autumnal stained-glass cylinder language:
+
+- near-black shell surfaces instead of cool gray slabs
+- warm brick, amber, plum, and moss accents that sit closer to the flame spectrogram palette
+- elongated refractive bands that make the container feel more like tinted glass than sheet metal
+
+That is still just a direction-finding exercise, but it better matches the idea of a deliberate
+desktop object instead of a generic debug panel.
+
 ## Recommendation
 
 If the visual direction feels promising, the next real spike should still be conservative:

@@ -6,7 +6,7 @@ Window {
     width: 1240
     height: 780
     visible: true
-    color: "#0b1216"
+    color: "#090707"
     title: "usit Qt Quick Overlay Concept"
 
     property bool controlDrawerOpen: true
@@ -26,30 +26,44 @@ Window {
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {
-            GradientStop { position: 0.0; color: "#0b1216" }
-            GradientStop { position: 0.45; color: "#0f1b21" }
-            GradientStop { position: 1.0; color: "#141718" }
+            GradientStop { position: 0.0; color: "#080607" }
+            GradientStop { position: 0.38; color: "#0f0a0d" }
+            GradientStop { position: 0.72; color: "#130f12" }
+            GradientStop { position: 1.0; color: "#090707" }
         }
     }
 
     Rectangle {
-        width: 460
-        height: 460
-        radius: width / 2
-        color: "#204e52"
-        opacity: 0.16
-        x: parent.width * 0.58
-        y: -150
+        width: 840
+        height: 230
+        radius: height / 2
+        color: "#5b4760"
+        opacity: 0.12
+        x: parent.width * 0.42
+        y: 38
+        rotation: -8
     }
 
     Rectangle {
-        width: 390
-        height: 390
-        radius: width / 2
-        color: "#d36b35"
-        opacity: 0.12
-        x: -100
-        y: parent.height - 260
+        width: 760
+        height: 210
+        radius: height / 2
+        color: "#71352d"
+        opacity: 0.14
+        x: -170
+        y: parent.height - 250
+        rotation: 11
+    }
+
+    Rectangle {
+        width: 620
+        height: 110
+        radius: height / 2
+        color: "#d39d4c"
+        opacity: 0.08
+        x: parent.width * 0.26
+        y: parent.height * 0.22
+        rotation: -4
     }
 
     Item {
@@ -71,14 +85,37 @@ Window {
                 anchors.right: parent.right
                 anchors.top: parent.top
                 height: 64
-                radius: 22
-                color: "#152129"
+                radius: 30
+                color: "#110d0f"
                 border.width: 1
-                border.color: "#27414d"
+                border.color: "#4a382f"
+                clip: true
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: parent.radius
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: "#24181a" }
+                        GradientStop { position: 0.45; color: "#151012" }
+                        GradientStop { position: 1.0; color: "#0f0b0c" }
+                    }
+                    opacity: 0.96
+                }
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: parent.width * 0.2
+                    radius: width / 2
+                    color: "#d39d4c"
+                    opacity: 0.08
+                    x: parent.width * 0.36
+                }
 
                 Text {
                     text: "usit"
-                    color: "#f4f5ef"
+                    color: "#f5eee5"
                     font.pixelSize: 28
                     font.weight: Font.DemiBold
                     anchors.left: parent.left
@@ -94,23 +131,23 @@ Window {
 
                     StatusChip {
                         label: root.paused ? "Paused" : "Live"
-                        tint: root.paused ? "#7b5050" : "#2e6f68"
+                        tint: root.paused ? "#6b3f38" : "#b07c3f"
                     }
 
                     StatusChip {
                         label: root.listening ? "Listening" : "Idle"
-                        tint: root.listening ? "#a25a2a" : "#39444a"
+                        tint: root.listening ? "#8d4f34" : "#564550"
                     }
 
                     StatusChip {
                         label: root.injectionEnabled ? "Injecting" : "Display Only"
-                        tint: root.injectionEnabled ? "#3d6f50" : "#4a4340"
+                        tint: root.injectionEnabled ? "#7b865f" : "#4d4038"
                     }
                 }
 
                 Text {
                     text: "Moonshine Voice bridge candidate"
-                    color: "#9fb3b7"
+                    color: "#b7a59c"
                     font.pixelSize: 15
                     anchors.right: parent.right
                     anchors.rightMargin: 18
@@ -125,14 +162,60 @@ Window {
                 anchors.top: header.bottom
                 anchors.topMargin: 16
                 anchors.bottom: parent.bottom
-                radius: 28
-                color: "#11181d"
+                radius: 48
+                color: "#100b0d"
                 border.width: 1
-                border.color: "#22343d"
+                border.color: "#4a3a33"
+                clip: true
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: parent.radius
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: "#231619" }
+                        GradientStop { position: 0.35; color: "#120d0f" }
+                        GradientStop { position: 0.78; color: "#0d090a" }
+                        GradientStop { position: 1.0; color: "#181115" }
+                    }
+                    opacity: 0.98
+                }
+
+                Rectangle {
+                    width: parent.width * 0.18
+                    height: parent.height + 120
+                    radius: width / 2
+                    color: "#d39d4c"
+                    opacity: 0.06
+                    x: parent.width * 0.56
+                    y: -60
+                    rotation: 6
+                }
+
+                Rectangle {
+                    width: parent.width * 0.14
+                    height: parent.height + 160
+                    radius: width / 2
+                    color: "#6f4f6c"
+                    opacity: 0.1
+                    x: parent.width * 0.7
+                    y: -78
+                    rotation: -4
+                }
+
+                Rectangle {
+                    width: parent.width * 0.12
+                    height: parent.height + 140
+                    radius: width / 2
+                    color: "#7a332d"
+                    opacity: 0.08
+                    x: parent.width * 0.18
+                    y: -70
+                    rotation: -7
+                }
 
                 Text {
                     text: "Spectrogram Surface"
-                    color: "#edf1ea"
+                    color: "#f3ebe1"
                     font.pixelSize: 24
                     font.weight: Font.DemiBold
                     anchors.left: parent.left
@@ -189,7 +272,7 @@ Window {
 
         ControlDrawer {
             id: drawer
-            width: root.controlDrawerOpen ? 292 : 84
+            width: root.controlDrawerOpen ? 304 : 90
             anchors.top: parent.top
             anchors.right: parent.right
             anchors.bottom: parent.bottom

@@ -14,10 +14,10 @@ Rectangle {
     signal toggleWaterfall()
     signal toggleExpanded()
 
-    radius: 28
-    color: "#12181c"
+    radius: 40
+    color: "#100b0d"
     border.width: 1
-    border.color: "#233740"
+    border.color: "#4a3a33"
     clip: true
 
     Rectangle {
@@ -25,14 +25,28 @@ Rectangle {
         anchors.right: parent.right
         anchors.top: parent.top
         height: 126
-        color: "#18242b"
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: "#24181a" }
+            GradientStop { position: 1.0; color: "#130d0f" }
+        }
+    }
+
+    Rectangle {
+        width: parent.width * 0.42
+        height: parent.height + 120
+        radius: width / 2
+        color: "#6f4f6c"
+        opacity: 0.08
+        x: parent.width * 0.34
+        y: -60
+        rotation: 6
     }
 
     Text {
         id: title
         visible: root.expanded
         text: "Control Dock"
-        color: "#f1f3ed"
+        color: "#f4ece2"
         font.pixelSize: 22
         font.weight: Font.DemiBold
         anchors.left: parent.left
@@ -55,7 +69,7 @@ Rectangle {
     Text {
         visible: root.expanded
         text: "Qt Quick can handle the shell, drawer, and transcript chrome while the spectrogram remains a dedicated surface."
-        color: "#9dafb2"
+        color: "#b6a39a"
         font.pixelSize: 15
         wrapMode: Text.WordWrap
         anchors.left: parent.left
@@ -107,7 +121,7 @@ Rectangle {
     Rectangle {
         visible: root.expanded
         height: 1
-        color: "#2b3a41"
+        color: "#43332e"
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
@@ -119,7 +133,7 @@ Rectangle {
     Text {
         visible: root.expanded
         text: "Immediate Wins"
-        color: "#f1f3ed"
+        color: "#f4ece2"
         font.pixelSize: 18
         font.weight: Font.Medium
         anchors.left: parent.left
@@ -131,7 +145,7 @@ Rectangle {
     Text {
         visible: root.expanded
         text: "- proper layout primitives\n- polished drawer and sheet behavior\n- stronger focus and hover affordances\n- less custom panel geometry and hit-testing"
-        color: "#9dafb2"
+        color: "#b6a39a"
         font.pixelSize: 14
         wrapMode: Text.WordWrap
         anchors.left: parent.left
@@ -149,14 +163,14 @@ Rectangle {
         anchors.bottom: parent.bottom
         anchors.margins: 16
         height: 88
-        radius: 18
-        color: "#192329"
+        radius: 26
+        color: "#191113"
         border.width: 1
-        border.color: "#314149"
+        border.color: "#6f4f6c"
 
         Text {
             text: "Bridge Risk"
-            color: "#f3d4c4"
+            color: "#f0ceb8"
             font.pixelSize: 15
             font.weight: Font.DemiBold
             anchors.left: parent.left
@@ -166,7 +180,7 @@ Rectangle {
 
         Text {
             text: "This only solves container chrome. Input injection, Wayland embedding, and renderer ownership still need a real bridge."
-            color: "#d6d0ca"
+            color: "#d3c5bf"
             font.pixelSize: 13
             wrapMode: Text.WordWrap
             anchors.left: parent.left
