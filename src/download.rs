@@ -32,15 +32,21 @@ const PARAKEET_OPTIONAL_FILES: [&str; 1] = ["config.json"];
 /// Acceptable NeMo preprocessor graphs.
 const PARAKEET_NEMO_FILES: [&str; 2] = ["nemo128.onnx", "nemo80.onnx"];
 
-/// Parakeet encoder sidecar files for ONNX external data.
-const PARAKEET_ENCODER_EXTERNAL_DATA_FILES: [&str; 3] = [
-    "encoder-model.onnx.data",
-    "encoder.onnx.data",
-    "encoder_model.onnx.data",
+/// Acceptable Parakeet encoder/sidecar filename pairs.
+const PARAKEET_ENCODER_FILE_PAIRS: [(&str, &str); 3] = [
+    ("encoder-model.onnx", "encoder-model.onnx.data"),
+    ("encoder.onnx", "encoder.onnx.data"),
+    ("encoder_model.onnx", "encoder_model.onnx.data"),
 ];
 
 fn any_exists(asr_dir: &Path, candidates: &[&str]) -> bool {
     candidates.iter().any(|f| asr_dir.join(f).exists())
+}
+
+fn any_matching_exists(asr_dir: &Path, candidates: &[(&str, &str)]) -> bool {
+    candidates
+        .iter()
+        .any(|(primary, sidecar)| asr_dir.join(primary).exists() && asr_dir.join(sidecar).exists())
 }
 
 /// Construct HuggingFace URL for Moonshine ONNX files
@@ -294,8 +300,10 @@ fn parakeet_not_found_error(asr_dir: &Path) -> anyhow::Error {
          Automatic download attempted from:\n  {}\n\n\
          Expected model files in:\n  {}\n\n\
          Required files (one of each group):\n  \
-         - encoder-model.onnx OR encoder.onnx OR encoder_model.onnx\n  \
-         - encoder-model.onnx.data OR encoder.onnx.data OR encoder_model.onnx.data\n  \
+         - a matching encoder/model sidecar pair:\n    \
+           encoder-model.onnx + encoder-model.onnx.data OR\n    \
+           encoder.onnx + encoder.onnx.data OR\n    \
+           encoder_model.onnx + encoder_model.onnx.data\n  \
          - decoder_joint-model.onnx OR decoder_joint.onnx OR decoder_joint_model.onnx\n  \
          - vocab.txt\n  \
          - nemo128.onnx OR nemo80.onnx\n\n\
@@ -395,21 +403,27 @@ pub fn ensure_models_exist_with_progress(
                     asr_dir.display()
                 ))?;
 
-                if !any_exists(
+                if !any_matching_exists(
                     &asr_dir,
-                    &["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"],
+                    &PARAKEET_ENCODER_FILE_PAIRS,
                 ) {
-                    let dest = asr_dir.join("encoder-model.onnx");
-                    let url = format!("{}/{}", PARAKEET_ONNX_URL, "encoder-model.onnx");
-                    rt.block_on(async { download_file(&url, &dest, cb_ref, cancel_token).await })
+                    let encoder_dest = asr_dir.join("encoder-model.onnx");
+                    if !encoder_dest.exists() {
+                        let url = format!("{}/{}", PARAKEET_ONNX_URL, "encoder-model.onnx");
+                        rt.block_on(async {
+                            download_file(&url, &encoder_dest, cb_ref, cancel_token).await
+                        })
                         .context("Failed to download Parakeet encoder")?;
-                }
+                    }
 
-                if !any_exists(&asr_dir, &PARAKEET_ENCODER_EXTERNAL_DATA_FILES) {
-                    let dest = asr_dir.join("encoder-model.onnx.data");
-                    let url = format!("{}/{}", PARAKEET_ONNX_URL, "encoder-model.onnx.data");
-                    rt.block_on(async { download_file(&url, &dest, cb_ref, cancel_token).await })
+                    let sidecar_dest = asr_dir.join("encoder-model.onnx.data");
+                    if !sidecar_dest.exists() {
+                        let url = format!("{}/{}", PARAKEET_ONNX_URL, "encoder-model.onnx.data");
+                        rt.block_on(async {
+                            download_file(&url, &sidecar_dest, cb_ref, cancel_token).await
+                        })
                         .context("Failed to download Parakeet encoder external data")?;
+                    }
                 }
 
                 if !any_exists(
@@ -475,19 +489,17 @@ pub fn ensure_models_exist_with_progress(
                     }
                 }
 
-                if !any_exists(
+                if !any_matching_exists(
                     &asr_dir,
-                    &["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"],
-                ) || !any_exists(&asr_dir, &PARAKEET_ENCODER_EXTERNAL_DATA_FILES)
-                    || !any_exists(
-                        &asr_dir,
-                        &[
-                            "decoder_joint-model.onnx",
-                            "decoder_joint.onnx",
-                            "decoder_joint_model.onnx",
-                        ],
-                    )
-                    || !asr_dir.join("vocab.txt").exists()
+                    &PARAKEET_ENCODER_FILE_PAIRS,
+                ) || !any_exists(
+                    &asr_dir,
+                    &[
+                        "decoder_joint-model.onnx",
+                        "decoder_joint.onnx",
+                        "decoder_joint_model.onnx",
+                    ],
+                ) || !asr_dir.join("vocab.txt").exists()
                     || !any_exists(&asr_dir, &PARAKEET_NEMO_FILES)
                 {
                     return Err(parakeet_not_found_error(&asr_dir));
@@ -517,19 +529,17 @@ pub fn is_model_downloaded(model_dir: &Path, variant: AsrModelId) -> bool {
                 if !asr_dir.exists() {
                     return false;
                 }
-                any_exists(
+                any_matching_exists(
                     &asr_dir,
-                    &["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"],
-                ) && any_exists(&asr_dir, &PARAKEET_ENCODER_EXTERNAL_DATA_FILES)
-                    && any_exists(
-                        &asr_dir,
-                        &[
-                            "decoder_joint-model.onnx",
-                            "decoder_joint.onnx",
-                            "decoder_joint_model.onnx",
-                        ],
-                    )
-                    && asr_dir.join("vocab.txt").exists()
+                    &PARAKEET_ENCODER_FILE_PAIRS,
+                ) && any_exists(
+                    &asr_dir,
+                    &[
+                        "decoder_joint-model.onnx",
+                        "decoder_joint.onnx",
+                        "decoder_joint_model.onnx",
+                    ],
+                ) && asr_dir.join("vocab.txt").exists()
                     && any_exists(&asr_dir, &["nemo128.onnx", "nemo80.onnx"])
             }
             _ => unreachable!("non-Moonshine model should be handled above"),
@@ -753,5 +763,26 @@ mod tests {
         fs::write(asr_dir.join("encoder-model.onnx.data"), b"sidecar").expect("write sidecar");
 
         assert!(is_model_downloaded(model_dir, AsrModelId::ParakeetTdt06bV3));
+    }
+
+    #[test]
+    fn test_is_model_downloaded_rejects_mismatched_parakeet_encoder_sidecar() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let model_dir = temp_dir.path();
+        let asr_dir = model_dir.join(AsrModelId::ParakeetTdt06bV3.dir_name());
+
+        fs::create_dir_all(&asr_dir).expect("Failed to create Parakeet dir");
+        fs::write(asr_dir.join("encoder.onnx"), b"encoder").expect("write encoder");
+        fs::write(asr_dir.join("encoder-model.onnx.data"), b"sidecar").expect("write sidecar");
+        fs::write(asr_dir.join("decoder_joint-model.onnx"), b"decoder").expect("write decoder");
+        fs::write(asr_dir.join("vocab.txt"), b"vocab").expect("write vocab");
+        fs::write(asr_dir.join("nemo128.onnx"), b"nemo").expect("write nemo");
+
+        assert!(!is_model_downloaded(
+            model_dir,
+            AsrModelId::ParakeetTdt06bV3
+        ));
     }
 }
