@@ -26,7 +26,7 @@
 - `moonshine-tiny-vi`
 - `parakeet-tdt-0.6b-v3`
 
-Recent upstream audit notes live in [`docs/upstream-audit-2026-03.md`](docs/upstream-audit-2026-03.md).
+Recent upstream audit notes live in [`doc/upstream-audit-2026-03.md`](doc/upstream-audit-2026-03.md).
 
 ## Input Injection Backends
 

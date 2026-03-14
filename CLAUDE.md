@@ -115,5 +115,5 @@ Docker provides headless Wayland (Sway/KWin) with llvmpipe software GPU renderin
 ## Important Files
 
 - `AGENTS.md`: Comprehensive developer reference (code style, anti-patterns, test patterns, policies)
-- `docs/audio-input-policy.md`: Audio device selection, gain control, AGC behavior
-- `docs/nemo-tdt-onnx-workflow.md`: Parakeet model export workflow
+- `doc/audio-input-policy.md`: Audio device selection, gain control, AGC behavior
+- `doc/nemo-tdt-onnx-workflow.md`: Parakeet model export workflow
