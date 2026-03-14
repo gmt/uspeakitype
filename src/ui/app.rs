@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::{ButtonSource, ElementState, MouseButton, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::monitor::VideoMode;
 use winit::platform::wayland::{ActiveEventLoopExtWayland, WindowAttributesWayland};
@@ -48,9 +48,7 @@ pub fn run(
         mode,
         control_panel,
         tag,
-        last_redraw_request: Instant::now()
-            .checked_sub(FRAME_INTERVAL)
-            .unwrap_or_else(Instant::now),
+        next_redraw_deadline: Instant::now(),
     });
 
     event_loop
@@ -67,10 +65,17 @@ struct OverlayApp {
     mode: SpectrogramMode,
     control_panel: ControlPanelState,
     tag: Option<String>,
-    last_redraw_request: Instant,
+    next_redraw_deadline: Instant,
 }
 
 impl OverlayApp {
+    fn request_repaint_now(&mut self) {
+        self.next_redraw_deadline = Instant::now();
+        for renderer in self.renderers.values() {
+            renderer.window.request_redraw();
+        }
+    }
+
     fn handle_pause_toggle(&self) {
         if let Some(ref control) = self.capture_control {
             let now_paused = control.toggle_pause();
@@ -112,6 +117,7 @@ impl OverlayApp {
         if x >= gear_x && x < gear_x + gear_icon_size && y >= gear_y && y < gear_y + gear_icon_size
         {
             self.control_panel.is_open = !self.control_panel.is_open;
+            self.request_repaint_now();
             return;
         }
 
@@ -126,6 +132,7 @@ impl OverlayApp {
         // Click outside panel closes it
         if !rect.contains(x, y) {
             self.control_panel.is_open = false;
+            self.request_repaint_now();
             return;
         }
 
@@ -202,6 +209,8 @@ impl OverlayApp {
             }
             None => {}
         }
+
+        self.request_repaint_now();
     }
 }
 
@@ -209,7 +218,10 @@ impl ApplicationHandler for OverlayApp {
     fn resumed(&mut self, event_loop: &dyn ActiveEventLoop) {
         if !self.running.load(Ordering::Relaxed) {
             event_loop.exit();
+            return;
         }
+
+        event_loop.set_control_flow(ControlFlow::wait_duration(FRAME_INTERVAL));
     }
 
     fn about_to_wait(&mut self, event_loop: &dyn ActiveEventLoop) {
@@ -221,12 +233,14 @@ impl ApplicationHandler for OverlayApp {
         self.sync_control_state();
 
         let now = Instant::now();
-        if now.duration_since(self.last_redraw_request) >= FRAME_INTERVAL {
-            self.last_redraw_request = now;
+        if !self.renderers.is_empty() && now >= self.next_redraw_deadline {
             for renderer in self.renderers.values() {
                 renderer.window.request_redraw();
             }
+            self.next_redraw_deadline = now.checked_add(FRAME_INTERVAL).unwrap_or(now);
         }
+
+        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_redraw_deadline));
     }
 
     fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
@@ -250,6 +264,8 @@ impl ApplicationHandler for OverlayApp {
         renderer.set_opacity(self.control_panel.opacity);
         let window_id = renderer.window.id();
         self.renderers.insert(window_id, renderer);
+        self.next_redraw_deadline = Instant::now();
+        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_redraw_deadline));
 
         if event_loop.is_wayland() {
             release_focus_to_previous_window();
@@ -277,20 +293,25 @@ impl ApplicationHandler for OverlayApp {
             }
             WindowEvent::KeyboardInput { ref event, .. } => {
                 if event.state == ElementState::Pressed {
+                    let mut needs_repaint = false;
                     match event.logical_key {
                         Key::Character(ref c) if c == "p" || c == "P" || c == " " => {
                             self.handle_pause_toggle();
+                            needs_repaint = true;
                         }
                         Key::Character(ref c) if c == "g" || c == "G" => {
                             self.handle_auto_gain_toggle();
+                            needs_repaint = true;
                         }
                         Key::Character(ref c) if c == "w" || c == "W" => {
                             if let Some(renderer) = self.renderers.get_mut(&window_id) {
                                 renderer.toggle_mode();
                             }
+                            needs_repaint = true;
                         }
                         Key::Character(ref c) if c == "c" || c == "C" => {
                             self.control_panel.toggle_open();
+                            needs_repaint = true;
                         }
                         Key::Character(ref c) if c == "q" || c == "Q" => {
                             self.running.store(false, Ordering::Relaxed);
@@ -314,6 +335,10 @@ impl ApplicationHandler for OverlayApp {
                             event_loop.exit();
                         }
                         _ => {}
+                    }
+
+                    if needs_repaint {
+                        self.request_repaint_now();
                     }
                 }
             }
@@ -339,9 +364,34 @@ impl ApplicationHandler for OverlayApp {
             match event {
                 WindowEvent::SurfaceResized(size) => {
                     renderer.resize(size.width, size.height);
+                    self.request_repaint_now();
+                }
+                WindowEvent::ScaleFactorChanged { .. } => {
+                    self.request_repaint_now();
+                }
+                WindowEvent::Occluded(false) => {
+                    self.request_repaint_now();
                 }
                 WindowEvent::RedrawRequested => {
-                    renderer.draw_with_panel(Some(&self.control_panel));
+                    match renderer.draw_with_panel(Some(&self.control_panel)) {
+                        Ok(()) => {}
+                        Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
+                            log::debug!("Overlay surface reconfigured after redraw interruption");
+                            self.request_repaint_now();
+                        }
+                        Err(wgpu::SurfaceError::Timeout | wgpu::SurfaceError::Other) => {
+                            log::warn!("Overlay redraw skipped due to transient surface error");
+                            self.request_repaint_now();
+                        }
+                        Err(wgpu::SurfaceError::OutOfMemory) => {
+                            log::error!("Overlay renderer ran out of memory");
+                            self.running.store(false, Ordering::Relaxed);
+                            if let Some(ref control) = self.capture_control {
+                                control.stop();
+                            }
+                            event_loop.exit();
+                        }
+                    }
                 }
                 _ => {}
             }
