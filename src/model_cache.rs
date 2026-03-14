@@ -558,6 +558,16 @@ pub enum ActivationResult {
     Quarantined,
 }
 
+fn errors_indicate_incomplete_cache(errors: &[IntegrityError]) -> bool {
+    !errors.is_empty()
+        && errors.iter().all(|error| {
+            matches!(
+                error,
+                IntegrityError::MissingFile(_) | IntegrityError::PartialDownload(_)
+            )
+        })
+}
+
 /// Validate and prepare a model for activation
 pub fn prepare_for_activation(model_dir: &Path, model_id: AsrModelId) -> ActivationResult {
     if let Ok(cleaned) = cleanup_partial_downloads(model_dir) {
@@ -584,6 +594,15 @@ pub fn prepare_for_activation(model_dir: &Path, model_id: AsrModelId) -> Activat
         }
         IntegrityStatus::Missing => ActivationResult::NeedsDownload,
         IntegrityStatus::Corrupt(errors) => {
+            let has_manifest = matches!(ModelManifest::load(model_dir), Ok(Some(_)));
+            if !has_manifest && errors_indicate_incomplete_cache(&errors) {
+                log::warn!(
+                    "Model cache for {} is incomplete but not corrupt; continuing download",
+                    model_id
+                );
+                return ActivationResult::NeedsDownload;
+            }
+
             for error in &errors {
                 log::error!("Model integrity error: {}", error);
             }
@@ -771,5 +790,20 @@ mod tests {
         let cached = find_cached_models(model_dir);
 
         assert!(cached.contains(&variant));
+    }
+
+    #[test]
+    fn test_prepare_for_activation_does_not_quarantine_incomplete_cache() {
+        let temp_dir = TempDir::new().unwrap();
+        let models_dir = temp_dir.path();
+        let model_dir = models_dir.join(AsrModelId::ParakeetTdt06bV3.dir_name());
+        fs::create_dir_all(&model_dir).unwrap();
+        fs::write(model_dir.join("encoder-model.onnx"), vec![0u8; 2048]).unwrap();
+
+        let status = prepare_for_activation(&model_dir, AsrModelId::ParakeetTdt06bV3);
+
+        assert!(matches!(status, ActivationResult::NeedsDownload));
+        assert!(model_dir.exists());
+        assert!(!models_dir.join(".backup").exists());
     }
 }
