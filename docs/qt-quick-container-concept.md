@@ -98,6 +98,14 @@ autumnal stained-glass cylinder language:
 That is still just a direction-finding exercise, but it better matches the idea of a deliberate
 desktop object instead of a generic debug panel.
 
+The control dock also now tracks the actual shape of the product more closely:
+
+- explicit source selection instead of abstract "device-ish" toggles
+- separate software and hardware gain treatment
+- distinct soft/hard AGC ownership
+- requested vs active model language
+- a help/description panel that hints at how a real focused-control explainer could work
+
 ## Recommendation
 
 If the visual direction feels promising, the next real spike should still be conservative:

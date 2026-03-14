@@ -14,7 +14,28 @@ Window {
     property bool injectionEnabled: true
     property bool paused: false
     property bool showWaterfall: true
+    property bool softAgcEnabled: true
+    property bool hardAgcEnabled: false
+    property bool autoSave: true
     property real fakeLevel: 0.62
+    property real softwareGain: 0.72
+    property real hardwareGain: 0.46
+    property var sourceOptions: [
+        { value: "Scarlett 2i2 USB", detail: "Focusrite analogue input 1" },
+        { value: "USB PnP Audio", detail: "Desk mic / fallback node" },
+        { value: "Monitor of Built-in", detail: "Loopback / system output" }
+    ]
+    property int sourceIndex: 0
+    property var modelOptions: [
+        "Moonshine Voice",
+        "Moonshine Base",
+        "Moonshine Tiny",
+        "Parakeet TDT"
+    ]
+    property int modelIndex: 0
+    property string requestedModel: root.modelOptions[root.modelIndex]
+    property string activeModel: "Moonshine Base"
+    property string focusDescription: "Source selector chooses the capture device or PipeWire node we ask for. In a Plasma-first future this should feel closer to an input helper than to a bolted-on fake keyboard."
 
     Timer {
         interval: 110
@@ -281,12 +302,36 @@ Window {
             listening: root.listening
             injectionEnabled: root.injectionEnabled
             waterfallMode: root.showWaterfall
+            softAgcEnabled: root.softAgcEnabled
+            hardAgcEnabled: root.hardAgcEnabled
+            autoSave: root.autoSave
+            softwareGain: root.softwareGain
+            hardwareGain: root.hardwareGain
+            selectedSource: root.sourceOptions[root.sourceIndex].value
+            selectedSourceDetail: root.sourceOptions[root.sourceIndex].detail
+            requestedModel: root.requestedModel
+            activeModel: root.activeModel
+            focusDescription: root.focusDescription
 
             onTogglePaused: root.paused = !root.paused
             onToggleListening: root.listening = !root.listening
             onToggleInjection: root.injectionEnabled = !root.injectionEnabled
             onToggleWaterfall: root.showWaterfall = !root.showWaterfall
             onToggleExpanded: root.controlDrawerOpen = !root.controlDrawerOpen
+            onToggleSoftAgc: root.softAgcEnabled = !root.softAgcEnabled
+            onToggleHardAgc: root.hardAgcEnabled = !root.hardAgcEnabled
+            onToggleAutoSave: root.autoSave = !root.autoSave
+            onAdjustSoftwareGain: root.softwareGain = nextValue
+            onAdjustHardwareGain: root.hardwareGain = nextValue
+            onBumpSource: {
+                root.sourceIndex = (root.sourceIndex + 1) % root.sourceOptions.length
+                root.focusDescription = "Source cycling is standing in for a proper device picker. The real bridge should expose PipeWire sources and eventually KDE-friendly input-helper semantics without inventing a fake hardware story."
+            }
+            onBumpModel: {
+                root.modelIndex = (root.modelIndex + 1) % root.modelOptions.length
+                root.requestedModel = root.modelOptions[root.modelIndex]
+                root.focusDescription = "Requested model and active model should be separate so fallback is visible and any future user-correction learning can be attributed to the designated driver."
+            }
         }
     }
 }
