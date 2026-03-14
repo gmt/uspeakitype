@@ -12,6 +12,7 @@ This directory holds the durable project notes that are still useful after the i
 - [`ui-contracts.md`](./ui-contracts.md) - ANSI and WGPU surface behavior, layout rules, and control-panel contracts
 - [`testing-visual.md`](./testing-visual.md) - canonical visual-test environment and what counts as pass vs skip
 - [`runtime-operations.md`](./runtime-operations.md) - logging, instance tags, and operational CLI behavior
+- [`trine.md`](./trine.md) - short project doctrine: what `usit` is becoming, and why
 
 ## Model Notes
 
