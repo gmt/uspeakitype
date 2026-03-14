@@ -6,6 +6,7 @@ This directory holds the durable project notes that are still useful after the i
 
 - [`audio-input-policy.md`](./audio-input-policy.md) - device, gain, and AGC policy
 - [`input-backends.md`](./input-backends.md) - text injection backend selection and backend-specific contracts
+- [`kde-plasma-posture.md`](./kde-plasma-posture.md) - why Plasma Wayland is the current reference desktop and what that implies for `usit`
 - [`model-lifecycle.md`](./model-lifecycle.md) - requested vs active model state, downloads, integrity, and fallback
 - [`qt-quick-container-concept.md`](./qt-quick-container-concept.md) - mockup note for a Qt Quick shell around the spectrogram/transcript overlay
 - [`ui-contracts.md`](./ui-contracts.md) - ANSI and WGPU surface behavior, layout rules, and control-panel contracts
