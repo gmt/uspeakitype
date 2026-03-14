@@ -153,11 +153,14 @@ impl NemoTransducerStreamer {
             }
         };
 
-        let encoder_path = first_existing(
-            &model_dir,
-            &["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"],
-        )
-        .context("finding NeMo encoder ONNX")?;
+        let encoder_path = first_encoder_with_matching_sidecar(&model_dir)
+            .or_else(|_| {
+                first_existing(
+                    &model_dir,
+                    &["encoder-model.onnx", "encoder.onnx", "encoder_model.onnx"],
+                )
+            })
+            .context("finding NeMo encoder ONNX")?;
         let decoder_joint_path = first_existing(
             &model_dir,
             &[
@@ -690,6 +693,23 @@ fn first_existing(model_dir: &Path, candidates: &[&str]) -> Result<PathBuf> {
     ))
 }
 
+fn first_encoder_with_matching_sidecar(model_dir: &Path) -> Result<PathBuf> {
+    for (encoder_name, sidecar_name) in [
+        ("encoder-model.onnx", "encoder-model.onnx.data"),
+        ("encoder.onnx", "encoder.onnx.data"),
+        ("encoder_model.onnx", "encoder_model.onnx.data"),
+    ] {
+        let encoder_path = model_dir.join(encoder_name);
+        if encoder_path.exists() && model_dir.join(sidecar_name).exists() {
+            return Ok(encoder_path);
+        }
+    }
+
+    Err(anyhow::anyhow!(
+        "none of the encoder variants had a matching ONNX external-data sidecar"
+    ))
+}
+
 fn load_vocab(path: &Path) -> Result<(Vec<String>, u32)> {
     let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let reader = BufReader::new(file);
@@ -1075,5 +1095,20 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("unsupported integer tensor type"));
+    }
+
+    #[test]
+    fn first_encoder_with_matching_sidecar_skips_broken_higher_priority_encoder() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("encoder-model.onnx"), b"broken official").unwrap();
+        fs::write(dir.path().join("encoder.onnx"), b"legacy").unwrap();
+        fs::write(dir.path().join("encoder.onnx.data"), b"legacy sidecar").unwrap();
+
+        let encoder = first_encoder_with_matching_sidecar(dir.path()).unwrap();
+
+        assert_eq!(
+            encoder.file_name().unwrap().to_str().unwrap(),
+            "encoder.onnx"
+        );
     }
 }
