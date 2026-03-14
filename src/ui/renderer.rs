@@ -398,20 +398,21 @@ impl Renderer {
         self.spectrogram.set_opacity(self.opacity);
     }
 
-    pub fn draw(&mut self) {
-        self.draw_with_panel(None);
+    pub fn draw(&mut self) -> Result<(), wgpu::SurfaceError> {
+        self.draw_with_panel(None)
     }
 
     pub fn draw_with_panel(
         &mut self,
         control_panel: Option<&super::control_panel::ControlPanelState>,
-    ) {
+    ) -> Result<(), wgpu::SurfaceError> {
         let output = match self.surface.get_current_texture() {
             Ok(t) => t,
-            Err(_) => {
+            Err(error @ (wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost)) => {
                 self.surface.configure(&self.device, &self.config);
-                return;
+                return Err(error);
             }
+            Err(error) => return Err(error),
         };
 
         let view = output
@@ -517,8 +518,10 @@ impl Renderer {
             self.render_control_panel(&view, &mut encoder, panel);
         }
 
+        self.window.pre_present_notify();
         self.queue.submit(Some(encoder.finish()));
         output.present();
+        Ok(())
     }
 
     fn render_control_panel(
