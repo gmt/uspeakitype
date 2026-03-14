@@ -360,41 +360,50 @@ impl ApplicationHandler for OverlayApp {
             _ => {}
         }
 
+        let mut needs_repaint = false;
+        let mut surface_error = None;
+
         if let Some(renderer) = self.renderers.get_mut(&window_id) {
             match event {
                 WindowEvent::SurfaceResized(size) => {
                     renderer.resize(size.width, size.height);
-                    self.request_repaint_now();
+                    needs_repaint = true;
                 }
                 WindowEvent::ScaleFactorChanged { .. } => {
-                    self.request_repaint_now();
+                    needs_repaint = true;
                 }
                 WindowEvent::Occluded(false) => {
-                    self.request_repaint_now();
+                    needs_repaint = true;
                 }
                 WindowEvent::RedrawRequested => {
-                    match renderer.draw_with_panel(Some(&self.control_panel)) {
-                        Ok(()) => {}
-                        Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
-                            log::debug!("Overlay surface reconfigured after redraw interruption");
-                            self.request_repaint_now();
-                        }
-                        Err(wgpu::SurfaceError::Timeout | wgpu::SurfaceError::Other) => {
-                            log::warn!("Overlay redraw skipped due to transient surface error");
-                            self.request_repaint_now();
-                        }
-                        Err(wgpu::SurfaceError::OutOfMemory) => {
-                            log::error!("Overlay renderer ran out of memory");
-                            self.running.store(false, Ordering::Relaxed);
-                            if let Some(ref control) = self.capture_control {
-                                control.stop();
-                            }
-                            event_loop.exit();
-                        }
-                    }
+                    surface_error = renderer.draw_with_panel(Some(&self.control_panel)).err();
                 }
                 _ => {}
             }
+        }
+
+        match surface_error {
+            Some(error @ (wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost)) => {
+                log::debug!("Overlay surface reconfigured after redraw interruption: {error:?}");
+                needs_repaint = true;
+            }
+            Some(error @ (wgpu::SurfaceError::Timeout | wgpu::SurfaceError::Other)) => {
+                log::warn!("Overlay redraw skipped due to transient surface error: {error:?}");
+                needs_repaint = true;
+            }
+            Some(wgpu::SurfaceError::OutOfMemory) => {
+                log::error!("Overlay renderer ran out of memory");
+                self.running.store(false, Ordering::Relaxed);
+                if let Some(ref control) = self.capture_control {
+                    control.stop();
+                }
+                event_loop.exit();
+            }
+            None => {}
+        }
+
+        if needs_repaint {
+            self.request_repaint_now();
         }
     }
 }
