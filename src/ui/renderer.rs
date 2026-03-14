@@ -519,7 +519,6 @@ impl Renderer {
 
         self.queue.submit(Some(encoder.finish()));
         output.present();
-        self.window.request_redraw();
     }
 
     fn render_control_panel(
