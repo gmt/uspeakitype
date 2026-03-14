@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -23,6 +23,7 @@ use super::spectrogram::SpectrogramMode;
 use super::SharedAudioState;
 
 const MARGIN: i32 = 24;
+const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 pub fn run(
     audio_state: SharedAudioState,
@@ -47,6 +48,9 @@ pub fn run(
         mode,
         control_panel,
         tag,
+        last_redraw_request: Instant::now()
+            .checked_sub(FRAME_INTERVAL)
+            .unwrap_or_else(Instant::now),
     });
 
     event_loop
@@ -63,6 +67,7 @@ struct OverlayApp {
     mode: SpectrogramMode,
     control_panel: ControlPanelState,
     tag: Option<String>,
+    last_redraw_request: Instant,
 }
 
 impl OverlayApp {
@@ -215,8 +220,12 @@ impl ApplicationHandler for OverlayApp {
 
         self.sync_control_state();
 
-        for renderer in self.renderers.values() {
-            renderer.window.request_redraw();
+        let now = Instant::now();
+        if now.duration_since(self.last_redraw_request) >= FRAME_INTERVAL {
+            self.last_redraw_request = now;
+            for renderer in self.renderers.values() {
+                renderer.window.request_redraw();
+            }
         }
     }
 

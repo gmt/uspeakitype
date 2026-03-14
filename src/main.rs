@@ -75,9 +75,7 @@ impl DownloadManager {
 
     fn run(mut self) {
         loop {
-            // Clean up completed downloads
-            self.active_downloads
-                .retain(|_, handle| !handle.is_finished());
+            self.cleanup_finished_downloads();
 
             // Process commands (non-blocking poll with timeout)
             match self.cmd_rx.recv_timeout(Duration::from_millis(100)) {
@@ -117,6 +115,7 @@ impl DownloadManager {
                     for token in self.cancel_tokens.values() {
                         token.store(true, Ordering::Relaxed);
                     }
+                    self.join_all_downloads();
                     log::debug!("Download manager shutting down");
                     break;
                 }
@@ -130,6 +129,33 @@ impl DownloadManager {
                 }
             }
         }
+    }
+
+    fn cleanup_finished_downloads(&mut self) {
+        let finished: Vec<_> = self
+            .active_downloads
+            .iter()
+            .filter_map(|(&model_id, handle)| handle.is_finished().then_some(model_id))
+            .collect();
+
+        for model_id in finished {
+            if let Some(handle) = self.active_downloads.remove(&model_id) {
+                if handle.join().is_err() {
+                    log::error!("Download worker panicked for {}", model_id);
+                }
+            }
+            self.cancel_tokens.remove(&model_id);
+        }
+    }
+
+    fn join_all_downloads(&mut self) {
+        let active = std::mem::take(&mut self.active_downloads);
+        for (model_id, handle) in active {
+            if handle.join().is_err() {
+                log::error!("Download worker panicked for {}", model_id);
+            }
+        }
+        self.cancel_tokens.clear();
     }
 
     fn start_download(&mut self, model_id: AsrModelId) {

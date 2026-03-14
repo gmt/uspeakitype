@@ -560,6 +560,16 @@ pub enum ActivationResult {
 
 /// Validate and prepare a model for activation
 pub fn prepare_for_activation(model_dir: &Path, model_id: AsrModelId) -> ActivationResult {
+    if let Ok(cleaned) = cleanup_partial_downloads(model_dir) {
+        if !cleaned.is_empty() {
+            log::warn!(
+                "Cleaned stale partial downloads before activation for {}: {}",
+                model_id,
+                cleaned.join(", ")
+            );
+        }
+    }
+
     let status = check_integrity(model_dir, model_id);
 
     match status {
@@ -598,7 +608,7 @@ pub fn fallback_order() -> Vec<AsrModelId> {
 pub fn find_cached_models(model_base_dir: &Path) -> Vec<AsrModelId> {
     let mut available = Vec::new();
 
-    for model_id in fallback_order() {
+    for &model_id in AsrModelId::all() {
         let model_dir = model_base_dir.join(model_id.dir_name());
         let status = check_integrity(&model_dir, model_id);
         match status {
@@ -726,5 +736,40 @@ mod tests {
         assert_eq!(order[0], AsrModelId::MoonshineBase);
         assert_eq!(order[1], AsrModelId::MoonshineTiny);
         assert_eq!(order[2], AsrModelId::ParakeetTdt06bV3);
+    }
+
+    #[test]
+    fn test_prepare_for_activation_cleans_stale_partial_downloads() {
+        let temp_dir = TempDir::new().unwrap();
+        let model_dir = temp_dir.path();
+
+        fs::write(model_dir.join("encoder_model.onnx"), vec![0u8; 2048]).unwrap();
+        fs::write(model_dir.join("decoder_model_merged.onnx"), vec![0u8; 2048]).unwrap();
+        fs::write(model_dir.join("tokenizer.json"), b"{}").unwrap();
+        fs::write(model_dir.join("stale.downloading"), b"partial").unwrap();
+
+        let status = prepare_for_activation(model_dir, AsrModelId::MoonshineBase);
+
+        assert!(matches!(
+            status,
+            ActivationResult::Success | ActivationResult::NeedsDownload
+        ));
+        assert!(!model_dir.join("stale.downloading").exists());
+    }
+
+    #[test]
+    fn test_find_cached_models_includes_newer_moonshine_variants() {
+        let temp_dir = TempDir::new().unwrap();
+        let model_dir = temp_dir.path();
+        let variant = AsrModelId::MoonshineTinyJapanese;
+        let asr_dir = model_dir.join(variant.dir_name());
+        fs::create_dir_all(&asr_dir).unwrap();
+        fs::write(asr_dir.join("encoder_model.onnx"), vec![0u8; 2048]).unwrap();
+        fs::write(asr_dir.join("decoder_model_merged.onnx"), vec![0u8; 2048]).unwrap();
+        fs::write(asr_dir.join("tokenizer.json"), b"{}").unwrap();
+
+        let cached = find_cached_models(model_dir);
+
+        assert!(cached.contains(&variant));
     }
 }
