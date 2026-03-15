@@ -146,9 +146,11 @@ Already landed:
 - warm theme shift for the real app
 - WGPU keyboard navigation
 - first pass at WGPU/TUI structural parity
+- startup source discovery feeding shared ANSI/WGPU device state
+- deferred "next launch" source semantics with unified config persistence
 
 Still notably incomplete:
 
-- device selection is not yet credible enough
 - WGPU needs richer status/provenance cues
 - helper-shell polish is still behind the product posture docs
+- visual coverage still needs to catch more of the helper-shell hierarchy and trust states
