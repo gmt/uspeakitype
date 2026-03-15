@@ -25,7 +25,7 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        height: root.expanded ? 52 : parent.height
+        height: root.expanded ? 48 : parent.height
         color: "#211915"
         radius: 18
         
@@ -44,13 +44,13 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        height: 52
-        
+        height: 48
+
         Text {
             id: title
             visible: root.expanded
             text: "Control Panel"
-            color: "#f1ebe3"
+            color: "#e2d8bd"
             font.pixelSize: 18
             font.weight: Font.DemiBold
             anchors.left: parent.left

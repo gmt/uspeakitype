@@ -4,7 +4,7 @@ import QtQuick.Window 2.15
 Window {
     id: root
     width: 1080
-    height: 320
+    height: 290
     visible: true
     color: "#140c0a"
     title: "usit Qt Quick Overlay Concept"
@@ -70,8 +70,8 @@ Window {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                height: 56
-                radius: 18
+                height: 48
+                radius: 24
                 color: "#1c1511"
                 border.width: 1
                 border.color: "#3d2d25"
@@ -79,7 +79,7 @@ Window {
                 Text {
                     id: titleText
                     text: "usit"
-                    color: "#f4f0e6"
+                    color: "#e8deca"
                     font.pixelSize: 24
                     font.weight: Font.DemiBold
                     anchors.left: parent.left
@@ -129,7 +129,7 @@ Window {
                             width: 14
                             height: 14
                             radius: root.paused ? 7 : 3
-                            color: "#f4efe6"
+                            color: "#e8deca"
                             anchors.centerIn: parent
 
                             Behavior on radius { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
@@ -206,7 +206,7 @@ Window {
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
                     anchors.margins: 16
-                    height: 84
+                    height: 60
                     committedText: "the shell should feel deliberate while the renderer stays free to be specialized"
                     partialText: "and the viewport seam ought to be obvious without looking temporary"
                 }

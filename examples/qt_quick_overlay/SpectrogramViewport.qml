@@ -85,9 +85,9 @@ Rectangle {
                         intensity *= 0.68 + Math.pow(1.0 - freq, 1.7) * 0.7
                         intensity = root.clamp(intensity, 0.0, 1.0)
 
-                        const hue = 0.02 + intensity * 0.22 + freq * 0.03
-                        const sat = 0.84
-                        const light = 0.18 + intensity * 0.5
+                        const hue = 0.05 + intensity * 0.15 + freq * 0.02
+                        const sat = 0.76
+                        const light = 0.15 + intensity * 0.45
                         ctx.fillStyle = Qt.hsla(hue, sat, light, 0.96)
                         ctx.fillRect(x * cellW, y * cellH, cellW + 0.9, cellH + 0.9)
                     }
@@ -117,11 +117,11 @@ Rectangle {
                     const x = i * barW
                     const y = floorY - barH
 
-                    const topHue = 0.02 + envelope * 0.22
-                    const bottomHue = 0.02
+                    const topHue = 0.05 + envelope * 0.15
+                    const bottomHue = 0.05
                     const grad = ctx.createLinearGradient(0, y, 0, floorY)
-                    grad.addColorStop(0.0, Qt.hsla(topHue, 0.84, 0.18 + envelope * 0.5, 0.98))
-                    grad.addColorStop(1.0, Qt.hsla(bottomHue, 0.84, 0.18, 0.75))
+                    grad.addColorStop(0.0, Qt.hsla(topHue, 0.76, 0.15 + envelope * 0.45, 0.98))
+                    grad.addColorStop(1.0, Qt.hsla(bottomHue, 0.76, 0.15, 0.75))
                     ctx.fillStyle = grad
                     ctx.fillRect(x + 0.6, y, Math.max(2.0, barW - 1.8), barH)
                 }

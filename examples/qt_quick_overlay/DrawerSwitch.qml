@@ -6,15 +6,15 @@ Rectangle {
     property bool value: false
     signal activated()
 
-    height: 40
-    radius: 14
+    height: 32
+    radius: 16
     color: root.value ? "#2e382e" : "#342728"
     border.width: 1
     border.color: root.value ? "#3d4a3d" : "#4a383a"
 
     Text {
         text: root.label
-        color: "#d1c5aa"
+        color: "#dcd2b8"
         font.pixelSize: 13
         font.weight: Font.Medium
         anchors.left: parent.left
@@ -23,21 +23,21 @@ Rectangle {
     }
 
     Rectangle {
-        width: 42
-        height: 24
-        radius: 12
+        width: 38
+        height: 20
+        radius: 10
         color: root.value ? "#5c7a45" : "#594a44"
         anchors.right: parent.right
-        anchors.rightMargin: 10
+        anchors.rightMargin: 8
         anchors.verticalCenter: parent.verticalCenter
 
         Rectangle {
-            width: 18
-            height: 18
-            radius: 9
+            width: 14
+            height: 14
+            radius: 7
             y: 3
             x: root.value ? parent.width - width - 3 : 3
-            color: "#f4ede4"
+            color: "#e8deca"
 
             Behavior on x {
                 NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
