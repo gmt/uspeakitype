@@ -78,17 +78,33 @@ impl StatusWidget {
 
     fn build_candidates(&self) -> Vec<String> {
         let capability = if !self.transcription_available {
-            "view"
+            "display"
         } else if self.injection_enabled {
-            "typed"
+            "trusted"
         } else {
             "transcribe"
         };
+        let helper_full = self
+            .helper_summary
+            .as_deref()
+            .map(|summary| format!("  {}", summary))
+            .unwrap_or_default();
+        let helper_compact = self
+            .helper_summary
+            .as_deref()
+            .map(|summary| format!(" {}", summary))
+            .unwrap_or_default();
 
         match self.info {
             StatusInfo::Demo => vec![
-                format!("  spc:pause  c:settings  w:viz  {}  q:quit", capability),
-                format!(" spc:pause c:settings w:viz {} q:quit", capability),
+                format!(
+                    "  spc:pause  c:settings  w:viz  {}{}  q:quit",
+                    capability, helper_full
+                ),
+                format!(
+                    " spc:pause c:settings w:viz {}{} q:quit",
+                    capability, helper_compact
+                ),
                 format!(" spc c:set w:viz {} q:quit", capability),
                 " spc c w q".to_string(),
             ],
@@ -100,12 +116,12 @@ impl StatusWidget {
                 let rate_khz = sample_rate / 1000;
                 vec![
                     format!(
-                        "  spc:pause  c:settings  w:viz  {}  {}Hz {}  q:quit",
-                        capability, sample_rate, ch
+                        "  spc:pause  c:settings  w:viz  {}{}  {}Hz {}  q:quit",
+                        capability, helper_full, sample_rate, ch
                     ),
                     format!(
-                        " spc:pause c:settings w:viz {} {}Hz {} q:quit",
-                        capability, sample_rate, ch
+                        " spc:pause c:settings w:viz {}{} {}Hz {} q:quit",
+                        capability, helper_compact, sample_rate, ch
                     ),
                     format!(
                         " spc c:set w:viz {} {}kHz {} q:quit",
@@ -184,12 +200,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn demo_candidates_surface_typed_capability() {
+    fn demo_candidates_surface_trusted_capability() {
         let widget = StatusWidget::new(StatusInfo::Demo, None).capability(true, true);
         let candidates = widget.build_candidates();
         assert!(candidates
             .iter()
-            .any(|candidate| candidate.contains("typed")));
+            .any(|candidate| candidate.contains("trusted")));
     }
 
     #[test]
@@ -198,6 +214,17 @@ mod tests {
         let candidates = widget.build_candidates();
         assert!(candidates
             .iter()
-            .any(|candidate| candidate.contains("view")));
+            .any(|candidate| candidate.contains("display")));
+    }
+
+    #[test]
+    fn candidates_include_helper_summary_when_present() {
+        let widget = StatusWidget::new(StatusInfo::Demo, None)
+            .capability(true, false)
+            .helper_summary(Some("moonshine-base->moonshine-tiny(dl)".to_string()));
+
+        let candidates = widget.build_candidates();
+        assert!(candidates[0].contains("moonshine-base->moonshine-tiny(dl)"));
+        assert!(candidates[1].contains("moonshine-base->moonshine-tiny(dl)"));
     }
 }

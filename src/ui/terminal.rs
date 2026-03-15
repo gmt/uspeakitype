@@ -52,6 +52,7 @@ use crate::spectrum::{
 use super::control_panel::{panel_entries, Control, ControlPanelState, PanelEntry};
 use super::theme::{Theme, DEFAULT_THEME};
 use crate::config::AsrModelId;
+use crate::ui::{helper_capability_label, helper_model_label};
 
 const BLOCK_CHARS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 const ASCII_CHARS: [char; 9] = [' ', '.', ':', '-', '=', '+', '*', '#', '@'];
@@ -530,11 +531,13 @@ impl TerminalVisualizer {
         let (help_title, help_body) = panel.help_copy();
         let audio_state = crate::ui::AudioState {
             injection_enabled: self.injection_enabled,
+            transcription_available: self.transcription_available,
             selected_source_name: self.selected_source_name.clone(),
             source_change_pending_restart: self.source_change_pending_restart,
             requested_model: self.requested_model,
             active_model: self.active_model,
             download_progress: self.download_progress,
+            model_error: self.model_error.clone(),
             ..crate::ui::AudioState::default()
         };
 
@@ -601,6 +604,21 @@ impl TerminalVisualizer {
         } else {
             None
         };
+
+        let helper_state = crate::ui::AudioState {
+            injection_enabled: self.injection_enabled,
+            transcription_available: self.transcription_available,
+            requested_model: self.requested_model,
+            active_model: self.active_model,
+            download_progress: self.download_progress,
+            model_error: self.model_error.clone(),
+            ..crate::ui::AudioState::default()
+        };
+        let helper_summary = format!(
+            "{} · Model: {}",
+            helper_capability_label(&helper_state),
+            helper_model_label(&helper_state)
+        );
 
         let color_scheme = &*self.color_scheme;
         let charset = self.charset;
@@ -676,7 +694,8 @@ impl TerminalVisualizer {
                 let status_widget = StatusWidget::new(status_info, self.tag.clone())
                     .paused(is_paused)
                     .speaking(is_speaking)
-                    .capability(self.transcription_available, self.injection_enabled);
+                    .capability(self.transcription_available, self.injection_enabled)
+                    .helper_summary(Some(helper_summary.clone()));
                 frame.render_widget(status_widget, status_area);
             }
 
