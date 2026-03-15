@@ -218,6 +218,8 @@ fn centered_rect(percent_x: u16, fixed_height: u16, r: Rect) -> Rect {
 pub struct TerminalConfig {
     pub width: usize,
     pub height: usize,
+    pub requested_width: Option<usize>,
+    pub requested_height: Option<usize>,
     pub mode: TerminalMode,
     pub use_color: bool,
     pub use_unicode: bool,
@@ -230,6 +232,8 @@ impl Default for TerminalConfig {
         Self {
             width: 80,
             height: 6,
+            requested_width: None,
+            requested_height: None,
             mode: TerminalMode::BarMeter,
             use_color: true,
             use_unicode: true,
@@ -237,6 +241,25 @@ impl Default for TerminalConfig {
             term_height: 24,
         }
     }
+}
+
+pub fn clamp_terminal_surface_dimensions(
+    requested_width: Option<usize>,
+    requested_height: Option<usize>,
+    term_width: usize,
+    term_height: usize,
+) -> (usize, usize) {
+    let live_term_width = term_width.max(1);
+    let live_term_height = term_height.max(1);
+    let max_surface_height = live_term_height.saturating_sub(4).max(1);
+
+    let width = requested_width
+        .unwrap_or(live_term_width)
+        .max(1)
+        .min(live_term_width);
+    let height = requested_height.unwrap_or(6).max(1).min(max_surface_height);
+
+    (width, height)
 }
 
 pub struct TerminalVisualizer {
@@ -390,14 +413,21 @@ impl TerminalVisualizer {
         self.config.term_width = new_width;
         self.config.term_height = new_height;
 
-        let new_spec_width = new_width;
+        let (new_spec_width, new_spec_height) = clamp_terminal_surface_dimensions(
+            self.config.requested_width,
+            self.config.requested_height,
+            new_width,
+            new_height,
+        );
         let width_changed = self.config.width != new_spec_width;
+        let height_changed = self.config.height != new_spec_height;
         self.config.width = new_spec_width;
+        self.config.height = new_spec_height;
 
         let target_num_bands = self.analyzer_num_bands_for_mode(self.config.mode);
         let bands_changed = self.analyzer.config().num_bands != target_num_bands;
 
-        if width_changed || bands_changed {
+        if width_changed || height_changed || bands_changed {
             self.reset_spectrum_state();
         }
 
@@ -865,6 +895,8 @@ mod tests {
         let config = TerminalConfig {
             width: 48,
             height: 6,
+            requested_width: None,
+            requested_height: None,
             mode: TerminalMode::BarMeter,
             use_color: true,
             use_unicode: false,
@@ -880,6 +912,7 @@ mod tests {
         assert_eq!(visualizer.config.term_width, 120);
         assert_eq!(visualizer.config.term_height, 40);
         assert_eq!(visualizer.config.width, 120);
+        assert_eq!(visualizer.config.height, 6);
     }
 
     #[test]
@@ -887,6 +920,8 @@ mod tests {
         let config = TerminalConfig {
             width: 48,
             height: 6,
+            requested_width: None,
+            requested_height: None,
             mode: TerminalMode::BarMeter,
             use_color: true,
             use_unicode: false,
@@ -910,6 +945,8 @@ mod tests {
         let config = TerminalConfig {
             width: 48,
             height: 6,
+            requested_width: None,
+            requested_height: None,
             mode: TerminalMode::BarMeter,
             use_color: true,
             use_unicode: false,
@@ -930,6 +967,8 @@ mod tests {
         let config = TerminalConfig {
             width: 48,
             height: 6,
+            requested_width: None,
+            requested_height: None,
             mode: TerminalMode::Waterfall,
             use_color: true,
             use_unicode: false,
@@ -946,6 +985,8 @@ mod tests {
         let config = TerminalConfig {
             width: 48,
             height: 6,
+            requested_width: None,
+            requested_height: None,
             mode: TerminalMode::Waterfall,
             use_color: true,
             use_unicode: false,
@@ -957,5 +998,43 @@ mod tests {
         visualizer.resize(120, 40);
 
         assert_eq!(visualizer.analyzer.config().num_bands, 38);
+    }
+
+    #[test]
+    fn test_resize_reclamps_explicit_requested_dimensions() {
+        let config = TerminalConfig {
+            width: 48,
+            height: 20,
+            requested_width: Some(48),
+            requested_height: Some(20),
+            mode: TerminalMode::BarMeter,
+            use_color: true,
+            use_unicode: false,
+            term_width: 80,
+            term_height: 24,
+        };
+        let mut visualizer = TerminalVisualizer::new(config, None);
+
+        visualizer.resize(30, 12);
+
+        assert_eq!(visualizer.config.width, 30);
+        assert_eq!(visualizer.config.height, 8);
+
+        visualizer.resize(90, 40);
+
+        assert_eq!(visualizer.config.width, 48);
+        assert_eq!(visualizer.config.height, 20);
+    }
+
+    #[test]
+    fn test_clamp_terminal_surface_dimensions_tracks_terminal_defaults() {
+        assert_eq!(
+            clamp_terminal_surface_dimensions(None, None, 120, 40),
+            (120, 6)
+        );
+        assert_eq!(
+            clamp_terminal_surface_dimensions(None, None, 20, 4),
+            (20, 1)
+        );
     }
 }

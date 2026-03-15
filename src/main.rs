@@ -17,7 +17,9 @@ use usit::model_cache::{self, ActivationResult};
 use usit::spectrum::get_color_scheme;
 use usit::ui;
 use usit::ui::spectrogram::SpectrogramMode;
-use usit::ui::terminal::{TerminalConfig, TerminalMode, TerminalVisualizer};
+use usit::ui::terminal::{
+    clamp_terminal_surface_dimensions, TerminalConfig, TerminalMode, TerminalVisualizer,
+};
 use usit::{backend, download, streaming};
 
 /// Commands sent to the download manager thread
@@ -685,9 +687,14 @@ fn run_fireworks_test() -> anyhow::Result<()> {
 
         eprintln!("Testing: {}", name);
 
+        let (surface_width, surface_height) =
+            clamp_terminal_surface_dimensions(None, None, *width as usize, *height as usize);
+
         let config = TerminalConfig {
-            width: *width as usize,
-            height: *height as usize,
+            width: surface_width,
+            height: surface_height,
+            requested_width: None,
+            requested_height: None,
             mode: TerminalMode::BarMeter,
             use_color: true,
             use_unicode: false,
@@ -1696,12 +1703,12 @@ fn run_terminal_loop(
         .map(|(Width(w), Height(h))| (w as usize, h as usize))
         .unwrap_or((80, 24));
 
-    let width = args.ansi_width.unwrap_or(term_width).max(1).min(term_width);
-    let height = args
-        .ansi_height
-        .unwrap_or(6)
-        .max(1)
-        .min(term_height.saturating_sub(4));
+    let (width, height) = clamp_terminal_surface_dimensions(
+        args.ansi_width,
+        args.ansi_height,
+        term_width,
+        term_height,
+    );
 
     let use_unicode = match args.ansi_charset {
         AnsiCharset::Ascii => false,
@@ -1717,6 +1724,8 @@ fn run_terminal_loop(
     let terminal_config = TerminalConfig {
         width,
         height,
+        requested_width: args.ansi_width,
+        requested_height: args.ansi_height,
         mode,
         use_color: !args.no_color,
         use_unicode,
