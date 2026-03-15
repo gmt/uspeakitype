@@ -6,23 +6,23 @@ Rectangle {
     property string partialText: ""
 
     radius: 16
-    color: "#1a1d1d"
+    color: "#1c1613"
     border.width: 1
-    border.color: "#304048"
+    border.color: "#42322a"
 
     Rectangle {
         anchors.fill: parent
         radius: parent.radius
         gradient: Gradient {
-            GradientStop { position: 0.0; color: "#1b1f20" }
-            GradientStop { position: 1.0; color: "#171a1b" }
+            GradientStop { position: 0.0; color: "#241c18" }
+            GradientStop { position: 1.0; color: "#1c1613" }
         }
     }
 
     Text {
         id: transcriptLabel
         text: "Transcript"
-        color: "#90a1a5"
+        color: "#a5968d"
         font.pixelSize: 12
         font.letterSpacing: 1.0
         anchors.left: parent.left
@@ -34,7 +34,7 @@ Rectangle {
     Text {
         id: committed
         text: root.committedText
-        color: "#f3f4ee"
+        color: "#f4efe6"
         font.pixelSize: 16
         font.weight: Font.Medium
         wrapMode: Text.WordWrap
@@ -49,7 +49,7 @@ Rectangle {
     Text {
         id: partial
         text: root.partialText
-        color: "#aeb6b4"
+        color: "#b8a89a"
         font.pixelSize: 16
         wrapMode: Text.WordWrap
         anchors.left: parent.left

@@ -8,15 +8,15 @@ Rectangle {
     width: buttonLabel.implicitWidth + 24
     height: 28
     radius: 12
-    color: "#203039"
+    color: "#2b211d"
     border.width: 1
-    border.color: "#35505d"
+    border.color: "#4a3831"
 
     Text {
         id: buttonLabel
         anchors.centerIn: parent
         text: root.label
-        color: "#f0f3ee"
+        color: "#f0eadf"
         font.pixelSize: 12
         font.weight: Font.Medium
     }

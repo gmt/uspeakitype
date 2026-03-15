@@ -15,9 +15,9 @@ Rectangle {
     signal toggleExpanded()
 
     radius: 18
-    color: "#12181c"
+    color: "#1a1411"
     border.width: 1
-    border.color: "#233740"
+    border.color: "#362721"
     clip: true
 
     Rectangle {
@@ -25,8 +25,8 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        height: root.expanded ? 90 : parent.height
-        color: "#18242b"
+        height: root.expanded ? 52 : parent.height
+        color: "#211915"
         radius: 18
         
         Rectangle {
@@ -34,7 +34,7 @@ Rectangle {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             height: 18
-            color: "#18242b"
+            color: "#211915"
             visible: root.expanded
         }
     }
@@ -49,8 +49,8 @@ Rectangle {
         Text {
             id: title
             visible: root.expanded
-            text: "Controls"
-            color: "#f1f3ed"
+            text: "Control Panel"
+            color: "#f1ebe3"
             font.pixelSize: 18
             font.weight: Font.DemiBold
             anchors.left: parent.left
@@ -60,36 +60,21 @@ Rectangle {
 
         ActionButton {
             id: collapseButton
-            label: root.expanded ? "Collapse" : "Open"
-            anchors.right: root.expanded ? parent.right : undefined
-            anchors.horizontalCenter: root.expanded ? undefined : parent.horizontalCenter
+            label: "Close"
+            anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            anchors.rightMargin: root.expanded ? 12 : 0
+            anchors.rightMargin: 12
             onActivated: root.toggleExpanded()
         }
     }
 
-    Text {
-        id: descriptionText
+    Column {
         visible: root.expanded
-        text: "Qt Quick handles shell chrome while the spectrogram is WGPU."
-        color: "#9dafb2"
-        font.pixelSize: 12
-        wrapMode: Text.WordWrap
+        spacing: 10
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: headerArea.bottom
-        anchors.leftMargin: 16
-        anchors.rightMargin: 16
-    }
-
-    Column {
-        visible: root.expanded
-        spacing: 8
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: descriptionText.bottom
-        anchors.margins: 12
+        anchors.margins: 16
         anchors.topMargin: 16
 
         DrawerSwitch {

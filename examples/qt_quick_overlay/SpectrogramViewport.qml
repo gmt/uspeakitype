@@ -7,9 +7,9 @@ Rectangle {
     property real phase: 0.0
 
     radius: 16
-    color: "#091015"
+    color: "#110b08"
     border.width: 1
-    border.color: "#1f313a"
+    border.color: "#2b1d16"
     clip: true
 
     function pseudoNoise(a, b) {
@@ -33,9 +33,9 @@ Rectangle {
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {
-            GradientStop { position: 0.0; color: "#081015" }
-            GradientStop { position: 0.58; color: "#0d1b23" }
-            GradientStop { position: 1.0; color: "#15100c" }
+            GradientStop { position: 0.0; color: "#110b08" }
+            GradientStop { position: 0.58; color: "#1a120d" }
+            GradientStop { position: 1.0; color: "#150f0b" }
         }
     }
 
@@ -54,9 +54,9 @@ Rectangle {
             ctx.clearRect(0, 0, w, h)
 
             const bg = ctx.createLinearGradient(0, 0, 0, h)
-            bg.addColorStop(0.0, "#081117")
-            bg.addColorStop(0.62, "#0b161d")
-            bg.addColorStop(1.0, "#140e0a")
+            bg.addColorStop(0.0, "#0d0806")
+            bg.addColorStop(0.62, "#140d09")
+            bg.addColorStop(1.0, "#0d0806")
             ctx.fillStyle = bg
             ctx.fillRect(0, 0, w, h)
 
@@ -85,7 +85,7 @@ Rectangle {
                         intensity *= 0.68 + Math.pow(1.0 - freq, 1.7) * 0.7
                         intensity = root.clamp(intensity, 0.0, 1.0)
 
-                        const hue = 0.62 - intensity * 0.56 + freq * 0.03
+                        const hue = 0.02 + intensity * 0.22 + freq * 0.03
                         const sat = 0.84
                         const light = 0.18 + intensity * 0.5
                         ctx.fillStyle = Qt.hsla(hue, sat, light, 0.96)
@@ -117,8 +117,8 @@ Rectangle {
                     const x = i * barW
                     const y = floorY - barH
 
-                    const topHue = 0.62 - envelope * 0.56
-                    const bottomHue = 0.62
+                    const topHue = 0.02 + envelope * 0.22
+                    const bottomHue = 0.02
                     const grad = ctx.createLinearGradient(0, y, 0, floorY)
                     grad.addColorStop(0.0, Qt.hsla(topHue, 0.84, 0.18 + envelope * 0.5, 0.98))
                     grad.addColorStop(1.0, Qt.hsla(bottomHue, 0.84, 0.18, 0.75))
@@ -129,7 +129,7 @@ Rectangle {
 
             for (let row = 0; row < 7; ++row) {
                 const y = row / 6 * h
-                ctx.strokeStyle = row === 6 ? "rgba(255,214,149,0.14)" : "rgba(132,164,177,0.08)"
+                ctx.strokeStyle = row === 6 ? "rgba(255,214,149,0.14)" : "rgba(177,148,132,0.08)"
                 ctx.lineWidth = 1
                 ctx.beginPath()
                 ctx.moveTo(0, y + 0.5)
@@ -143,49 +143,6 @@ Rectangle {
             vignette.addColorStop(1.0, "rgba(0,0,0,0.22)")
             ctx.fillStyle = vignette
             ctx.fillRect(0, 0, w, h)
-        }
-    }
-
-    Row {
-        anchors.left: parent.left
-        anchors.top: parent.top
-        anchors.margins: 12
-        spacing: 8
-
-        Rectangle {
-            width: modeLabel.implicitWidth + 16
-            height: 24
-            radius: 12
-            color: "#18232a"
-            border.width: 1
-            border.color: "#29414d"
-
-            Text {
-                id: modeLabel
-                anchors.centerIn: parent
-                text: root.waterfallMode ? "Waterfall Draft" : "Bar Meter Draft"
-                color: "#eef1ea"
-                font.pixelSize: 11
-                font.weight: Font.Medium
-            }
-        }
-
-        Rectangle {
-            width: seamLabel.implicitWidth + 16
-            height: 24
-            radius: 12
-            color: "#211b15"
-            border.width: 1
-            border.color: "#58402d"
-
-            Text {
-                id: seamLabel
-                anchors.centerIn: parent
-                text: "Renderer seam"
-                color: "#f3d7bd"
-                font.pixelSize: 11
-                font.weight: Font.Medium
-            }
         }
     }
 }

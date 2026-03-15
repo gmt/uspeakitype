@@ -6,29 +6,29 @@ Rectangle {
     property bool value: false
     signal activated()
 
-    height: 44
-    radius: 12
-    color: root.value ? "#20342f" : "#171e22"
+    height: 40
+    radius: 14
+    color: root.value ? "#2e382e" : "#342728"
     border.width: 1
-    border.color: root.value ? "#3f8b70" : "#2d3a42"
+    border.color: root.value ? "#3d4a3d" : "#4a383a"
 
     Text {
         text: root.label
-        color: "#edf1eb"
-        font.pixelSize: 14
+        color: "#d1c5aa"
+        font.pixelSize: 13
         font.weight: Font.Medium
         anchors.left: parent.left
-        anchors.leftMargin: 12
+        anchors.leftMargin: 16
         anchors.verticalCenter: parent.verticalCenter
     }
 
     Rectangle {
-        width: 44
+        width: 42
         height: 24
         radius: 12
-        color: root.value ? "#3b8e74" : "#4b5459"
+        color: root.value ? "#5c7a45" : "#594a44"
         anchors.right: parent.right
-        anchors.rightMargin: 12
+        anchors.rightMargin: 10
         anchors.verticalCenter: parent.verticalCenter
 
         Rectangle {
@@ -37,7 +37,7 @@ Rectangle {
             radius: 9
             y: 3
             x: root.value ? parent.width - width - 3 : 3
-            color: "#f4f4ee"
+            color: "#f4ede4"
 
             Behavior on x {
                 NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
