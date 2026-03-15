@@ -508,7 +508,9 @@ impl Renderer {
         self.spectrogram
             .render(&mut encoder, &view, self.config.height);
 
-        if actual_text_panel_height > 0 {
+        let helper_panel_open = control_panel.as_ref().is_some_and(|panel| panel.is_open);
+
+        if actual_text_panel_height > 0 && !helper_panel_open {
             let text_rect = PanelRect {
                 x: 0.0,
                 y: text_panel_y,
