@@ -1,6 +1,7 @@
 pub mod app;
 pub mod control_panel;
 pub mod icon;
+pub mod qt_external;
 pub mod renderer;
 pub mod spectrogram;
 pub mod spectrogram_widget;
@@ -18,7 +19,7 @@ use std::sync::Arc;
 
 use crate::config::{AsrModelId, Config};
 
-pub use app::run;
+pub use qt_external::run;
 pub use control_panel::{
     transcript_text_bounds, Control, ControlPanelState, PanelRect, PANEL_MARGIN, PANEL_MAX_WIDTH,
     PANEL_MIN_SIZE, PANEL_PADDING, ROW_HEIGHT, TEXT_PANEL_HEIGHT, TITLE_HEIGHT,

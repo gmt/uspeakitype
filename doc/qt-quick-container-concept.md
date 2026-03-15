@@ -88,11 +88,13 @@ The current mockup also leans on a more realistic viewport placeholder than the 
 - stronger visual continuity in the fake spectrogram/waterfall content
 - clearer labeling of the renderer seam so the shell reads as intentional rather than as a fake rewrite
 
-## Recommendation
+## Outcome
 
-If the visual direction feels promising, the next real spike should still be conservative:
+This mockup did its job. The project has now started a real Qt-based graphical path, but the first production step moved to Qt Widgets rather than embedding the QML scene directly.
+
+That still follows the core lesson from this note:
 
 1. keep Rust as the source of truth for state
-2. keep the spectrogram renderer separate at first
-3. use Qt Quick only for shell/chrome
-4. decide later whether the renderer itself should migrate
+2. let Qt own shell/chrome
+3. bridge snapshots and commands first
+4. migrate rendering details later, only if they earn their keep

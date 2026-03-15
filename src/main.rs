@@ -317,6 +317,9 @@ struct Args {
     #[arg(long, help = "Terminal UI mode (instead of graphical overlay)")]
     ansi: bool,
 
+    #[arg(long, hide = true, help = "Use the legacy WGPU overlay instead of the Qt shell")]
+    wgpu_legacy: bool,
+
     #[arg(long, help = "Spectrogram width in characters")]
     ansi_width: Option<usize>,
 
@@ -1391,13 +1394,23 @@ fn main() -> anyhow::Result<()> {
             }),
         };
 
-        ui::run(
-            audio_state,
-            running,
-            capture_control,
-            overlay_options,
-            args.tag.clone(),
-        );
+        if args.wgpu_legacy {
+            ui::app::run(
+                audio_state,
+                running,
+                capture_control,
+                overlay_options,
+                args.tag.clone(),
+            );
+        } else {
+            ui::run(
+                audio_state,
+                running,
+                capture_control,
+                overlay_options,
+                args.tag.clone(),
+            );
+        }
     }
 
     // Graceful shutdown cascade:
@@ -2227,6 +2240,7 @@ mod tests {
             auto_gain: false,
             list_sources: false,
             ansi: false,
+            wgpu_legacy: false,
             ansi_width: None,
             ansi_height: None,
             ansi_charset: AnsiCharset::Auto,

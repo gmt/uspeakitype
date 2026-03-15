@@ -56,7 +56,7 @@ impl WgpuTestHarness {
         std::fs::create_dir_all(&config_dir)?;
 
         let tag = format!("visual-test-{}", test_tag);
-        let mut cmd_args = vec!["--tag", &tag, "--no-duplicate-tag"];
+        let mut cmd_args = vec!["--tag", &tag, "--no-duplicate-tag", "--wgpu-legacy"];
         cmd_args.extend(args.iter());
 
         let child = Command::new(env!("CARGO_BIN_EXE_usit"))

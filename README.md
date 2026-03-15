@@ -1,16 +1,18 @@
 # usit - Streaming ASR with Live Revision
 
-**uspeakitype** ("you speak, I type") is a streaming speech-to-text overlay for Linux that transcribes audio in real-time with live word-by-word revision, providing both terminal (ANSI) and graphical (WGPU) interfaces.
+**uspeakitype** ("you speak, I type") is a streaming speech-to-text overlay for Linux that transcribes audio in real-time with live word-by-word revision, providing both terminal (ANSI) and graphical (Qt) interfaces.
 
 ## Features
 
 - **Streaming transcription**: Words appear as you speak, not after pauses
 - **Live revision**: Earlier words update as context improves accuracy
-- **Dual interfaces**: Terminal (ANSI) mode and graphical overlay (Wayland layer shell)
+- **Dual interfaces**: Terminal (ANSI) mode and a Qt-based graphical shell
 - **Spectrogram visualization**: Real-time audio feedback with bars or waterfall display
 - **Voice Activity Detection**: Silero VAD for commit detection
 - **Moonshine-based**: Fast, efficient ONNX-based ASR, including the newer official `moonshine-tiny-{ar,zh,ja,ko,uk,vi}` flavors
 - **Control panel**: Runtime configuration of audio input, gain and AGC.
+
+The current graphical frontend is a Qt Widgets companion shell bridged over stdio; the older WGPU overlay remains available only as a hidden legacy/testing path.
 
 ## Model Support
 
