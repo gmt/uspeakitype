@@ -17,7 +17,7 @@ use crate::audio::CaptureControl;
 use crate::config::AsrModelId;
 use crate::spectrum::{get_color_scheme, ColorScheme};
 use crate::ui::spectrogram::{Spectrogram, SpectrogramMode};
-use crate::ui::{helper_capability_label, AudioSourceInfo, AudioState};
+use crate::ui::{helper_mode_label, AudioSourceInfo, AudioState};
 
 // Panel geometry constants
 pub const PANEL_MAX_WIDTH: f32 = 460.0;
@@ -276,7 +276,7 @@ impl Control {
             ),
             Control::InjectionToggle => (
                 "Text injection",
-                "Enable or disable typing into the focused application. This is a trust boundary, so it belongs in its own desktop section rather than hiding among audio controls.",
+                "Enable or disable typing into the focused application. This row should stay honest about whether usit is display-only, transcribing without injection, or trusted to act on your behalf.",
             ),
             Control::ModelSelector => (
                 "Recognition model",
@@ -523,10 +523,7 @@ impl ControlPanelState {
                 SpectrogramMode::Waterfall => "Waterfall".to_string(),
             },
             Control::ColorPicker => self.color_scheme_name.to_string(),
-            Control::InjectionToggle => match helper_capability_label(audio_state) {
-                "Trusted input" => "Trusted".to_string(),
-                _ => "Display-only".to_string(),
-            },
+            Control::InjectionToggle => helper_mode_label(audio_state).to_string(),
             Control::ModelSelector => self.model_value(audio_state),
             Control::AutoSaveToggle => {
                 if self.auto_save {
@@ -859,6 +856,37 @@ mod tests {
             panel.control_value(Control::ModelSelector, &audio_state),
             "Moonshine Base -> Moonshine Tiny (dl)"
         );
+    }
+
+    #[test]
+    fn injection_value_surfaces_three_helper_modes() {
+        let panel = ControlPanelState::new();
+        let mut audio_state = AudioState::new();
+
+        assert_eq!(
+            panel.control_value(Control::InjectionToggle, &audio_state),
+            "Display-only"
+        );
+
+        audio_state.transcription_available = true;
+        assert_eq!(
+            panel.control_value(Control::InjectionToggle, &audio_state),
+            "Trusted input"
+        );
+
+        audio_state.injection_enabled = false;
+        assert_eq!(
+            panel.control_value(Control::InjectionToggle, &audio_state),
+            "Transcribing only"
+        );
+    }
+
+    #[test]
+    fn injection_help_mentions_trust_boundary_and_transcribing_mode() {
+        let (_, body) = Control::InjectionToggle.help();
+        assert!(body.contains("display-only"));
+        assert!(body.contains("transcribing"));
+        assert!(body.contains("trusted"));
     }
 
     #[test]

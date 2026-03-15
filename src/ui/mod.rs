@@ -231,6 +231,58 @@ pub fn helper_mode_short_label(state: &AudioState) -> &'static str {
     }
 }
 
+pub fn helper_source_label(state: &AudioState) -> String {
+    let label = state
+        .selected_source_id
+        .and_then(|id| {
+            state
+                .available_sources
+                .iter()
+                .find(|source| source.id == id)
+        })
+        .map(|source| {
+            if source.description.is_empty() || source.description == source.name {
+                source.name.clone()
+            } else {
+                source.description.clone()
+            }
+        })
+        .or_else(|| state.selected_source_name.clone())
+        .unwrap_or_else(|| "Default".to_string());
+
+    if state.source_change_pending_restart {
+        format!("Source: {} (next launch)", label)
+    } else {
+        format!("Source: {}", label)
+    }
+}
+
+pub fn helper_source_short_label(state: &AudioState) -> String {
+    let label = state
+        .selected_source_id
+        .and_then(|id| {
+            state
+                .available_sources
+                .iter()
+                .find(|source| source.id == id)
+        })
+        .map(|source| {
+            if source.description.is_empty() || source.description == source.name {
+                source.name.clone()
+            } else {
+                source.description.clone()
+            }
+        })
+        .or_else(|| state.selected_source_name.clone())
+        .unwrap_or_else(|| "default".to_string());
+
+    if state.source_change_pending_restart {
+        format!("src {} (next)", label)
+    } else {
+        format!("src {}", label)
+    }
+}
+
 pub fn model_provenance_label(state: &AudioState) -> String {
     match (
         state.active_model,
@@ -269,6 +321,24 @@ pub fn model_provenance_short_label(state: &AudioState) -> String {
         (None, Some(requested), _) => format!("{}(req)", requested.dir_name()),
         (None, None, _) => "no-model".to_string(),
     }
+}
+
+pub fn helper_status_summary(state: &AudioState) -> String {
+    format!(
+        "{}  ·  {}  ·  {}",
+        helper_mode_label(state),
+        helper_source_label(state),
+        model_provenance_label(state)
+    )
+}
+
+pub fn helper_status_short_summary(state: &AudioState) -> String {
+    format!(
+        "{}  ·  {}  ·  {}",
+        helper_mode_short_label(state),
+        helper_source_short_label(state),
+        model_provenance_short_label(state)
+    )
 }
 
 #[cfg(test)]
@@ -463,7 +533,10 @@ mod tests {
         state.active_model = Some(AsrModelId::MoonshineBase);
         state.download_progress = Some(0.3);
 
-        assert_eq!(helper_model_label(&state), "Moonshine Base -> Moonshine Tiny (dl)");
+        assert_eq!(
+            helper_model_label(&state),
+            "Moonshine Base -> Moonshine Tiny (dl)"
+        );
     }
 
     #[test]
@@ -511,6 +584,44 @@ mod tests {
         assert_eq!(
             model_provenance_short_label(&state),
             "moonshine-base->moonshine-tiny(dl)"
+        );
+    }
+
+    #[test]
+    fn helper_source_labels_surface_pending_restart_and_description() {
+        let mut state = AudioState::new();
+        state.available_sources = vec![AudioSourceInfo {
+            id: 7,
+            name: "headset".to_string(),
+            description: "USB Headset".to_string(),
+        }];
+        state.selected_source_id = Some(7);
+        state.source_change_pending_restart = true;
+
+        assert_eq!(
+            helper_source_label(&state),
+            "Source: USB Headset (next launch)"
+        );
+        assert_eq!(helper_source_short_label(&state), "src USB Headset (next)");
+    }
+
+    #[test]
+    fn helper_status_summaries_share_trust_source_and_model_terms() {
+        let mut state = AudioState::new();
+        state.transcription_available = true;
+        state.injection_enabled = false;
+        state.selected_source_name = Some("desk-mic".to_string());
+        state.active_model = Some(AsrModelId::MoonshineBase);
+        state.requested_model = Some(AsrModelId::MoonshineTiny);
+        state.download_progress = Some(0.3);
+
+        assert_eq!(
+            helper_status_summary(&state),
+            "Transcribing only  ·  Source: desk-mic  ·  Model: Moonshine Base -> Moonshine Tiny (downloading)"
+        );
+        assert_eq!(
+            helper_status_short_summary(&state),
+            "transcribe  ·  src desk-mic  ·  moonshine-base->moonshine-tiny(dl)"
         );
     }
 
