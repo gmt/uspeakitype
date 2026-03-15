@@ -1593,38 +1593,14 @@ fn run_terminal_loop(
                                         }
                                     }
                                     KeyCode::Esc | KeyCode::Char('c') | KeyCode::Char('C') => {
-                                        control_panel.toggle_open();
+                                        control_panel.close();
                                         visualizer.set_panel_open(control_panel.is_open);
                                     }
                                     KeyCode::Up => {
-                                        let controls: Vec<_> = ui::control_panel::Control::ALL
-                                            .iter()
-                                            .filter(|&&c| !c.is_wgpu_only())
-                                            .copied()
-                                            .collect();
-                                        let current_idx = control_panel
-                                            .focused_control
-                                            .and_then(|c| controls.iter().position(|&x| x == c))
-                                            .unwrap_or(0);
-                                        let new_idx = if current_idx == 0 {
-                                            controls.len() - 1
-                                        } else {
-                                            current_idx - 1
-                                        };
-                                        control_panel.set_focused(Some(controls[new_idx]));
+                                        control_panel.focus_previous(false);
                                     }
                                     KeyCode::Down => {
-                                        let controls: Vec<_> = ui::control_panel::Control::ALL
-                                            .iter()
-                                            .filter(|&&c| !c.is_wgpu_only())
-                                            .copied()
-                                            .collect();
-                                        let current_idx = control_panel
-                                            .focused_control
-                                            .and_then(|c| controls.iter().position(|&x| x == c))
-                                            .unwrap_or(0);
-                                        let new_idx = (current_idx + 1) % controls.len();
-                                        control_panel.set_focused(Some(controls[new_idx]));
+                                        control_panel.focus_next(false);
                                     }
                                     KeyCode::Enter => match control_panel.focused_control {
                                         Some(ui::control_panel::Control::AgcCheckbox) => {
@@ -1737,15 +1713,8 @@ fn run_terminal_loop(
                                         if visualizer.layout_mode()
                                             != ui::terminal::LayoutMode::Degenerate
                                         {
-                                            control_panel.toggle_open();
+                                            control_panel.toggle_open_for_surface(false);
                                             visualizer.set_panel_open(control_panel.is_open);
-                                            if control_panel.is_open
-                                                && control_panel.focused_control.is_none()
-                                            {
-                                                control_panel.set_focused(Some(
-                                                    ui::control_panel::Control::DeviceSelector,
-                                                ));
-                                            }
                                         }
                                     }
                                     _ => {}

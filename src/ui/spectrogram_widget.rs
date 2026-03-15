@@ -201,7 +201,11 @@ mod tests {
                     break;
                 }
             }
-            assert!(saw_non_space, "column {} disappeared in a tight viewport", x);
+            assert!(
+                saw_non_space,
+                "column {} disappeared in a tight viewport",
+                x
+            );
         }
     }
 }

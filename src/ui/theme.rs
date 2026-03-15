@@ -79,12 +79,12 @@ impl Theme {
 /// Dark background with white committed text and gray partial text.
 /// Suitable for both terminal and graphical rendering.
 pub const DEFAULT_THEME: Theme = Theme {
-    background: Color::rgb(0.1, 0.1, 0.1),     // dark gray
-    shadow: Color::rgb(0.0, 0.0, 0.0),         // black
-    text_committed: Color::rgb(1.0, 1.0, 1.0), // white
-    text_partial: Color::rgb(0.6, 0.6, 0.6),   // gray
-    text_error: Color::rgb(1.0, 0.3, 0.3),     // red
-    panel_bg: Color::rgb(0.15, 0.15, 0.15),    // slightly lighter gray
+    background: Color::rgb(0.07, 0.06, 0.05), // near-black umber
+    shadow: Color::rgb(0.0, 0.0, 0.0),        // black
+    text_committed: Color::rgb(0.96, 0.94, 0.9),
+    text_partial: Color::rgb(0.62, 0.58, 0.54),
+    text_error: Color::rgb(0.78, 0.31, 0.24), // brick red
+    panel_bg: Color::rgb(0.12, 0.1, 0.09),    // warm charcoal
 };
 
 #[cfg(test)]
@@ -95,12 +95,12 @@ mod tests {
     fn theme_wgpu_conversion() {
         let theme = DEFAULT_THEME;
         let wgpu = theme.to_wgpu();
-        assert_eq!(wgpu.background, [0.1, 0.1, 0.1, 1.0]);
-        assert_eq!(wgpu.text_committed, [1.0, 1.0, 1.0, 1.0]);
-        assert_eq!(wgpu.text_partial, [0.6, 0.6, 0.6, 1.0]);
-        assert_eq!(wgpu.text_error, [1.0, 0.3, 0.3, 1.0]);
+        assert_eq!(wgpu.background, [0.07, 0.06, 0.05, 1.0]);
+        assert_eq!(wgpu.text_committed, [0.96, 0.94, 0.9, 1.0]);
+        assert_eq!(wgpu.text_partial, [0.62, 0.58, 0.54, 1.0]);
+        assert_eq!(wgpu.text_error, [0.78, 0.31, 0.24, 1.0]);
         assert_eq!(wgpu.shadow, [0.0, 0.0, 0.0, 1.0]);
-        assert_eq!(wgpu.panel_bg, [0.15, 0.15, 0.15, 1.0]);
+        assert_eq!(wgpu.panel_bg, [0.12, 0.1, 0.09, 1.0]);
     }
 
     #[test]
@@ -109,19 +109,19 @@ mod tests {
         let ansi = theme.to_ansi();
 
         // Committed text should be white foreground
-        assert!(ansi.text_committed.contains("\x1b[38;2;255;255;255m"));
+        assert!(ansi.text_committed.contains("\x1b[38;2;244;239;229m"));
 
         // Partial text should be gray foreground
-        assert!(ansi.text_partial.contains("\x1b[38;2;153;153;153m"));
+        assert!(ansi.text_partial.contains("\x1b[38;2;158;147;137m"));
 
         // Background should be dark gray background
-        assert!(ansi.background.contains("\x1b[48;2;25;25;25m"));
+        assert!(ansi.background.contains("\x1b[48;2;17;15;12m"));
 
         // Shadow should be black background
         assert!(ansi.shadow.contains("\x1b[48;2;0;0;0m"));
 
         // Panel should be slightly lighter gray background
-        assert!(ansi.panel_bg.contains("\x1b[48;2;38;38;38m"));
+        assert!(ansi.panel_bg.contains("\x1b[48;2;30;25;22m"));
     }
 
     #[test]

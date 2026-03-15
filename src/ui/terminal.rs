@@ -34,7 +34,7 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::Line,
+    text::{Line, Span},
     widgets::{Block, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph},
     Terminal as RatatuiTerminal,
 };
@@ -49,7 +49,7 @@ use crate::spectrum::{
     DEFAULT_WATERFALL_SECONDS_PER_SCREEN,
 };
 
-use super::control_panel::{Control, ControlPanelState};
+use super::control_panel::{panel_entries, Control, ControlPanelState, PanelEntry};
 use super::theme::{Theme, DEFAULT_THEME};
 
 const BLOCK_CHARS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -175,11 +175,24 @@ fn format_control_label(control: Control, value: &str, mode: LayoutMode) -> Stri
 /// Get panel title appropriate for layout mode
 fn panel_title(mode: LayoutMode) -> &'static str {
     match mode {
-        LayoutMode::Full => " Panel (Up/Dn/Enter/Esc) ", // 25 chars (Phase 1 canonical)
-        LayoutMode::Compact => " Panel ",                // 8 chars
-        LayoutMode::Minimal => " ... ",                  // 5 chars
-        LayoutMode::Degenerate => "",                    // Not used (panel hidden)
+        LayoutMode::Full => " Helper Panel (Up/Dn/Enter/Esc) ",
+        LayoutMode::Compact => " Helper Panel ",
+        LayoutMode::Minimal => " ... ",
+        LayoutMode::Degenerate => "", // Not used (panel hidden)
     }
+}
+
+struct PanelPopupItem {
+    label: String,
+    is_section: bool,
+}
+
+struct PanelPopupData {
+    items: Vec<PanelPopupItem>,
+    selected_index: Option<usize>,
+    title: &'static str,
+    help_title: &'static str,
+    help_body: &'static str,
 }
 
 /// Calculate a centered rectangle for popup overlays
@@ -479,11 +492,9 @@ impl TerminalVisualizer {
         }
     }
 
-    fn build_panel_data(
-        &self,
-        panel: &ControlPanelState,
-    ) -> (Vec<String>, Option<usize>, &'static str) {
+    fn build_panel_data(&self, panel: &ControlPanelState) -> PanelPopupData {
         let mode = self.layout_mode();
+        let (help_title, help_body) = panel.help_copy();
 
         let device_value = panel
             .selected_device
@@ -506,40 +517,51 @@ impl TerminalVisualizer {
         };
         let injection_value = if self.injection_enabled { "[X]" } else { "[ ]" };
 
-        let controls: Vec<(Control, String)> = Control::ALL
-            .iter()
-            .filter(|&&control| !control.is_wgpu_only())
-            .map(|&control| {
-                let value = match control {
-                    Control::DeviceSelector => device_value.clone(),
-                    Control::GainSlider => gain_value.clone(),
-                    Control::AgcCheckbox => agc_value.to_string(),
-                    Control::PauseButton => pause_value.to_string(),
-                    Control::VizToggle => viz_value.to_string(),
-                    Control::ColorPicker => panel.color_scheme_name.to_string(),
-                    Control::InjectionToggle => injection_value.to_string(),
-                    Control::ModelSelector => panel.model.to_string(),
-                    Control::AutoSaveToggle => {
-                        if panel.auto_save { "[X]" } else { "[ ]" }.to_string()
+        let mut items = Vec::new();
+        let mut selected_index = None;
+
+        for entry in panel_entries(false) {
+            match entry {
+                PanelEntry::Section(section) => items.push(PanelPopupItem {
+                    label: section.title().to_uppercase(),
+                    is_section: true,
+                }),
+                PanelEntry::Control(control) => {
+                    let value = match control {
+                        Control::DeviceSelector => device_value.clone(),
+                        Control::GainSlider => gain_value.clone(),
+                        Control::AgcCheckbox => agc_value.to_string(),
+                        Control::PauseButton => pause_value.to_string(),
+                        Control::VizToggle => viz_value.to_string(),
+                        Control::ColorPicker => panel.color_scheme_name.to_string(),
+                        Control::InjectionToggle => injection_value.to_string(),
+                        Control::ModelSelector => panel.model.to_string(),
+                        Control::AutoSaveToggle => {
+                            if panel.auto_save { "[X]" } else { "[ ]" }.to_string()
+                        }
+                        Control::OpacitySlider => {
+                            format!("{:.0}%", panel.opacity * 100.0)
+                        }
+                        Control::QuitButton => "Exit".to_string(),
+                    };
+                    if panel.focused_control == Some(control) {
+                        selected_index = Some(items.len());
                     }
-                    Control::OpacitySlider => {
-                        format!("{:.0}%", panel.opacity * 100.0)
-                    }
-                    Control::QuitButton => "Exit".to_string(),
-                };
-                (control, format_control_label(control, &value, mode))
-            })
-            .collect();
+                    items.push(PanelPopupItem {
+                        label: format_control_label(control, &value, mode),
+                        is_section: false,
+                    });
+                }
+            }
+        }
 
-        let labels: Vec<String> = controls.iter().map(|(_, label)| label.clone()).collect();
-
-        let selected_index = panel
-            .focused_control
-            .and_then(|focused| controls.iter().position(|(c, _)| c == &focused));
-
-        let title = panel_title(mode);
-
-        (labels, selected_index, title)
+        PanelPopupData {
+            items,
+            selected_index,
+            title: panel_title(mode),
+            help_title,
+            help_body,
+        }
     }
 
     pub fn process_and_render_ratatui(&mut self, panel: &ControlPanelState) -> io::Result<()> {
@@ -660,27 +682,52 @@ impl TerminalVisualizer {
             );
             frame.render_widget(transcript_widget, transcript_area);
 
-            if let Some((labels, selected_index, title)) = panel_data {
-                let items: Vec<ListItem> = labels
+            if let Some(panel_popup) = panel_data {
+                let items: Vec<ListItem> = panel_popup
+                    .items
                     .iter()
-                    .map(|label| ListItem::new(Line::raw(label.as_str())))
+                    .map(|item| {
+                        if item.is_section {
+                            ListItem::new(Line::from(vec![Span::styled(
+                                item.label.as_str(),
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD),
+                            )]))
+                        } else {
+                            ListItem::new(Line::raw(item.label.as_str()))
+                        }
+                    })
                     .collect();
 
                 let mut list_state = ListState::default();
-                list_state.select(selected_index);
+                list_state.select(panel_popup.selected_index);
 
                 let list = List::new(items)
                     .block(
                         Block::default()
                             .borders(Borders::ALL)
-                            .title(Line::raw(title).alignment(Alignment::Center)),
+                            .title(Line::raw(panel_popup.title).alignment(Alignment::Center)),
                     )
                     .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
                     .highlight_symbol("> ");
 
-                let popup_area = centered_rect(60, Control::ALL.len() as u16 + 2, frame.area());
+                let help_text = format!("{}\n{}", panel_popup.help_title, panel_popup.help_body);
+                let help = Paragraph::new(help_text)
+                    .block(Block::default().borders(Borders::ALL).title(" Focus "))
+                    .wrap(ratatui::widgets::Wrap { trim: true })
+                    .style(Style::default().fg(Color::Gray));
+
+                let popup_height = panel_popup.items.len() as u16 + 8;
+                let popup_area = centered_rect(70, popup_height, frame.area());
+                let popup_layout = Layout::vertical([
+                    Constraint::Length(panel_popup.items.len() as u16 + 2),
+                    Constraint::Length(5),
+                ])
+                .split(popup_area);
                 frame.render_widget(Clear, popup_area);
-                frame.render_stateful_widget(list, popup_area, &mut list_state);
+                frame.render_stateful_widget(list, popup_layout[0], &mut list_state);
+                frame.render_widget(help, popup_layout[1]);
             }
         })?;
 
@@ -780,8 +827,11 @@ mod tests {
 
     #[test]
     fn test_panel_title() {
-        assert_eq!(panel_title(LayoutMode::Full), " Panel (Up/Dn/Enter/Esc) ");
-        assert_eq!(panel_title(LayoutMode::Compact), " Panel ");
+        assert_eq!(
+            panel_title(LayoutMode::Full),
+            " Helper Panel (Up/Dn/Enter/Esc) "
+        );
+        assert_eq!(panel_title(LayoutMode::Compact), " Helper Panel ");
         assert_eq!(panel_title(LayoutMode::Minimal), " ... ");
     }
 

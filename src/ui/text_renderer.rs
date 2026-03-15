@@ -12,6 +12,14 @@ use winit::dpi::PhysicalSize;
 
 use super::theme::{Theme, DEFAULT_THEME};
 
+pub struct PanelTextLine {
+    pub text: String,
+    pub x: f32,
+    pub y: f32,
+    pub color: Color,
+    pub font_size: f32,
+}
+
 pub struct TextRenderer {
     font_system: FontSystem,
     swash_cache: SwashCache,
@@ -59,9 +67,9 @@ impl TextRenderer {
             Some(size.height as f32),
         );
 
-        // Panel buffers for control panel text (12 lines: 1 title + 11 controls)
-        let mut panel_buffers = Vec::with_capacity(12);
-        for _ in 0..12 {
+        // Panel buffers for control panel text (headers, controls, help text)
+        let mut panel_buffers = Vec::with_capacity(24);
+        for _ in 0..24 {
             let mut buf = Buffer::new(&mut font_system, Metrics::new(14.0, 18.0));
             buf.set_size(&mut font_system, Some(size.width as f32), None);
             panel_buffers.push(buf);
@@ -308,21 +316,22 @@ impl TextRenderer {
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
-        lines: Vec<(String, f32, f32)>,
+        lines: Vec<PanelTextLine>,
         bounds: TextBounds,
-        color: Color,
         panel_width: f32,
     ) {
-        let line_count = lines.len().min(12);
-        let line_positions: Vec<(f32, f32)> =
-            lines.iter().take(12).map(|(_, x, y)| (*x, *y)).collect();
+        let line_count = lines.len().min(self.panel_buffers.len());
 
-        for (i, (text, _, _)) in lines.into_iter().take(12).enumerate() {
-            self.panel_buffers[i].set_metrics(&mut self.font_system, Metrics::new(14.0, 18.0));
+        for (i, line) in lines.iter().take(line_count).enumerate() {
+            let line_height = (line.font_size * 1.3).max(18.0);
+            self.panel_buffers[i].set_metrics(
+                &mut self.font_system,
+                Metrics::new(line.font_size, line_height),
+            );
             self.panel_buffers[i].set_size(&mut self.font_system, Some(panel_width), None);
             self.panel_buffers[i].set_text(
                 &mut self.font_system,
-                &text,
+                &line.text,
                 &Attrs::new().family(Family::SansSerif),
                 Shaping::Advanced,
                 Some(Align::Left),
@@ -332,14 +341,14 @@ impl TextRenderer {
 
         let text_areas: Vec<TextArea> = (0..line_count)
             .map(|i| {
-                let (x, y) = line_positions[i];
+                let line = &lines[i];
                 TextArea {
                     buffer: &self.panel_buffers[i],
-                    left: x,
-                    top: y,
+                    left: line.x,
+                    top: line.y,
                     scale: 1.0,
                     bounds,
-                    default_color: color,
+                    default_color: line.color,
                     custom_glyphs: &[],
                 }
             })

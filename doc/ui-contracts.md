@@ -46,7 +46,8 @@ In degenerate mode the control panel is hidden instead of trying to squeeze into
 
 ## Control Model
 
-The control panel uses a shared control enum so both surfaces stay aligned on ordering and meaning.
+The control panel uses a shared control enum plus shared section/help metadata so both surfaces stay
+aligned on ordering, intent, and explanatory copy.
 
 Current controls are:
 
@@ -67,6 +68,19 @@ The current implementation has one explicit surface-specific exception:
 - `opacity` is WGPU-only because it affects overlay alpha and has no meaningful ANSI analogue
 
 Everything else is intended to behave equivalently across surfaces.
+
+The panel is grouped into the same four sections on both surfaces:
+
+- `Capture`
+- `Recognition`
+- `Desktop`
+- `Session`
+
+The current KDE/Plasma-facing bias is visible here: desktop trust and session ownership are treated
+as first-class sections instead of being buried among audio sliders.
+
+Each focused control also has shared help copy. ANSI and WGPU present that help differently, but
+they should describe the same trust boundary or behavioral nuance when a user lands on a control.
 
 ## WGPU Layout Contract
 

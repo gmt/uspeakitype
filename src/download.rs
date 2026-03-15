@@ -403,10 +403,7 @@ pub fn ensure_models_exist_with_progress(
                     asr_dir.display()
                 ))?;
 
-                if !any_matching_exists(
-                    &asr_dir,
-                    &PARAKEET_ENCODER_FILE_PAIRS,
-                ) {
+                if !any_matching_exists(&asr_dir, &PARAKEET_ENCODER_FILE_PAIRS) {
                     let encoder_dest = asr_dir.join("encoder-model.onnx");
                     if !encoder_dest.exists() {
                         let url = format!("{}/{}", PARAKEET_ONNX_URL, "encoder-model.onnx");
@@ -489,17 +486,16 @@ pub fn ensure_models_exist_with_progress(
                     }
                 }
 
-                if !any_matching_exists(
-                    &asr_dir,
-                    &PARAKEET_ENCODER_FILE_PAIRS,
-                ) || !any_exists(
-                    &asr_dir,
-                    &[
-                        "decoder_joint-model.onnx",
-                        "decoder_joint.onnx",
-                        "decoder_joint_model.onnx",
-                    ],
-                ) || !asr_dir.join("vocab.txt").exists()
+                if !any_matching_exists(&asr_dir, &PARAKEET_ENCODER_FILE_PAIRS)
+                    || !any_exists(
+                        &asr_dir,
+                        &[
+                            "decoder_joint-model.onnx",
+                            "decoder_joint.onnx",
+                            "decoder_joint_model.onnx",
+                        ],
+                    )
+                    || !asr_dir.join("vocab.txt").exists()
                     || !any_exists(&asr_dir, &PARAKEET_NEMO_FILES)
                 {
                     return Err(parakeet_not_found_error(&asr_dir));
@@ -529,17 +525,16 @@ pub fn is_model_downloaded(model_dir: &Path, variant: AsrModelId) -> bool {
                 if !asr_dir.exists() {
                     return false;
                 }
-                any_matching_exists(
-                    &asr_dir,
-                    &PARAKEET_ENCODER_FILE_PAIRS,
-                ) && any_exists(
-                    &asr_dir,
-                    &[
-                        "decoder_joint-model.onnx",
-                        "decoder_joint.onnx",
-                        "decoder_joint_model.onnx",
-                    ],
-                ) && asr_dir.join("vocab.txt").exists()
+                any_matching_exists(&asr_dir, &PARAKEET_ENCODER_FILE_PAIRS)
+                    && any_exists(
+                        &asr_dir,
+                        &[
+                            "decoder_joint-model.onnx",
+                            "decoder_joint.onnx",
+                            "decoder_joint_model.onnx",
+                        ],
+                    )
+                    && asr_dir.join("vocab.txt").exists()
                     && any_exists(&asr_dir, &["nemo128.onnx", "nemo80.onnx"])
             }
             _ => unreachable!("non-Moonshine model should be handled above"),

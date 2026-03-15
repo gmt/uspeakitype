@@ -105,7 +105,14 @@ impl OverlayApp {
         }
     }
 
-    fn handle_control_panel_click(&mut self, x: f64, y: f64, width: u32, height: u32) {
+    fn handle_control_panel_click(
+        &mut self,
+        event_loop: &dyn ActiveEventLoop,
+        x: f64,
+        y: f64,
+        width: u32,
+        height: u32,
+    ) {
         let x = x as f32;
         let y = y as f32;
 
@@ -116,7 +123,7 @@ impl OverlayApp {
 
         if x >= gear_x && x < gear_x + gear_icon_size && y >= gear_y && y < gear_y + gear_icon_size
         {
-            self.control_panel.is_open = !self.control_panel.is_open;
+            self.control_panel.toggle_open_for_surface(true);
             self.request_repaint_now();
             return;
         }
@@ -131,22 +138,28 @@ impl OverlayApp {
 
         // Click outside panel closes it
         if !rect.contains(x, y) {
-            self.control_panel.is_open = false;
+            self.control_panel.close();
             self.request_repaint_now();
             return;
         }
 
         // Determine which control was clicked
-        let Some(control_idx) = rect.control_at_y(y) else {
+        let Some(control) = rect.control_at_y(y) else {
             return; // Click in title or padding area
         };
 
-        // Dispatch to control action
-        match Control::ALL.get(control_idx) {
-            Some(Control::DeviceSelector) => {
+        self.control_panel.set_focused(Some(control));
+        self.activate_control(control, event_loop);
+
+        self.request_repaint_now();
+    }
+
+    fn activate_control(&mut self, control: Control, event_loop: &dyn ActiveEventLoop) {
+        match control {
+            Control::DeviceSelector => {
                 // No-op - device cycling is future work
             }
-            Some(Control::GainSlider) => {
+            Control::GainSlider => {
                 let new_gain = if self.control_panel.gain_value >= 2.0 {
                     0.5
                 } else {
@@ -156,25 +169,25 @@ impl OverlayApp {
                 let mut state = self.audio_state.write();
                 self.control_panel.apply_gain(&mut state);
             }
-            Some(Control::AgcCheckbox) => {
+            Control::AgcCheckbox => {
                 self.control_panel.toggle_agc();
                 let mut state = self.audio_state.write();
                 self.control_panel.apply_agc(&mut state);
             }
-            Some(Control::PauseButton) => {
+            Control::PauseButton => {
                 self.control_panel.toggle_pause();
                 if let Some(ref ctrl) = self.capture_control {
                     self.control_panel.apply_pause(ctrl);
                 }
             }
-            Some(Control::VizToggle) => {
+            Control::VizToggle => {
                 self.control_panel.toggle_viz_mode();
                 self.mode = self.control_panel.viz_mode;
                 for renderer in self.renderers.values_mut() {
                     renderer.set_mode(self.control_panel.viz_mode);
                 }
             }
-            Some(Control::ColorPicker) => {
+            Control::ColorPicker => {
                 let next_scheme = match self.control_panel.color_scheme_name {
                     "flame" => "ice",
                     "ice" => "mono",
@@ -185,32 +198,30 @@ impl OverlayApp {
                     renderer.set_color_scheme(next_scheme);
                 }
             }
-            Some(Control::InjectionToggle) => {
+            Control::InjectionToggle => {
                 let mut state = self.audio_state.write();
                 self.control_panel.toggle_injection(&mut state);
             }
-            Some(Control::ModelSelector) => {
+            Control::ModelSelector => {
                 self.control_panel.toggle_model();
             }
-            Some(Control::AutoSaveToggle) => {
+            Control::AutoSaveToggle => {
                 self.control_panel.toggle_auto_save();
             }
-            Some(Control::OpacitySlider) => {
+            Control::OpacitySlider => {
                 self.control_panel.adjust_opacity();
                 for renderer in self.renderers.values_mut() {
                     renderer.set_opacity(self.control_panel.opacity);
                 }
             }
-            Some(Control::QuitButton) => {
+            Control::QuitButton => {
                 self.running.store(false, Ordering::Relaxed);
                 if let Some(ref control) = self.capture_control {
                     control.stop();
                 }
+                event_loop.exit();
             }
-            None => {}
         }
-
-        self.request_repaint_now();
     }
 }
 
@@ -310,7 +321,7 @@ impl ApplicationHandler for OverlayApp {
                             needs_repaint = true;
                         }
                         Key::Character(ref c) if c == "c" || c == "C" => {
-                            self.control_panel.toggle_open();
+                            self.control_panel.toggle_open_for_surface(true);
                             needs_repaint = true;
                         }
                         Key::Character(ref c) if c == "q" || c == "Q" => {
@@ -320,19 +331,38 @@ impl ApplicationHandler for OverlayApp {
                             }
                             event_loop.exit();
                         }
-                        Key::Named(NamedKey::Escape) => {
-                            // TODO: tray-icon - WGPU mode needs system tray icon for exit
-                            // Keybindings are not viable for WGPU overlay mode (designed for
-                            // no-keyboard environments). See AGENTS.md "Dual UX Requirement"
-                            // for architectural rationale. Tray icon should provide:
-                            // - Quit option
-                            // - Show/hide overlay toggle
-                            // - Settings access (when control panel implemented)
-                            self.running.store(false, Ordering::Relaxed);
-                            if let Some(ref control) = self.capture_control {
-                                control.stop();
+                        Key::Named(NamedKey::ArrowUp) if self.control_panel.is_open => {
+                            self.control_panel.focus_previous(true);
+                            needs_repaint = true;
+                        }
+                        Key::Named(NamedKey::ArrowDown) if self.control_panel.is_open => {
+                            self.control_panel.focus_next(true);
+                            needs_repaint = true;
+                        }
+                        Key::Named(NamedKey::Enter) if self.control_panel.is_open => {
+                            if let Some(control) = self.control_panel.focused_control {
+                                self.activate_control(control, event_loop);
+                                needs_repaint = true;
                             }
-                            event_loop.exit();
+                        }
+                        Key::Named(NamedKey::Escape) => {
+                            if self.control_panel.is_open {
+                                self.control_panel.close();
+                                needs_repaint = true;
+                            } else {
+                                // TODO: tray-icon - WGPU mode needs system tray icon for exit
+                                // Keybindings are not viable for WGPU overlay mode (designed for
+                                // no-keyboard environments). See AGENTS.md "Dual UX Requirement"
+                                // for architectural rationale. Tray icon should provide:
+                                // - Quit option
+                                // - Show/hide overlay toggle
+                                // - Settings access (when control panel implemented)
+                                self.running.store(false, Ordering::Relaxed);
+                                if let Some(ref control) = self.capture_control {
+                                    control.stop();
+                                }
+                                event_loop.exit();
+                            }
                         }
                         _ => {}
                     }
@@ -353,7 +383,7 @@ impl ApplicationHandler for OverlayApp {
                 if let Some((x, y)) = self.mouse_position {
                     if let Some(renderer) = self.renderers.get(&window_id) {
                         let size = renderer.window.surface_size();
-                        self.handle_control_panel_click(x, y, size.width, size.height);
+                        self.handle_control_panel_click(event_loop, x, y, size.width, size.height);
                     }
                 }
             }

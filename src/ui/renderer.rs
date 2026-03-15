@@ -9,11 +9,12 @@ use winit::window::Window;
 use glyphon::{Color, TextBounds};
 
 use super::control_panel::{
-    transcript_text_bounds, Control, PanelRect, PANEL_PADDING, TEXT_PANEL_HEIGHT,
+    transcript_text_bounds, Control, PanelEntry, PanelRect, HELP_PANEL_GAP, PANEL_PADDING,
+    TEXT_PANEL_HEIGHT,
 };
 use super::icon::IconRenderer;
 use super::spectrogram::{Spectrogram, SpectrogramMode};
-use super::text_renderer::TextRenderer;
+use super::text_renderer::{PanelTextLine, TextRenderer};
 use super::theme::{Theme, DEFAULT_THEME};
 use super::SharedAudioState;
 
@@ -477,7 +478,8 @@ impl Renderer {
                 width: self.config.width as f32,
                 height: actual_text_panel_height as f32,
             };
-            self.render_panel_background(&mut encoder, &view, &text_rect, [0.12, 0.12, 0.14, 1.0]);
+            let theme_wgpu = self.theme.to_wgpu();
+            self.render_panel_background(&mut encoder, &view, &text_rect, theme_wgpu.panel_bg);
 
             let transcript_bounds = transcript_text_bounds(&text_rect);
 
@@ -550,73 +552,154 @@ impl Renderer {
         }
 
         let rect = PanelRect::for_window(self.config.width as f32, self.config.height as f32);
+        let theme_wgpu = self.theme.to_wgpu();
+        let shell_color = [
+            theme_wgpu.panel_bg[0] * 0.85,
+            theme_wgpu.panel_bg[1] * 0.85,
+            theme_wgpu.panel_bg[2] * 0.95,
+            0.96,
+        ];
+        self.render_panel_background(encoder, view, &rect, shell_color);
 
-        self.render_panel_background(encoder, view, &rect, [0.12, 0.12, 0.14, 1.0]);
+        let help_rect = rect.help_rect();
+        self.render_panel_background(
+            encoder,
+            view,
+            &help_rect,
+            [
+                theme_wgpu.background[0] * 1.1,
+                theme_wgpu.background[1] * 1.1,
+                theme_wgpu.background[2] * 1.1,
+                0.92,
+            ],
+        );
 
-        let mut lines: Vec<(String, f32, f32)> = Vec::with_capacity(12);
+        let accent = Color::rgba(214, 174, 93, 255);
+        let heading = Color::rgba(236, 228, 214, 255);
+        let body = Color::rgba(212, 203, 193, 255);
+        let muted = Color::rgba(148, 132, 118, 255);
+        let focus = Color::rgba(237, 196, 106, 255);
 
-        lines.push((
-            "Control Panel (click gear to close)".to_string(),
-            rect.x + PANEL_PADDING,
-            rect.title_y(),
-        ));
+        let mut lines: Vec<PanelTextLine> = Vec::new();
+        lines.push(PanelTextLine {
+            text: "Input Helper".to_string(),
+            x: rect.x + PANEL_PADDING,
+            y: rect.title_y(),
+            color: heading,
+            font_size: 16.0,
+        });
+        lines.push(PanelTextLine {
+            text: "Capture, recognition, trust, and session controls".to_string(),
+            x: rect.x + PANEL_PADDING + 120.0,
+            y: rect.title_y() + 1.0,
+            color: muted,
+            font_size: 12.0,
+        });
 
-        for (i, control) in Control::ALL.iter().enumerate() {
-            let label = match control {
-                Control::DeviceSelector => {
-                    let name = panel
-                        .selected_device
-                        .map(|id| format!("#{}", id))
-                        .unwrap_or_else(|| "Default".to_string());
-                    format!("Device: {}", name)
+        let injection_enabled = self.audio_state.read().injection_enabled;
+        for layout in rect.entry_layouts(true) {
+            match layout.entry {
+                PanelEntry::Section(section) => lines.push(PanelTextLine {
+                    text: section.title().to_uppercase(),
+                    x: rect.x + PANEL_PADDING,
+                    y: layout.y,
+                    color: accent,
+                    font_size: 12.0,
+                }),
+                PanelEntry::Control(control) => {
+                    let value = match control {
+                        Control::DeviceSelector => panel
+                            .selected_device
+                            .map(|id| format!("#{}", id))
+                            .unwrap_or_else(|| "Default".to_string()),
+                        Control::GainSlider => {
+                            if panel.agc_enabled {
+                                format!("{:.2}x (auto)", panel.gain_value)
+                            } else {
+                                format!("{:.2}x", panel.gain_value)
+                            }
+                        }
+                        Control::AgcCheckbox => {
+                            if panel.agc_enabled {
+                                "Enabled".to_string()
+                            } else {
+                                "Manual".to_string()
+                            }
+                        }
+                        Control::PauseButton => {
+                            if panel.is_paused {
+                                "Standby".to_string()
+                            } else {
+                                "Listening".to_string()
+                            }
+                        }
+                        Control::VizToggle => match panel.viz_mode {
+                            SpectrogramMode::BarMeter => "Bar meter".to_string(),
+                            SpectrogramMode::Waterfall => "Waterfall".to_string(),
+                        },
+                        Control::ColorPicker => panel.color_scheme_name.to_string(),
+                        Control::InjectionToggle => {
+                            if injection_enabled {
+                                "Enabled".to_string()
+                            } else {
+                                "Disabled".to_string()
+                            }
+                        }
+                        Control::ModelSelector => panel.model.to_string(),
+                        Control::AutoSaveToggle => {
+                            if panel.auto_save {
+                                "Immediate".to_string()
+                            } else {
+                                "Manual".to_string()
+                            }
+                        }
+                        Control::OpacitySlider => format!("{}%", (panel.opacity * 100.0) as u32),
+                        Control::QuitButton => "Stop helper".to_string(),
+                    };
+                    let label_color = if panel.focused_control == Some(control) {
+                        focus
+                    } else {
+                        body
+                    };
+                    let title = if panel.focused_control == Some(control) {
+                        format!("> {}: {}", control.title(), value)
+                    } else {
+                        format!("{}: {}", control.title(), value)
+                    };
+                    lines.push(PanelTextLine {
+                        text: title,
+                        x: rect.x + PANEL_PADDING + 10.0,
+                        y: layout.y,
+                        color: label_color,
+                        font_size: 14.0,
+                    });
                 }
-                Control::GainSlider => {
-                    format!(
-                        "Gain: {:.2}x{}",
-                        panel.gain_value,
-                        if panel.agc_enabled { " (AGC)" } else { "" }
-                    )
-                }
-                Control::AgcCheckbox => {
-                    format!("AGC: {}", if panel.agc_enabled { "ON" } else { "OFF" })
-                }
-                Control::PauseButton => {
-                    format!(
-                        "Capture: {}",
-                        if panel.is_paused { "PAUSED" } else { "RUNNING" }
-                    )
-                }
-                Control::VizToggle => {
-                    format!("Viz: {:?}", panel.viz_mode)
-                }
-                Control::ColorPicker => {
-                    format!("Colors: {}", panel.color_scheme_name)
-                }
-                Control::InjectionToggle => {
-                    let enabled = self.audio_state.read().injection_enabled;
-                    format!("Injection: {}", if enabled { "ON" } else { "OFF" })
-                }
-                Control::ModelSelector => {
-                    format!("Model: {}", panel.model)
-                }
-                Control::AutoSaveToggle => {
-                    format!("Auto-save: {}", if panel.auto_save { "ON" } else { "OFF" })
-                }
-                Control::OpacitySlider => {
-                    format!("Opacity: {}%", (panel.opacity * 100.0) as u32)
-                }
-                Control::QuitButton => "Quit".to_string(),
-            };
-
-            lines.push((label, rect.x + PANEL_PADDING, rect.row_y(i)));
+            }
         }
 
+        let (help_title, help_body) = panel.help_copy();
+        let help_title_y = help_rect.y + PANEL_PADDING;
+        let help_body_y = help_title_y + HELP_PANEL_GAP + 6.0;
+        lines.push(PanelTextLine {
+            text: help_title.to_string(),
+            x: help_rect.x + PANEL_PADDING,
+            y: help_title_y,
+            color: heading,
+            font_size: 13.0,
+        });
+        lines.push(PanelTextLine {
+            text: help_body.to_string(),
+            x: help_rect.x + PANEL_PADDING,
+            y: help_body_y,
+            color: muted,
+            font_size: 12.0,
+        });
+
         let bounds = panel_text_bounds(&rect);
-        let color = Color::rgba(230, 230, 235, 255);
         let panel_width = rect.width - 2.0 * PANEL_PADDING;
 
         self.text_renderer
-            .render_panel_text(encoder, view, lines, bounds, color, panel_width);
+            .render_panel_text(encoder, view, lines, bounds, panel_width);
     }
 
     fn render_panel_background(

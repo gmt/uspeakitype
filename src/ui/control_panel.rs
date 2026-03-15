@@ -20,13 +20,49 @@ use crate::ui::spectrogram::{Spectrogram, SpectrogramMode};
 use crate::ui::{AudioSourceInfo, AudioState};
 
 // Panel geometry constants
-pub const PANEL_MAX_WIDTH: f32 = 400.0;
-pub const PANEL_MIN_SIZE: f32 = 100.0; // Minimum dimension to prevent collapse
+pub const PANEL_MAX_WIDTH: f32 = 460.0;
+pub const PANEL_MIN_SIZE: f32 = 140.0; // Minimum dimension to prevent collapse
 pub const PANEL_MARGIN: f32 = 20.0; // Margin from window edges
-pub const ROW_HEIGHT: f32 = 32.0; // Height per control row
-pub const TITLE_HEIGHT: f32 = 36.0; // Height for title row
+pub const ROW_HEIGHT: f32 = 30.0; // Height per control row
+pub const SECTION_HEIGHT: f32 = 22.0; // Height per section heading
+pub const SECTION_GAP: f32 = 8.0; // Gap between section blocks
+pub const TITLE_HEIGHT: f32 = 32.0; // Height for title row
 pub const PANEL_PADDING: f32 = 12.0; // Internal padding (top/bottom/left/right)
+pub const HELP_PANEL_HEIGHT: f32 = 84.0; // Height of the contextual help card
+pub const HELP_PANEL_GAP: f32 = 12.0; // Gap between controls and help card
 pub const TEXT_PANEL_HEIGHT: f32 = 60.0; // Height for text panel at bottom
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlSection {
+    Capture,
+    Recognition,
+    Desktop,
+    Session,
+}
+
+impl ControlSection {
+    pub fn title(self) -> &'static str {
+        match self {
+            ControlSection::Capture => "Capture",
+            ControlSection::Recognition => "Recognition",
+            ControlSection::Desktop => "Desktop",
+            ControlSection::Session => "Session",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelEntry {
+    Section(ControlSection),
+    Control(Control),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PanelEntryLayout {
+    pub entry: PanelEntry,
+    pub y: f32,
+    pub height: f32,
+}
 
 /// Rectangle representing panel position and size in pixel coordinates.
 /// Origin is top-left of window, Y increases downward.
@@ -42,11 +78,19 @@ impl PanelRect {
     /// Calculate panel rect for given window dimensions.
     /// Panel is centered with margin, clamped to minimum size.
     pub fn for_window(window_width: f32, window_height: f32) -> Self {
-        // Content height: title + 11 control rows
-        let content_height = TITLE_HEIGHT + (Control::ALL.len() as f32 * ROW_HEIGHT);
-
-        // Total height: content + padding
-        let raw_height = content_height + PANEL_PADDING * 2.0;
+        let raw_height = TITLE_HEIGHT
+            + panel_entries(true)
+                .iter()
+                .enumerate()
+                .map(|(index, entry)| match entry {
+                    PanelEntry::Section(_) if index == 0 => SECTION_HEIGHT,
+                    PanelEntry::Section(_) => SECTION_HEIGHT + SECTION_GAP,
+                    PanelEntry::Control(_) => ROW_HEIGHT,
+                })
+                .sum::<f32>()
+            + HELP_PANEL_GAP
+            + HELP_PANEL_HEIGHT
+            + PANEL_PADDING * 2.0;
         let raw_width = PANEL_MAX_WIDTH;
 
         // Clamp to window bounds with margin
@@ -73,27 +117,53 @@ impl PanelRect {
         self.y + PANEL_PADDING
     }
 
-    /// Y coordinate for control row N (0-indexed)
-    pub fn row_y(&self, row: usize) -> f32 {
-        self.y + PANEL_PADDING + TITLE_HEIGHT + (row as f32 * ROW_HEIGHT)
+    pub fn content_top(&self) -> f32 {
+        self.y + PANEL_PADDING + TITLE_HEIGHT
     }
 
-    /// Convert Y coordinate to control index, or None if outside control area
-    pub fn control_at_y(&self, click_y: f32) -> Option<usize> {
-        let controls_start_y = self.y + PANEL_PADDING + TITLE_HEIGHT;
+    pub fn help_rect(&self) -> PanelRect {
+        PanelRect {
+            x: self.x + PANEL_PADDING,
+            y: self.y + self.height - PANEL_PADDING - HELP_PANEL_HEIGHT,
+            width: self.width - PANEL_PADDING * 2.0,
+            height: HELP_PANEL_HEIGHT,
+        }
+    }
 
-        if click_y < controls_start_y {
-            return None;
+    pub fn entry_layouts(&self, include_wgpu_only: bool) -> Vec<PanelEntryLayout> {
+        let mut y = self.content_top();
+        let mut layouts = Vec::new();
+
+        for (index, entry) in panel_entries(include_wgpu_only).into_iter().enumerate() {
+            let height = match entry {
+                PanelEntry::Section(_) => {
+                    if index > 0 {
+                        y += SECTION_GAP;
+                    }
+                    SECTION_HEIGHT
+                }
+                PanelEntry::Control(_) => ROW_HEIGHT,
+            };
+
+            layouts.push(PanelEntryLayout { entry, y, height });
+            y += height;
         }
 
-        let relative_y = click_y - controls_start_y;
-        let row = (relative_y / ROW_HEIGHT) as usize;
+        layouts
+    }
 
-        if row < Control::ALL.len() {
-            Some(row)
-        } else {
-            None
-        }
+    /// Convert Y coordinate to a clicked control, or None if outside a control row.
+    pub fn control_at_y(&self, click_y: f32) -> Option<Control> {
+        self.entry_layouts(true)
+            .into_iter()
+            .find_map(|layout| match layout.entry {
+                PanelEntry::Control(control)
+                    if click_y >= layout.y && click_y < layout.y + layout.height =>
+                {
+                    Some(control)
+                }
+                _ => None,
+            })
     }
 
     /// Check if point is inside panel bounds
@@ -147,6 +217,116 @@ impl Control {
     pub fn is_wgpu_only(&self) -> bool {
         matches!(self, Control::OpacitySlider)
     }
+
+    pub fn section(self) -> ControlSection {
+        match self {
+            Control::DeviceSelector
+            | Control::GainSlider
+            | Control::AgcCheckbox
+            | Control::PauseButton => ControlSection::Capture,
+            Control::VizToggle | Control::ColorPicker | Control::ModelSelector => {
+                ControlSection::Recognition
+            }
+            Control::InjectionToggle | Control::OpacitySlider => ControlSection::Desktop,
+            Control::AutoSaveToggle | Control::QuitButton => ControlSection::Session,
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Control::DeviceSelector => "Input source",
+            Control::GainSlider => "Software gain",
+            Control::AgcCheckbox => "Auto gain",
+            Control::PauseButton => "Capture",
+            Control::VizToggle => "Spectrogram mode",
+            Control::ColorPicker => "Palette",
+            Control::InjectionToggle => "Text injection",
+            Control::ModelSelector => "Model",
+            Control::AutoSaveToggle => "Auto-save",
+            Control::OpacitySlider => "Overlay opacity",
+            Control::QuitButton => "Quit",
+        }
+    }
+
+    pub fn help(self) -> (&'static str, &'static str) {
+        match self {
+            Control::DeviceSelector => (
+                "Capture source",
+                "Choose which microphone or PipeWire source usit should listen to. This remains a shared control even while live hot-switching is still growing up.",
+            ),
+            Control::GainSlider => (
+                "Software gain",
+                "Trim the incoming signal before recognition. When auto gain is active this becomes a status readout, because the helper should not fight the user and the algorithm at the same time.",
+            ),
+            Control::AgcCheckbox => (
+                "Automatic gain control",
+                "Let usit ride software gain for you when the room or mic discipline is inconsistent. Turn it off when you want exact, manual behavior.",
+            ),
+            Control::PauseButton => (
+                "Capture gate",
+                "Pause listening without tearing the rest of the session down. This is the closest thing the current UI has to a lightweight helper standby mode.",
+            ),
+            Control::VizToggle => (
+                "Spectrogram mode",
+                "Switch between the faster bar view and the richer waterfall view. This should stay mirrored across surfaces so the app still feels like one instrument.",
+            ),
+            Control::ColorPicker => (
+                "Palette",
+                "Choose how the spectrogram heat maps onto the surface. It is cosmetic, but keeping it near the model controls helps the overlay feel more like a coherent helper than a debug HUD.",
+            ),
+            Control::InjectionToggle => (
+                "Text injection",
+                "Enable or disable typing into the focused application. This is a trust boundary, so it belongs in its own desktop section rather than hiding among audio controls.",
+            ),
+            Control::ModelSelector => (
+                "Recognition model",
+                "Pick the designated driver for recognition and downloads. Longer term this is where user intent, provenance, and learning discipline need to stay explicit.",
+            ),
+            Control::AutoSaveToggle => (
+                "Auto-save",
+                "Persist explicit control changes to the config file as they happen. This keeps the GUI, the terminal, and the ML knobs aligned around one source of truth.",
+            ),
+            Control::OpacitySlider => (
+                "Overlay opacity",
+                "Adjust how present the graphical helper feels over the desktop. This is WGPU-only for now, so other surfaces treat it as a desktop-local affordance.",
+            ),
+            Control::QuitButton => (
+                "Quit session",
+                "Shut the helper down cleanly. Keeping a real exit control in the panel matters because a trusted desktop tool should always advertise how to stop it.",
+            ),
+        }
+    }
+}
+
+pub fn panel_entries(include_wgpu_only: bool) -> Vec<PanelEntry> {
+    let mut entries = Vec::new();
+    let mut active_section = None;
+
+    for control in navigable_controls(include_wgpu_only) {
+        let section = control.section();
+        if active_section != Some(section) {
+            entries.push(PanelEntry::Section(section));
+            active_section = Some(section);
+        }
+        entries.push(PanelEntry::Control(control));
+    }
+
+    entries
+}
+
+pub fn navigable_controls(include_wgpu_only: bool) -> Vec<Control> {
+    Control::ALL
+        .iter()
+        .copied()
+        .filter(|control| include_wgpu_only || !control.is_wgpu_only())
+        .collect()
+}
+
+pub fn default_help() -> (&'static str, &'static str) {
+    (
+        "Input helper panel",
+        "Keep capture, recognition, desktop trust, and session controls legible. The same structural model should feel natural in both ANSI and Wayland even when the chrome differs.",
+    )
 }
 
 /// State for the control panel UI
@@ -206,6 +386,64 @@ impl ControlPanelState {
 
     pub fn set_focused(&mut self, control: Option<Control>) {
         self.focused_control = control;
+    }
+
+    pub fn open_for_surface(&mut self, include_wgpu_only: bool) {
+        self.is_open = true;
+        if self.focused_control.is_none() {
+            self.focused_control = navigable_controls(include_wgpu_only).into_iter().next();
+        }
+    }
+
+    pub fn close(&mut self) {
+        self.is_open = false;
+    }
+
+    pub fn toggle_open_for_surface(&mut self, include_wgpu_only: bool) {
+        if self.is_open {
+            self.close();
+        } else {
+            self.open_for_surface(include_wgpu_only);
+        }
+    }
+
+    pub fn focus_next(&mut self, include_wgpu_only: bool) {
+        let controls = navigable_controls(include_wgpu_only);
+        if controls.is_empty() {
+            self.focused_control = None;
+            return;
+        }
+
+        let current = self
+            .focused_control
+            .and_then(|focused| controls.iter().position(|control| *control == focused))
+            .unwrap_or(0);
+        self.focused_control = Some(controls[(current + 1) % controls.len()]);
+    }
+
+    pub fn focus_previous(&mut self, include_wgpu_only: bool) {
+        let controls = navigable_controls(include_wgpu_only);
+        if controls.is_empty() {
+            self.focused_control = None;
+            return;
+        }
+
+        let current = self
+            .focused_control
+            .and_then(|focused| controls.iter().position(|control| *control == focused))
+            .unwrap_or(0);
+        let next = if current == 0 {
+            controls.len() - 1
+        } else {
+            current - 1
+        };
+        self.focused_control = Some(controls[next]);
+    }
+
+    pub fn help_copy(&self) -> (&'static str, &'static str) {
+        self.focused_control
+            .map(Control::help)
+            .unwrap_or_else(default_help)
     }
 
     pub fn set_gain(&mut self, gain: f32) {
@@ -457,6 +695,33 @@ mod tests {
         assert_eq!(state.model, AsrModelId::MoonshineBase);
         assert!(state.auto_save);
     }
+
+    #[test]
+    fn focus_navigation_skips_wgpu_only_controls_in_terminal_mode() {
+        let mut state = ControlPanelState::new();
+        state.open_for_surface(false);
+        assert_eq!(state.focused_control, Some(Control::DeviceSelector));
+
+        for _ in 0..9 {
+            state.focus_next(false);
+        }
+        assert_eq!(state.focused_control, Some(Control::QuitButton));
+        state.focus_next(false);
+        assert_eq!(state.focused_control, Some(Control::DeviceSelector));
+    }
+
+    #[test]
+    fn panel_entries_insert_section_headers() {
+        let entries = panel_entries(false);
+        assert_eq!(
+            entries.first(),
+            Some(&PanelEntry::Section(ControlSection::Capture))
+        );
+        assert!(entries.contains(&PanelEntry::Section(ControlSection::Recognition)));
+        assert!(entries.contains(&PanelEntry::Section(ControlSection::Desktop)));
+        assert!(entries.contains(&PanelEntry::Section(ControlSection::Session)));
+        assert!(!entries.contains(&PanelEntry::Control(Control::OpacitySlider)));
+    }
 }
 
 #[cfg(test)]
@@ -466,29 +731,45 @@ mod panel_rect_tests {
     #[test]
     fn test_panel_rect_unclamped() {
         let rect = PanelRect::for_window(800.0, 600.0);
-        assert_eq!(rect.width, 400.0);
-        assert_eq!(rect.height, 412.0); // 36 + 11*32 + 24
+        assert_eq!(rect.width, 460.0);
+        assert_eq!(rect.height, 560.0); // clamped from the full helper layout
     }
 
     #[test]
     fn test_panel_rect_width_clamped() {
         let rect = PanelRect::for_window(400.0, 600.0);
         assert_eq!(rect.width, 360.0); // 400 - 2*20
-        assert_eq!(rect.height, 412.0);
+        assert_eq!(rect.height, 560.0);
     }
 
     #[test]
     fn test_panel_rect_minimum() {
         let rect = PanelRect::for_window(50.0, 50.0);
-        assert_eq!(rect.width, 100.0);
-        assert_eq!(rect.height, 100.0);
+        assert_eq!(rect.width, 140.0);
+        assert_eq!(rect.height, 140.0);
     }
 
     #[test]
     fn test_control_at_y() {
         let rect = PanelRect::for_window(800.0, 600.0);
+        let layouts = rect.entry_layouts(true);
+        let first_control = layouts
+            .iter()
+            .find(|layout| layout.entry == PanelEntry::Control(Control::DeviceSelector))
+            .unwrap();
+        let injection = layouts
+            .iter()
+            .find(|layout| layout.entry == PanelEntry::Control(Control::InjectionToggle))
+            .unwrap();
+
         assert_eq!(rect.control_at_y(rect.title_y()), None);
-        assert_eq!(rect.control_at_y(rect.row_y(0)), Some(0));
-        assert_eq!(rect.control_at_y(rect.row_y(5) + 10.0), Some(5));
+        assert_eq!(
+            rect.control_at_y(first_control.y + 1.0),
+            Some(Control::DeviceSelector)
+        );
+        assert_eq!(
+            rect.control_at_y(injection.y + 5.0),
+            Some(Control::InjectionToggle)
+        );
     }
 }
