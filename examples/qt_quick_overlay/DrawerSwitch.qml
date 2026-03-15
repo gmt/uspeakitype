@@ -6,8 +6,8 @@ Rectangle {
     property bool value: false
     signal activated()
 
-    height: 54
-    radius: 16
+    height: 44
+    radius: 12
     color: root.value ? "#20342f" : "#171e22"
     border.width: 1
     border.color: root.value ? "#3f8b70" : "#2d3a42"
@@ -15,26 +15,26 @@ Rectangle {
     Text {
         text: root.label
         color: "#edf1eb"
-        font.pixelSize: 16
+        font.pixelSize: 14
         font.weight: Font.Medium
         anchors.left: parent.left
-        anchors.leftMargin: 14
+        anchors.leftMargin: 12
         anchors.verticalCenter: parent.verticalCenter
     }
 
     Rectangle {
-        width: 54
-        height: 28
-        radius: 14
+        width: 44
+        height: 24
+        radius: 12
         color: root.value ? "#3b8e74" : "#4b5459"
         anchors.right: parent.right
-        anchors.rightMargin: 14
+        anchors.rightMargin: 12
         anchors.verticalCenter: parent.verticalCenter
 
         Rectangle {
-            width: 22
-            height: 22
-            radius: 11
+            width: 18
+            height: 18
+            radius: 9
             y: 3
             x: root.value ? parent.width - width - 3 : 3
             color: "#f4f4ee"

@@ -6,7 +6,7 @@ Rectangle {
     property real energyLevel: 0.5
     property real phase: 0.0
 
-    radius: 24
+    radius: 16
     color: "#091015"
     border.width: 1
     border.color: "#1f313a"
@@ -42,7 +42,7 @@ Rectangle {
     Canvas {
         id: spectroCanvas
         anchors.fill: parent
-        anchors.margins: 14
+        anchors.margins: 10
         renderTarget: Canvas.Image
         antialiasing: true
 
@@ -113,14 +113,15 @@ Rectangle {
                     envelope *= 0.45 + root.energyLevel * 0.95
                     envelope = root.clamp(envelope, 0.04, 1.0)
 
-                    const barH = envelope * (h - 52)
+                    const barH = envelope * (h - 24)
                     const x = i * barW
                     const y = floorY - barH
 
+                    const topHue = 0.62 - envelope * 0.56
+                    const bottomHue = 0.62
                     const grad = ctx.createLinearGradient(0, y, 0, floorY)
-                    grad.addColorStop(0.0, "rgba(255,247,182,0.98)")
-                    grad.addColorStop(0.35, "rgba(255,176,62,0.95)")
-                    grad.addColorStop(1.0, "rgba(154,56,13,0.75)")
+                    grad.addColorStop(0.0, Qt.hsla(topHue, 0.84, 0.18 + envelope * 0.5, 0.98))
+                    grad.addColorStop(1.0, Qt.hsla(bottomHue, 0.84, 0.18, 0.75))
                     ctx.fillStyle = grad
                     ctx.fillRect(x + 0.6, y, Math.max(2.0, barW - 1.8), barH)
                 }
@@ -148,13 +149,13 @@ Rectangle {
     Row {
         anchors.left: parent.left
         anchors.top: parent.top
-        anchors.margins: 18
-        spacing: 10
+        anchors.margins: 12
+        spacing: 8
 
         Rectangle {
-            width: modeLabel.implicitWidth + 18
-            height: 28
-            radius: 14
+            width: modeLabel.implicitWidth + 16
+            height: 24
+            radius: 12
             color: "#18232a"
             border.width: 1
             border.color: "#29414d"
@@ -164,15 +165,15 @@ Rectangle {
                 anchors.centerIn: parent
                 text: root.waterfallMode ? "Waterfall Draft" : "Bar Meter Draft"
                 color: "#eef1ea"
-                font.pixelSize: 13
+                font.pixelSize: 11
                 font.weight: Font.Medium
             }
         }
 
         Rectangle {
-            width: seamLabel.implicitWidth + 18
-            height: 28
-            radius: 14
+            width: seamLabel.implicitWidth + 16
+            height: 24
+            radius: 12
             color: "#211b15"
             border.width: 1
             border.color: "#58402d"
@@ -182,20 +183,9 @@ Rectangle {
                 anchors.centerIn: parent
                 text: "Renderer seam"
                 color: "#f3d7bd"
-                font.pixelSize: 13
+                font.pixelSize: 11
                 font.weight: Font.Medium
             }
         }
-    }
-
-    Text {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.margins: 18
-        text: "Qt Quick can own the frame, meter rails, status chrome, and overlays while this viewport later becomes a Rust/WGPU host surface."
-        color: "#90a3a8"
-        font.pixelSize: 14
-        wrapMode: Text.WordWrap
     }
 }
