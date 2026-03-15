@@ -38,6 +38,7 @@ The regression harness assumes:
 
 - fixed theme inputs
 - fixed demo timeline milestones
+- fixed hidden demo helper-state overrides when a visual test needs a specific trust or fallback mode
 - deterministic screenshot capture
 - perceptual comparison rather than exact pixel equality
 
@@ -55,6 +56,18 @@ Key ingredients are:
 - reproducible font packages
 
 If a visual test fails in Docker, treat it as a real regression until proven otherwise.
+
+## Helper-State Coverage
+
+The visual suite now has a lightweight way to exercise helper-specific overlay states without
+changing the normal product UI:
+
+- hidden `--demo-overlay-state` values such as `display`, `transcribe`, `trusted`,
+  `downloading`, and `error`
+- screenshot-region comparisons over the transcript/status panel for those demo states
+
+This is intentionally narrower than a full golden-capture matrix. It gives us automated coverage
+for trust and fallback cues while keeping the public CLI and the committed goldens relatively calm.
 
 ## Opacity Caveat
 

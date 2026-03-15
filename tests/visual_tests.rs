@@ -1,7 +1,8 @@
 mod visual;
 
+use image_hasher::{HashAlg, HasherConfig};
 use serial_test::serial;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -155,6 +156,47 @@ fn overlay_region() -> (u32, u32, u32, u32) {
     (x, y, w, h)
 }
 
+fn helper_status_region() -> (u32, u32, u32, u32) {
+    let (x, y, w, h) = overlay_region();
+    (x + 10, y + h.saturating_sub(58), w.saturating_sub(20), 22)
+}
+
+fn text_panel_region() -> (u32, u32, u32, u32) {
+    let (x, y, w, h) = overlay_region();
+    (x + 10, y + h.saturating_sub(58), w.saturating_sub(20), 48)
+}
+
+fn region_hash_distance(path_a: &Path, path_b: &Path, region: (u32, u32, u32, u32)) -> u32 {
+    fn hash_region(path: &Path, region: (u32, u32, u32, u32)) -> image_hasher::ImageHash {
+        let image = image::open(path)
+            .unwrap_or_else(|err| panic!("failed to open {}: {}", path.display(), err))
+            .to_rgba8();
+        let (x, y, w, h) = region;
+        let cropped = image::imageops::crop_imm(
+            &image,
+            x.min(image.width().saturating_sub(1)),
+            y.min(image.height().saturating_sub(1)),
+            w.min(image.width().saturating_sub(x)),
+            h.min(image.height().saturating_sub(y)),
+        )
+        .to_image();
+        let hasher = HasherConfig::new().hash_alg(HashAlg::Gradient).to_hasher();
+        hasher.hash_image(&cropped)
+    }
+
+    hash_region(path_a, region).dist(&hash_region(path_b, region))
+}
+
+fn spawn_demo_overlay_state(
+    demo_overlay_state: &'static str,
+    tag: &str,
+) -> anyhow::Result<visual::wgpu_harness::WgpuTestHarness> {
+    visual::wgpu_harness::WgpuTestHarness::spawn(
+        &["--demo", "--demo-overlay-state", demo_overlay_state],
+        tag,
+    )
+}
+
 /// Test that opacity CLI flag actually affects rendering
 /// and verify directional semantics (higher = more opaque)
 #[test]
@@ -246,6 +288,130 @@ fn test_opacity_directional() {
 
     println!("PASS: Opacity directional test");
     println!("  Semantics confirmed: higher opacity = less pink visible");
+}
+
+#[test]
+#[serial]
+fn test_wgpu_helper_modes_render_distinct_status_strip() {
+    if !visual::screenshot::screenshot_available() {
+        if is_canonical() {
+            panic!("CANONICAL: {}", visual::screenshot::skip_reason());
+        } else {
+            eprintln!("Skipping: {}", visual::screenshot::skip_reason());
+            return;
+        }
+    }
+
+    let display = try_or_skip!(
+        spawn_demo_overlay_state("display", "helper_display"),
+        "spawn display"
+    );
+    let transcribe = try_or_skip!(
+        spawn_demo_overlay_state("transcribe", "helper_transcribe"),
+        "spawn transcribe"
+    );
+    let trusted = try_or_skip!(
+        spawn_demo_overlay_state("trusted", "helper_trusted"),
+        "spawn trusted"
+    );
+
+    display.wait_demo_milestone(3.0);
+    transcribe.wait_demo_milestone(3.0);
+    trusted.wait_demo_milestone(3.0);
+
+    let display_capture = try_or_skip!(display.capture("helper_display"), "capture display");
+    let transcribe_capture = try_or_skip!(
+        transcribe.capture("helper_transcribe"),
+        "capture transcribe"
+    );
+    let trusted_capture = try_or_skip!(trusted.capture("helper_trusted"), "capture trusted");
+
+    let region = helper_status_region();
+    let display_vs_transcribe = region_hash_distance(&display_capture, &transcribe_capture, region);
+    let transcribe_vs_trusted = region_hash_distance(&transcribe_capture, &trusted_capture, region);
+    let display_vs_trusted = region_hash_distance(&display_capture, &trusted_capture, region);
+
+    println!(
+        "helper status distances: display/transcribe={}, transcribe/trusted={}, display/trusted={}",
+        display_vs_transcribe, transcribe_vs_trusted, display_vs_trusted
+    );
+
+    assert!(
+        display_vs_transcribe > 0,
+        "Display-only and transcribing status strips should differ"
+    );
+    assert!(
+        transcribe_vs_trusted > 0,
+        "Transcribing and trusted status strips should differ"
+    );
+    assert!(
+        display_vs_trusted > 0,
+        "Display-only and trusted status strips should differ"
+    );
+}
+
+#[test]
+#[serial]
+fn test_wgpu_download_and_error_states_render_distinct_text_panel() {
+    if !visual::screenshot::screenshot_available() {
+        if is_canonical() {
+            panic!("CANONICAL: {}", visual::screenshot::skip_reason());
+        } else {
+            eprintln!("Skipping: {}", visual::screenshot::skip_reason());
+            return;
+        }
+    }
+
+    let trusted = try_or_skip!(
+        spawn_demo_overlay_state("trusted", "helper_trusted_baseline"),
+        "spawn trusted baseline"
+    );
+    let downloading = try_or_skip!(
+        spawn_demo_overlay_state("downloading", "helper_downloading"),
+        "spawn downloading"
+    );
+    let error = try_or_skip!(
+        spawn_demo_overlay_state("error", "helper_error"),
+        "spawn error"
+    );
+
+    trusted.wait_demo_milestone(3.0);
+    downloading.wait_demo_milestone(3.0);
+    error.wait_demo_milestone(3.0);
+
+    let trusted_capture = try_or_skip!(
+        trusted.capture("helper_trusted_baseline"),
+        "capture trusted baseline"
+    );
+    let downloading_capture = try_or_skip!(
+        downloading.capture("helper_downloading"),
+        "capture downloading"
+    );
+    let error_capture = try_or_skip!(error.capture("helper_error"), "capture error");
+
+    let region = text_panel_region();
+    let trusted_vs_downloading =
+        region_hash_distance(&trusted_capture, &downloading_capture, region);
+    let trusted_vs_error = region_hash_distance(&trusted_capture, &error_capture, region);
+    let downloading_vs_error = region_hash_distance(&downloading_capture, &error_capture, region);
+
+    println!(
+        "helper text-panel distances: trusted/downloading={}, trusted/error={}, downloading/error={}",
+        trusted_vs_downloading, trusted_vs_error, downloading_vs_error
+    );
+
+    assert!(
+        trusted_vs_downloading > 0,
+        "Downloading state should visibly differ from trusted baseline"
+    );
+    assert!(
+        trusted_vs_error > 0,
+        "Error state should visibly differ from trusted baseline"
+    );
+    assert!(
+        downloading_vs_error > 0,
+        "Downloading and error states should visibly differ"
+    );
 }
 
 /// Test extreme transparency - should show almost all background

@@ -40,6 +40,16 @@ enum DownloadEvent {
     Failed(AsrModelId, String),
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+enum DemoOverlayState {
+    Default,
+    Display,
+    Transcribe,
+    Trusted,
+    Downloading,
+    Error,
+}
+
 /// Manages async model downloads with progress tracking
 struct DownloadManager {
     /// Channel to receive download commands
@@ -273,6 +283,16 @@ struct Args {
 
     #[arg(long, help = "Use synthetic audio instead of microphone")]
     demo: bool,
+
+    #[arg(
+        long,
+        value_enum,
+        default_value = "default",
+        hide = true,
+        requires = "demo",
+        help = "Synthetic helper state for visual regression coverage"
+    )]
+    demo_overlay_state: DemoOverlayState,
 
     #[arg(long, help = "Enable automatic gain control")]
     auto_gain: bool,
@@ -946,6 +966,10 @@ fn main() -> anyhow::Result<()> {
         std::sync::mpsc::Receiver<Vec<f32>>,
     ) = std::sync::mpsc::sync_channel(100);
 
+    if args.demo {
+        apply_demo_overlay_state(&audio_state, args.demo_overlay_state);
+    }
+
     // Injection channel for typing transcribed text into focused apps
     let (injection_tx, injection_rx): (
         std::sync::mpsc::Sender<String>,
@@ -1466,6 +1490,58 @@ fn run_sweep_audio(audio_state: ui::SharedAudioState) {
             t += 0.016;
         }
     });
+}
+
+fn apply_demo_overlay_state(
+    audio_state: &ui::SharedAudioState,
+    demo_overlay_state: DemoOverlayState,
+) {
+    use DemoOverlayState::{Default, Display, Downloading, Error, Transcribe, Trusted};
+
+    let mut state = audio_state.write();
+    match demo_overlay_state {
+        Default => {}
+        Display => {
+            state.transcription_available = false;
+            state.injection_enabled = false;
+            state.requested_model = None;
+            state.active_model = None;
+            state.download_progress = None;
+            state.model_error = None;
+        }
+        Transcribe => {
+            state.transcription_available = true;
+            state.injection_enabled = false;
+            state.requested_model = Some(AsrModelId::MoonshineBase);
+            state.active_model = Some(AsrModelId::MoonshineBase);
+            state.download_progress = None;
+            state.model_error = None;
+        }
+        Trusted => {
+            state.transcription_available = true;
+            state.injection_enabled = true;
+            state.requested_model = Some(AsrModelId::MoonshineBase);
+            state.active_model = Some(AsrModelId::MoonshineBase);
+            state.download_progress = None;
+            state.model_error = None;
+        }
+        Downloading => {
+            state.transcription_available = true;
+            state.injection_enabled = true;
+            state.requested_model = Some(AsrModelId::MoonshineTiny);
+            state.active_model = Some(AsrModelId::MoonshineBase);
+            state.download_progress = Some(0.42);
+            state.model_error = None;
+        }
+        Error => {
+            state.transcription_available = false;
+            state.injection_enabled = false;
+            state.requested_model = Some(AsrModelId::MoonshineTiny);
+            state.active_model = None;
+            state.download_progress = None;
+            state.model_error = Some("Synthetic helper-state error".to_string());
+        }
+    }
 }
 
 /// Flush batched resize events, returning the final size
@@ -1989,6 +2065,7 @@ mod tests {
         let args = Args {
             headless: false,
             demo: false,
+            demo_overlay_state: DemoOverlayState::Default,
             auto_gain: false,
             list_sources: false,
             ansi: false,

@@ -142,12 +142,6 @@ impl WgpuTestHarness {
         let golden = golden_dir().join(golden_name);
         compare_images(capture, &golden)
     }
-
-    /// Kill usit process
-    pub fn shutdown(&mut self) -> Result<()> {
-        self.child.kill().context("failed to kill usit")?;
-        Ok(())
-    }
 }
 
 impl Drop for WgpuTestHarness {
@@ -203,12 +197,4 @@ pub fn golden_dir() -> PathBuf {
         .join("tests")
         .join("visual")
         .join("golden")
-}
-
-/// Get path to fixtures directory
-pub fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("visual")
-        .join("fixtures")
 }

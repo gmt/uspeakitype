@@ -154,8 +154,9 @@ Already landed:
 - config writes no longer persist one-off CLI startup sources unless the user explicitly records
   deferred source intent
 - empty source lists are inert instead of silently clearing deferred source state
+- visual harness coverage for helper status-strip modes plus downloading/error text-panel states
+- hidden demo helper-state overrides for automation without changing the normal UI contract
 
 Still notably incomplete:
 
 - helper-shell polish is still behind the product posture docs
-- visual coverage still needs to catch more of the helper-shell hierarchy and trust states
