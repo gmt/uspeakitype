@@ -494,6 +494,78 @@ impl ControlPanelState {
         };
     }
 
+    pub fn control_value(&self, control: Control, audio_state: &AudioState) -> String {
+        match control {
+            Control::DeviceSelector => self
+                .selected_device
+                .map(|id| format!("#{}", id))
+                .unwrap_or_else(|| "Default".to_string()),
+            Control::GainSlider => {
+                if self.agc_enabled {
+                    format!("{:.2}x (auto)", self.gain_value)
+                } else {
+                    format!("{:.2}x", self.gain_value)
+                }
+            }
+            Control::AgcCheckbox => {
+                if self.agc_enabled {
+                    "Enabled".to_string()
+                } else {
+                    "Manual".to_string()
+                }
+            }
+            Control::PauseButton => {
+                if self.is_paused {
+                    "Standby".to_string()
+                } else {
+                    "Listening".to_string()
+                }
+            }
+            Control::VizToggle => match self.viz_mode {
+                SpectrogramMode::BarMeter => "Bar meter".to_string(),
+                SpectrogramMode::Waterfall => "Waterfall".to_string(),
+            },
+            Control::ColorPicker => self.color_scheme_name.to_string(),
+            Control::InjectionToggle => {
+                if audio_state.injection_enabled {
+                    "Trusted".to_string()
+                } else {
+                    "Display-only".to_string()
+                }
+            }
+            Control::ModelSelector => self.model_value(audio_state),
+            Control::AutoSaveToggle => {
+                if self.auto_save {
+                    "Immediate".to_string()
+                } else {
+                    "Manual".to_string()
+                }
+            }
+            Control::OpacitySlider => format!("{}%", (self.opacity * 100.0) as u32),
+            Control::QuitButton => "Stop helper".to_string(),
+        }
+    }
+
+    fn model_value(&self, audio_state: &AudioState) -> String {
+        let requested = audio_state.requested_model.unwrap_or(self.model);
+        let active = audio_state.active_model;
+
+        if audio_state.download_progress.is_some() && active != Some(requested) {
+            match active {
+                Some(active_model) => format!("{} -> {} (dl)", active_model, requested),
+                None => format!("{} (dl)", requested),
+            }
+        } else if let Some(active_model) = active {
+            if active_model != requested {
+                format!("{} -> {}", active_model, requested)
+            } else {
+                active_model.to_string()
+            }
+        } else {
+            requested.to_string()
+        }
+    }
+
     // ===== Apply methods to push state to app components =====
 
     /// Apply gain change to AudioState
@@ -721,6 +793,22 @@ mod tests {
         assert!(entries.contains(&PanelEntry::Section(ControlSection::Desktop)));
         assert!(entries.contains(&PanelEntry::Section(ControlSection::Session)));
         assert!(!entries.contains(&PanelEntry::Control(Control::OpacitySlider)));
+    }
+
+    #[test]
+    fn model_value_surfaces_requested_vs_active_status() {
+        let mut panel = ControlPanelState::new();
+        panel.model = AsrModelId::MoonshineTiny;
+
+        let mut audio_state = AudioState::new();
+        audio_state.active_model = Some(AsrModelId::MoonshineBase);
+        audio_state.requested_model = Some(AsrModelId::MoonshineTiny);
+        audio_state.download_progress = Some(0.42);
+
+        assert_eq!(
+            panel.control_value(Control::ModelSelector, &audio_state),
+            "Moonshine Base -> Moonshine Tiny (dl)"
+        );
     }
 }
 

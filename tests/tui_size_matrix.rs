@@ -383,24 +383,24 @@ fn test_pause_resume() {
     harness.wait_frames(5).unwrap();
 
     assert!(
-        harness.has_text("[ ]"),
-        "Should show unchecked pause initially"
+        harness.has_text("Listening"),
+        "Should show listening state initially"
     );
 
     harness.send_keys(" ").unwrap();
     harness.wait_frames(3).unwrap();
 
     assert!(
-        harness.has_text("[X]"),
-        "Should show checked pause after spacebar"
+        harness.has_text("Standby"),
+        "Should show standby state after spacebar"
     );
 
     harness.send_keys(" ").unwrap();
     harness.wait_frames(3).unwrap();
 
     assert!(
-        harness.has_text("[ ]"),
-        "Should show unchecked pause after second spacebar"
+        harness.has_text("Listening"),
+        "Should return to listening state after second spacebar"
     );
 
     harness.send_keys("q").unwrap();

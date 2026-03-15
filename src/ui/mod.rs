@@ -13,9 +13,10 @@ pub mod waterfall_widget;
 
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::config::AsrModelId;
+use crate::config::{AsrModelId, Config};
 
 pub use app::run;
 pub use control_panel::{
@@ -137,6 +138,30 @@ pub fn new_shared_state() -> SharedAudioState {
     Arc::new(RwLock::new(AudioState::new()))
 }
 
+pub fn build_runtime_config(
+    panel: &ControlPanelState,
+    audio_state: &SharedAudioState,
+    source_override: Option<String>,
+    model_dir: Option<PathBuf>,
+) -> Config {
+    let state = audio_state.read();
+    Config {
+        model: panel.model,
+        auto_gain: panel.agc_enabled,
+        gain: panel.gain_value,
+        style: match panel.viz_mode {
+            spectrogram::SpectrogramMode::BarMeter => "bars".to_string(),
+            spectrogram::SpectrogramMode::Waterfall => "waterfall".to_string(),
+        },
+        color: panel.color_scheme_name.to_string(),
+        source: source_override,
+        injection_enabled: state.injection_enabled,
+        auto_save: panel.auto_save,
+        model_dir,
+        opacity: panel.opacity.clamp(0.0, 1.0),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,6 +266,39 @@ mod tests {
         .unwrap();
 
         assert_eq!(state.read().partial, "from thread");
+    }
+
+    #[test]
+    fn build_runtime_config_uses_panel_and_shared_state() {
+        let shared = new_shared_state();
+        shared.write().injection_enabled = false;
+
+        let mut panel = ControlPanelState::new();
+        panel.model = AsrModelId::MoonshineTinyJapanese;
+        panel.agc_enabled = true;
+        panel.gain_value = 1.4;
+        panel.viz_mode = crate::ui::spectrogram::SpectrogramMode::Waterfall;
+        panel.color_scheme_name = "ice";
+        panel.auto_save = false;
+        panel.opacity = 0.67;
+
+        let config = build_runtime_config(
+            &panel,
+            &shared,
+            Some("desk mic".to_string()),
+            Some(PathBuf::from("/tmp/models")),
+        );
+
+        assert_eq!(config.model, AsrModelId::MoonshineTinyJapanese);
+        assert!(config.auto_gain);
+        assert_eq!(config.gain, 1.4);
+        assert_eq!(config.style, "waterfall");
+        assert_eq!(config.color, "ice");
+        assert_eq!(config.source.as_deref(), Some("desk mic"));
+        assert!(!config.injection_enabled);
+        assert!(!config.auto_save);
+        assert_eq!(config.model_dir, Some(PathBuf::from("/tmp/models")));
+        assert_eq!(config.opacity, 0.67);
     }
 
     // --- Async model selection/activation tests ---

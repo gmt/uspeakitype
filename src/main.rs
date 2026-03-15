@@ -943,6 +943,7 @@ fn main() -> anyhow::Result<()> {
     let download_cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     // Note: download_cancel_for_worker kept for compatibility with legacy sync download path
     let _download_cancel_for_worker = download_cancel.clone();
+    let download_cancel_for_overlay = download_cancel.clone();
 
     // Extract before spawn (args used after spawn, can't move)
     let backend_disable = args.backend_disable.clone();
@@ -1044,6 +1045,8 @@ fn main() -> anyhow::Result<()> {
 
     // Clone download_cmd_tx for TUI use (the original will be moved to shutdown)
     let download_cmd_tx_for_tui = download_cmd_tx.clone();
+    let download_cmd_tx_for_overlay = download_cmd_tx.clone();
+    let model_swap_tx_for_overlay = model_swap_tx.clone();
 
     // Spawn streaming worker - handles audio processing and model swaps
     // Runs even without initial transcriber to handle download events and late activation
@@ -1292,13 +1295,38 @@ fn main() -> anyhow::Result<()> {
             SpectrogramStyle::Bars => SpectrogramMode::BarMeter,
             SpectrogramStyle::Waterfall => SpectrogramMode::Waterfall,
         };
-        let opacity = args.opacity.clamp(0.0, 1.0);
+        let color_name = match args.color {
+            ColorSchemeName::Flame => "flame",
+            ColorSchemeName::Ice => "ice",
+            ColorSchemeName::Mono => "mono",
+        };
+        let overlay_panel =
+            build_initial_control_panel(&config, mode, color_name, args.opacity.clamp(0.0, 1.0));
+
+        let overlay_options = ui::app::OverlayRunOptions {
+            control_panel: overlay_panel,
+            config: ui::app::OverlayConfigContext {
+                path: Config::config_path(),
+                source_override: args.source.clone().or(config.source.clone()),
+                model_dir: args.model_dir.clone().or(config.model_dir.clone()),
+            },
+            model_command: Arc::new(move |command| match command {
+                ui::app::OverlayModelCommand::Request(model) => {
+                    let _ = model_swap_tx_for_overlay.send(model);
+                    let _ = download_cmd_tx_for_overlay.send(DownloadCommand::Request(model));
+                }
+                ui::app::OverlayModelCommand::Cancel(model) => {
+                    download_cancel_for_overlay.store(true, std::sync::atomic::Ordering::Relaxed);
+                    let _ = download_cmd_tx_for_overlay.send(DownloadCommand::Cancel(model));
+                }
+            }),
+        };
+
         ui::run(
             audio_state,
             running,
             capture_control,
-            mode,
-            opacity,
+            overlay_options,
             args.tag.clone(),
         );
     }
@@ -1435,32 +1463,36 @@ fn flush_resize_events(first: (u16, u16)) -> (u16, u16) {
 
 fn build_config_from_state(
     panel: &ui::control_panel::ControlPanelState,
-    args: &Args,
     audio_state: &ui::SharedAudioState,
+    source_override: Option<String>,
+    model_dir: Option<PathBuf>,
 ) -> Config {
-    let state = audio_state.read();
-    Config {
-        model: panel.model,
-        auto_gain: panel.agc_enabled,
-        gain: panel.gain_value,
-        style: match panel.viz_mode {
-            SpectrogramMode::BarMeter => "bars".to_string(),
-            SpectrogramMode::Waterfall => "waterfall".to_string(),
-        },
-        color: panel.color_scheme_name.to_string(),
-        source: args.source.clone(),
-        injection_enabled: state.injection_enabled,
-        auto_save: panel.auto_save,
-        model_dir: args.model_dir.clone(),
-        opacity: args.opacity.clamp(0.0, 1.0),
-    }
+    ui::build_runtime_config(panel, audio_state, source_override, model_dir)
+}
+
+fn build_initial_control_panel(
+    config: &Config,
+    mode: SpectrogramMode,
+    color_name: &'static str,
+    opacity: f32,
+) -> ui::control_panel::ControlPanelState {
+    let mut control_panel = ui::control_panel::ControlPanelState::new();
+    control_panel.color_scheme_name = color_name;
+    control_panel.viz_mode = mode;
+    control_panel.gain_value = config.gain;
+    control_panel.auto_save = config.auto_save;
+    control_panel.model = config.model;
+    control_panel.agc_enabled = config.auto_gain;
+    control_panel.opacity = opacity.clamp(0.0, 1.0);
+    control_panel
 }
 
 fn maybe_auto_save(
     panel: &ui::control_panel::ControlPanelState,
-    args: &Args,
     audio_state: &ui::SharedAudioState,
     config_path: &Path,
+    source_override: Option<String>,
+    model_dir: Option<PathBuf>,
     last_save_time: &mut Option<Instant>,
 ) {
     if !panel.auto_save {
@@ -1474,7 +1506,7 @@ fn maybe_auto_save(
         }
     }
 
-    let config = build_config_from_state(panel, args, audio_state);
+    let config = build_config_from_state(panel, audio_state, source_override, model_dir);
     if let Err(e) = config.save(config_path) {
         log::warn!("Auto-save failed: {}", e);
     }
@@ -1483,14 +1515,15 @@ fn maybe_auto_save(
 
 fn save_on_exit(
     panel: &ui::control_panel::ControlPanelState,
-    args: &Args,
     audio_state: &ui::SharedAudioState,
     config_path: &Path,
+    source_override: Option<String>,
+    model_dir: Option<PathBuf>,
 ) {
     if !panel.auto_save {
         return;
     }
-    let config = build_config_from_state(panel, args, audio_state);
+    let config = build_config_from_state(panel, audio_state, source_override, model_dir);
     if let Err(e) = config.save(config_path) {
         log::warn!("Save on exit failed: {}", e);
     }
@@ -1552,18 +1585,19 @@ fn run_terminal_loop(
     };
     visualizer.set_color_scheme(get_color_scheme(color_name));
 
-    let mut control_panel = ui::control_panel::ControlPanelState::new();
-    control_panel.color_scheme_name = color_name;
-    control_panel.viz_mode = match mode {
-        TerminalMode::BarMeter => ui::spectrogram::SpectrogramMode::BarMeter,
-        TerminalMode::Waterfall => ui::spectrogram::SpectrogramMode::Waterfall,
-    };
-    control_panel.gain_value = config.gain;
-    control_panel.auto_save = config.auto_save;
-    control_panel.model = config.model;
-    control_panel.agc_enabled = config.auto_gain;
+    let mut control_panel = build_initial_control_panel(
+        config,
+        match mode {
+            TerminalMode::BarMeter => ui::spectrogram::SpectrogramMode::BarMeter,
+            TerminalMode::Waterfall => ui::spectrogram::SpectrogramMode::Waterfall,
+        },
+        color_name,
+        args.opacity,
+    );
 
     let config_path = Config::config_path();
+    let persisted_source = args.source.clone().or(config.source.clone());
+    let persisted_model_dir = args.model_dir.clone().or(config.model_dir.clone());
     let mut last_save_time: Option<Instant> = None;
 
     terminal::enable_raw_mode()?;
@@ -1580,9 +1614,10 @@ fn run_terminal_loop(
                                     KeyCode::Char('q') => {
                                         save_on_exit(
                                             &control_panel,
-                                            args,
                                             &audio_state,
                                             &config_path,
+                                            persisted_source.clone(),
+                                            persisted_model_dir.clone(),
                                         );
                                         break;
                                     }
@@ -1671,9 +1706,10 @@ fn run_terminal_loop(
                                         Some(ui::control_panel::Control::QuitButton) => {
                                             save_on_exit(
                                                 &control_panel,
-                                                args,
                                                 &audio_state,
                                                 &config_path,
+                                                persisted_source.clone(),
+                                                persisted_model_dir.clone(),
                                             );
                                             break;
                                         }
@@ -1683,9 +1719,10 @@ fn run_terminal_loop(
                                 }
                                 maybe_auto_save(
                                     &control_panel,
-                                    args,
                                     &audio_state,
                                     &config_path,
+                                    persisted_source.clone(),
+                                    persisted_model_dir.clone(),
                                     &mut last_save_time,
                                 );
                             } else {
@@ -1693,9 +1730,10 @@ fn run_terminal_loop(
                                     KeyCode::Char('q') => {
                                         save_on_exit(
                                             &control_panel,
-                                            args,
                                             &audio_state,
                                             &config_path,
+                                            persisted_source.clone(),
+                                            persisted_model_dir.clone(),
                                         );
                                         break;
                                     }
@@ -1738,6 +1776,8 @@ fn run_terminal_loop(
                 injection_enabled,
                 download_progress,
                 model_error,
+                requested_model,
+                active_model,
             ) = {
                 let state = audio_state.read();
                 (
@@ -1748,6 +1788,8 @@ fn run_terminal_loop(
                     state.injection_enabled,
                     state.download_progress,
                     state.model_error.clone(),
+                    state.requested_model,
+                    state.active_model,
                 )
             };
 
@@ -1781,6 +1823,7 @@ fn run_terminal_loop(
             visualizer.set_paused(control_panel.is_paused);
             visualizer.set_speaking(is_speaking);
             visualizer.set_injection_enabled(injection_enabled);
+            visualizer.set_model_status(requested_model, active_model);
 
             // Render visualization (unified ratatui draw loop)
             visualizer.process_and_render_ratatui(&control_panel)?;
@@ -1843,5 +1886,54 @@ mod tests {
         assert!(normalized.contains(&"input_method".to_string()));
         assert!(normalized.contains(&"wrtype".to_string()));
         assert!(normalized.contains(&"ydotool".to_string()));
+    }
+
+    #[test]
+    fn test_build_config_from_state_uses_runtime_panel_opacity() {
+        let mut panel = ui::control_panel::ControlPanelState::new();
+        panel.opacity = 0.61;
+        panel.model = AsrModelId::MoonshineTiny;
+        panel.agc_enabled = true;
+        panel.gain_value = 1.25;
+
+        let audio_state = ui::new_shared_state();
+        audio_state.write().injection_enabled = false;
+
+        let args = Args {
+            headless: false,
+            demo: false,
+            auto_gain: false,
+            list_sources: false,
+            ansi: false,
+            ansi_width: None,
+            ansi_height: None,
+            ansi_charset: AnsiCharset::Auto,
+            ansi_sweep: false,
+            style: SpectrogramStyle::Bars,
+            color: ColorSchemeName::Flame,
+            model: AsrModelId::MoonshineBase,
+            no_color: false,
+            source: None,
+            model_dir: None,
+            opacity: 0.2,
+            test_fireworks: false,
+            backend_disable: Vec::new(),
+            autostart_ydotoold: false,
+            tag: None,
+            no_duplicate_tag: false,
+            list_instances: false,
+            human: false,
+        };
+
+        let config = build_config_from_state(
+            &panel,
+            &audio_state,
+            args.source.clone(),
+            args.model_dir.clone(),
+        );
+        assert_eq!(config.model, AsrModelId::MoonshineTiny);
+        assert_eq!(config.opacity, 0.61);
+        assert!(config.auto_gain);
+        assert!(!config.injection_enabled);
     }
 }

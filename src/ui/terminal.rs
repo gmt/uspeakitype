@@ -51,6 +51,7 @@ use crate::spectrum::{
 
 use super::control_panel::{panel_entries, Control, ControlPanelState, PanelEntry};
 use super::theme::{Theme, DEFAULT_THEME};
+use crate::config::AsrModelId;
 
 const BLOCK_CHARS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 const ASCII_CHARS: [char; 9] = [' ', '.', ':', '-', '=', '+', '*', '#', '@'];
@@ -254,6 +255,8 @@ pub struct TerminalVisualizer {
     is_paused: bool,
     is_speaking: bool,
     injection_enabled: bool,
+    requested_model: Option<AsrModelId>,
+    active_model: Option<AsrModelId>,
     download_progress: Option<f32>,
     /// Model/cache error to display prominently in red
     model_error: Option<String>,
@@ -310,6 +313,8 @@ impl TerminalVisualizer {
             is_paused: false,
             is_speaking: false,
             injection_enabled: true,
+            requested_model: None,
+            active_model: None,
             download_progress: None,
             model_error: None,
             panel_open: false,
@@ -422,6 +427,15 @@ impl TerminalVisualizer {
         self.injection_enabled = enabled;
     }
 
+    pub fn set_model_status(
+        &mut self,
+        requested_model: Option<AsrModelId>,
+        active_model: Option<AsrModelId>,
+    ) {
+        self.requested_model = requested_model;
+        self.active_model = active_model;
+    }
+
     pub fn set_download_progress(&mut self, progress: Option<f32>) {
         self.download_progress = progress;
     }
@@ -495,27 +509,13 @@ impl TerminalVisualizer {
     fn build_panel_data(&self, panel: &ControlPanelState) -> PanelPopupData {
         let mode = self.layout_mode();
         let (help_title, help_body) = panel.help_copy();
-
-        let device_value = panel
-            .selected_device
-            .map(|id| format!("#{}", id))
-            .unwrap_or_else(|| "Default".to_string());
-        let gain_value = format!(
-            "{:.1}x {}",
-            panel.gain_value,
-            if panel.agc_enabled {
-                "(AGC active)"
-            } else {
-                ""
-            }
-        );
-        let agc_value = if panel.agc_enabled { "[X]" } else { "[ ]" };
-        let pause_value = if panel.is_paused { "[X]" } else { "[ ]" };
-        let viz_value = match panel.viz_mode {
-            crate::ui::spectrogram::SpectrogramMode::BarMeter => "Bar Meter",
-            crate::ui::spectrogram::SpectrogramMode::Waterfall => "Waterfall",
+        let audio_state = crate::ui::AudioState {
+            injection_enabled: self.injection_enabled,
+            requested_model: self.requested_model,
+            active_model: self.active_model,
+            download_progress: self.download_progress,
+            ..crate::ui::AudioState::default()
         };
-        let injection_value = if self.injection_enabled { "[X]" } else { "[ ]" };
 
         let mut items = Vec::new();
         let mut selected_index = None;
@@ -527,23 +527,7 @@ impl TerminalVisualizer {
                     is_section: true,
                 }),
                 PanelEntry::Control(control) => {
-                    let value = match control {
-                        Control::DeviceSelector => device_value.clone(),
-                        Control::GainSlider => gain_value.clone(),
-                        Control::AgcCheckbox => agc_value.to_string(),
-                        Control::PauseButton => pause_value.to_string(),
-                        Control::VizToggle => viz_value.to_string(),
-                        Control::ColorPicker => panel.color_scheme_name.to_string(),
-                        Control::InjectionToggle => injection_value.to_string(),
-                        Control::ModelSelector => panel.model.to_string(),
-                        Control::AutoSaveToggle => {
-                            if panel.auto_save { "[X]" } else { "[ ]" }.to_string()
-                        }
-                        Control::OpacitySlider => {
-                            format!("{:.0}%", panel.opacity * 100.0)
-                        }
-                        Control::QuitButton => "Exit".to_string(),
-                    };
+                    let value = panel.control_value(control, &audio_state);
                     if panel.focused_control == Some(control) {
                         selected_index = Some(items.len());
                     }

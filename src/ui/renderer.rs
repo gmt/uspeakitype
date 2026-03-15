@@ -9,8 +9,7 @@ use winit::window::Window;
 use glyphon::{Color, TextBounds};
 
 use super::control_panel::{
-    transcript_text_bounds, Control, PanelEntry, PanelRect, HELP_PANEL_GAP, PANEL_PADDING,
-    TEXT_PANEL_HEIGHT,
+    transcript_text_bounds, PanelEntry, PanelRect, HELP_PANEL_GAP, PANEL_PADDING, TEXT_PANEL_HEIGHT,
 };
 use super::icon::IconRenderer;
 use super::spectrogram::{Spectrogram, SpectrogramMode};
@@ -596,7 +595,7 @@ impl Renderer {
             font_size: 12.0,
         });
 
-        let injection_enabled = self.audio_state.read().injection_enabled;
+        let panel_state = self.audio_state.read();
         for layout in rect.entry_layouts(true) {
             match layout.entry {
                 PanelEntry::Section(section) => lines.push(PanelTextLine {
@@ -607,55 +606,7 @@ impl Renderer {
                     font_size: 12.0,
                 }),
                 PanelEntry::Control(control) => {
-                    let value = match control {
-                        Control::DeviceSelector => panel
-                            .selected_device
-                            .map(|id| format!("#{}", id))
-                            .unwrap_or_else(|| "Default".to_string()),
-                        Control::GainSlider => {
-                            if panel.agc_enabled {
-                                format!("{:.2}x (auto)", panel.gain_value)
-                            } else {
-                                format!("{:.2}x", panel.gain_value)
-                            }
-                        }
-                        Control::AgcCheckbox => {
-                            if panel.agc_enabled {
-                                "Enabled".to_string()
-                            } else {
-                                "Manual".to_string()
-                            }
-                        }
-                        Control::PauseButton => {
-                            if panel.is_paused {
-                                "Standby".to_string()
-                            } else {
-                                "Listening".to_string()
-                            }
-                        }
-                        Control::VizToggle => match panel.viz_mode {
-                            SpectrogramMode::BarMeter => "Bar meter".to_string(),
-                            SpectrogramMode::Waterfall => "Waterfall".to_string(),
-                        },
-                        Control::ColorPicker => panel.color_scheme_name.to_string(),
-                        Control::InjectionToggle => {
-                            if injection_enabled {
-                                "Enabled".to_string()
-                            } else {
-                                "Disabled".to_string()
-                            }
-                        }
-                        Control::ModelSelector => panel.model.to_string(),
-                        Control::AutoSaveToggle => {
-                            if panel.auto_save {
-                                "Immediate".to_string()
-                            } else {
-                                "Manual".to_string()
-                            }
-                        }
-                        Control::OpacitySlider => format!("{}%", (panel.opacity * 100.0) as u32),
-                        Control::QuitButton => "Stop helper".to_string(),
-                    };
+                    let value = panel.control_value(control, &panel_state);
                     let label_color = if panel.focused_control == Some(control) {
                         focus
                     } else {

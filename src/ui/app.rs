@@ -1,6 +1,7 @@
 //! Winit event loop with Wayland layer shell support
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -16,28 +17,44 @@ use winit::platform::wayland::{Anchor, KeyboardInteractivity, Layer};
 use winit::window::{WindowAttributes, WindowId};
 
 use crate::audio::CaptureControl;
+use crate::config::AsrModelId;
 
 use super::control_panel::{Control, ControlPanelState, PanelRect};
 use super::renderer::Renderer;
 use super::spectrogram::SpectrogramMode;
-use super::SharedAudioState;
+use super::{build_runtime_config, SharedAudioState};
 
 const MARGIN: i32 = 24;
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
+
+#[derive(Clone)]
+pub enum OverlayModelCommand {
+    Request(AsrModelId),
+    Cancel(AsrModelId),
+}
+
+#[derive(Clone)]
+pub struct OverlayConfigContext {
+    pub path: PathBuf,
+    pub source_override: Option<String>,
+    pub model_dir: Option<PathBuf>,
+}
+
+#[derive(Clone)]
+pub struct OverlayRunOptions {
+    pub control_panel: ControlPanelState,
+    pub config: OverlayConfigContext,
+    pub model_command: Arc<dyn Fn(OverlayModelCommand) + Send + Sync>,
+}
 
 pub fn run(
     audio_state: SharedAudioState,
     running: Arc<AtomicBool>,
     capture_control: Option<Arc<CaptureControl>>,
-    mode: SpectrogramMode,
-    opacity: f32,
+    options: OverlayRunOptions,
     tag: Option<String>,
 ) {
     let event_loop = EventLoop::new().expect("Failed to create event loop");
-
-    let mut control_panel = ControlPanelState::new();
-    control_panel.viz_mode = mode;
-    control_panel.opacity = opacity;
 
     let app = Box::new(OverlayApp {
         renderers: HashMap::new(),
@@ -45,10 +62,13 @@ pub fn run(
         running,
         capture_control,
         mouse_position: None,
-        mode,
-        control_panel,
+        mode: options.control_panel.viz_mode,
+        control_panel: options.control_panel,
+        config_context: options.config,
+        model_command: options.model_command,
         tag,
         next_redraw_deadline: Instant::now(),
+        last_save_at: None,
     });
 
     event_loop
@@ -64,8 +84,11 @@ struct OverlayApp {
     mouse_position: Option<(f64, f64)>,
     mode: SpectrogramMode,
     control_panel: ControlPanelState,
+    config_context: OverlayConfigContext,
+    model_command: Arc<dyn Fn(OverlayModelCommand) + Send + Sync>,
     tag: Option<String>,
     next_redraw_deadline: Instant,
+    last_save_at: Option<Instant>,
 }
 
 impl OverlayApp {
@@ -76,18 +99,20 @@ impl OverlayApp {
         }
     }
 
-    fn handle_pause_toggle(&self) {
+    fn handle_pause_toggle(&mut self) {
         if let Some(ref control) = self.capture_control {
             let now_paused = control.toggle_pause();
+            self.control_panel.is_paused = now_paused;
             self.audio_state.write().is_paused = now_paused;
             log::debug!("Capture {}", if now_paused { "paused" } else { "resumed" });
         }
     }
 
-    fn handle_auto_gain_toggle(&self) {
+    fn handle_auto_gain_toggle(&mut self) {
         if let Some(ref control) = self.capture_control {
             let new_state = !control.is_auto_gain_enabled();
             control.set_auto_gain(new_state);
+            self.control_panel.agc_enabled = new_state;
             self.audio_state.write().auto_gain_enabled = new_state;
             log::debug!(
                 "Auto-gain {}",
@@ -96,12 +121,40 @@ impl OverlayApp {
         }
     }
 
-    fn sync_control_state(&self) {
+    fn sync_control_state(&mut self) {
         if let Some(ref control) = self.capture_control {
+            self.control_panel.is_paused = control.is_paused();
+            self.control_panel.agc_enabled = control.is_auto_gain_enabled();
+            self.control_panel.gain_value = control.get_current_gain();
             let mut state = self.audio_state.write();
-            state.is_paused = control.is_paused();
-            state.auto_gain_enabled = control.is_auto_gain_enabled();
-            state.current_gain = control.get_current_gain();
+            state.is_paused = self.control_panel.is_paused;
+            state.auto_gain_enabled = self.control_panel.agc_enabled;
+            state.current_gain = self.control_panel.gain_value;
+        }
+    }
+
+    fn maybe_auto_save(&mut self) {
+        if !self.control_panel.auto_save {
+            return;
+        }
+
+        let now = Instant::now();
+        if let Some(last) = self.last_save_at {
+            if now.duration_since(last) < Duration::from_millis(500) {
+                return;
+            }
+        }
+
+        let config = build_runtime_config(
+            &self.control_panel,
+            &self.audio_state,
+            self.config_context.source_override.clone(),
+            self.config_context.model_dir.clone(),
+        );
+        if let Err(error) = config.save(&self.config_context.path) {
+            log::warn!("Overlay auto-save failed: {}", error);
+        } else {
+            self.last_save_at = Some(now);
         }
     }
 
@@ -203,7 +256,13 @@ impl OverlayApp {
                 self.control_panel.toggle_injection(&mut state);
             }
             Control::ModelSelector => {
-                self.control_panel.toggle_model();
+                let is_downloading = self.audio_state.read().download_progress.is_some();
+                if is_downloading {
+                    (self.model_command)(OverlayModelCommand::Cancel(self.control_panel.model));
+                } else {
+                    self.control_panel.toggle_model();
+                    (self.model_command)(OverlayModelCommand::Request(self.control_panel.model));
+                }
             }
             Control::AutoSaveToggle => {
                 self.control_panel.toggle_auto_save();
@@ -222,6 +281,8 @@ impl OverlayApp {
                 event_loop.exit();
             }
         }
+
+        self.maybe_auto_save();
     }
 }
 
@@ -273,6 +334,7 @@ impl ApplicationHandler for OverlayApp {
 
         let mut renderer = Renderer::new(window, self.audio_state.clone(), self.mode);
         renderer.set_opacity(self.control_panel.opacity);
+        renderer.set_color_scheme(self.control_panel.color_scheme_name);
         let window_id = renderer.window.id();
         self.renderers.insert(window_id, renderer);
         self.next_redraw_deadline = Instant::now();
@@ -368,6 +430,7 @@ impl ApplicationHandler for OverlayApp {
                     }
 
                     if needs_repaint {
+                        self.maybe_auto_save();
                         self.request_repaint_now();
                     }
                 }
