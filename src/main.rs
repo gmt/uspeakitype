@@ -798,21 +798,22 @@ fn main() -> anyhow::Result<()> {
     // Apply config: injection_enabled
     audio_state.write().injection_enabled = config.injection_enabled;
 
-    let configured_source = args.source.clone().or(config.source.clone());
+    let runtime_source = args.source.clone().or(config.source.clone());
+    let persisted_source_base = config.source.clone();
     let startup_sources = if args.demo || args.ansi_sweep {
         {
             let mut state = audio_state.write();
             state.available_sources = Vec::new();
-            state.selected_source_id = configured_source
+            state.selected_source_id = runtime_source
                 .as_deref()
                 .and_then(|source| source.parse::<u32>().ok());
-            state.selected_source_name = configured_source.clone();
-            state.session_source_name = configured_source.clone();
+            state.selected_source_name = runtime_source.clone();
+            state.session_source_name = runtime_source.clone();
             state.source_change_pending_restart = false;
         }
         Vec::new()
     } else {
-        seed_audio_source_state(&audio_state, configured_source.as_deref())
+        seed_audio_source_state(&audio_state, runtime_source.as_deref())
     };
 
     // Create download manager channels
@@ -1035,7 +1036,7 @@ fn main() -> anyhow::Result<()> {
             let capture_config = CaptureConfig {
                 auto_gain_enabled: auto_gain,
                 agc: Default::default(),
-                source: configured_source.clone(),
+                source: runtime_source.clone(),
             };
 
             let state = audio_state.clone();
@@ -1329,7 +1330,7 @@ fn main() -> anyhow::Result<()> {
             control_panel: overlay_panel,
             config: ui::app::OverlayConfigContext {
                 path: Config::config_path(),
-                source_override: configured_source.clone(),
+                source_override: persisted_source_base.clone(),
                 model_dir: args.model_dir.clone().or(config.model_dir.clone()),
             },
             model_command: Arc::new(move |command| match command {
@@ -1670,7 +1671,7 @@ fn run_terminal_loop(
     );
 
     let config_path = Config::config_path();
-    let persisted_source = args.source.clone().or(config.source.clone());
+    let persisted_source = config.source.clone();
     let persisted_model_dir = args.model_dir.clone().or(config.model_dir.clone());
     let mut last_save_time: Option<Instant> = None;
 

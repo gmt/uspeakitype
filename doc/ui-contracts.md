@@ -89,6 +89,8 @@ The source selector is intentionally deferred:
   the next launch
 - auto-save persists that same deferred intent regardless of whether the change happened in ANSI or
   WGPU
+- one-off startup sources from the command line stay startup-only unless the user explicitly
+  changes the selector in the session
 
 ## Control Timing Semantics
 

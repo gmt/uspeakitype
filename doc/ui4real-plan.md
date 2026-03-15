@@ -149,9 +149,13 @@ Already landed:
 - startup source discovery feeding shared ANSI/WGPU device state
 - deferred "next launch" source semantics with unified config persistence
 - capability and model provenance cues in the ANSI status line and transcript shell
+- shared helper trust/source/model summary vocabulary across WGPU, ANSI, and panel values
+- injection rows now distinguish `Display-only`, `Transcribing only`, and `Trusted input`
+- config writes no longer persist one-off CLI startup sources unless the user explicitly records
+  deferred source intent
+- empty source lists are inert instead of silently clearing deferred source state
 
 Still notably incomplete:
 
-- WGPU needs richer status/provenance cues
 - helper-shell polish is still behind the product posture docs
 - visual coverage still needs to catch more of the helper-shell hierarchy and trust states

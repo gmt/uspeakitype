@@ -627,6 +627,10 @@ impl ControlPanelState {
     }
 
     pub fn cycle_device(&mut self, audio_state: &mut AudioState) {
+        if self.device_list.is_empty() {
+            return;
+        }
+
         let next_device = match self.selected_device {
             None => self.device_list.first().map(|device| device.id),
             Some(current_id) => self
@@ -968,6 +972,26 @@ mod tests {
         panel.cycle_device(&mut audio_state);
         assert_eq!(panel.selected_device, None);
         assert!(audio_state.selected_source_name.is_none());
+    }
+
+    #[test]
+    fn cycle_device_with_empty_list_is_noop() {
+        let mut panel = ControlPanelState::new();
+        let mut audio_state = AudioState::new();
+        audio_state.selected_source_id = Some(9);
+        audio_state.selected_source_name = Some("desk-mic".to_string());
+        audio_state.session_source_name = Some("desk-mic".to_string());
+        panel.selected_device = Some(9);
+
+        panel.cycle_device(&mut audio_state);
+
+        assert_eq!(panel.selected_device, Some(9));
+        assert_eq!(audio_state.selected_source_id, Some(9));
+        assert_eq!(
+            audio_state.selected_source_name.as_deref(),
+            Some("desk-mic")
+        );
+        assert!(!audio_state.source_change_pending_restart);
     }
 }
 

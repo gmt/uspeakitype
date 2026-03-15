@@ -151,7 +151,7 @@ pub fn build_runtime_config(
     model_dir: Option<PathBuf>,
 ) -> Config {
     let state = audio_state.read();
-    let source = if state.source_change_pending_restart || state.selected_source_name.is_some() {
+    let source = if state.source_change_pending_restart {
         state.selected_source_name.clone()
     } else {
         source_override
@@ -454,6 +454,7 @@ mod tests {
             let mut state = shared.write();
             state.injection_enabled = false;
             state.selected_source_name = Some("desk mic".to_string());
+            state.source_change_pending_restart = true;
         }
 
         let mut panel = ControlPanelState::new();
@@ -509,6 +510,22 @@ mod tests {
             build_runtime_config(&panel, &shared, Some("startup-override".to_string()), None);
 
         assert_eq!(config.source.as_deref(), Some("startup-override"));
+    }
+
+    #[test]
+    fn build_runtime_config_does_not_persist_runtime_source_without_deferred_change() {
+        let shared = new_shared_state();
+        {
+            let mut state = shared.write();
+            state.selected_source_name = Some("cli-mic".to_string());
+            state.session_source_name = Some("cli-mic".to_string());
+            state.source_change_pending_restart = false;
+        }
+
+        let panel = ControlPanelState::new();
+        let config = build_runtime_config(&panel, &shared, Some("config-mic".to_string()), None);
+
+        assert_eq!(config.source.as_deref(), Some("config-mic"));
     }
 
     #[test]
