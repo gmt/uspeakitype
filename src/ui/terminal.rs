@@ -187,6 +187,7 @@ fn panel_title(mode: LayoutMode) -> &'static str {
 struct PanelPopupItem {
     label: String,
     is_section: bool,
+    control: Option<Control>,
 }
 
 struct PanelPopupData {
@@ -195,6 +196,15 @@ struct PanelPopupData {
     title: &'static str,
     help_title: &'static str,
     help_body: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalMouseAction {
+    None,
+    ClosePanel,
+    Activate(Control),
+    FocusPrevious,
+    FocusNext,
 }
 
 /// Calculate a centered rectangle for popup overlays
@@ -579,6 +589,7 @@ impl TerminalVisualizer {
                 PanelEntry::Section(section) => items.push(PanelPopupItem {
                     label: section.title().to_uppercase(),
                     is_section: true,
+                    control: None,
                 }),
                 PanelEntry::Control(control) => {
                     let value = panel.control_value(control, &audio_state);
@@ -588,6 +599,7 @@ impl TerminalVisualizer {
                     items.push(PanelPopupItem {
                         label: format_control_label(control, &value, mode),
                         is_section: false,
+                        control: Some(control),
                     });
                 }
             }
@@ -600,6 +612,80 @@ impl TerminalVisualizer {
             help_title,
             help_body,
         }
+    }
+
+    fn panel_popup_geometry(&self, panel: &ControlPanelState) -> Option<(Rect, Rect, Rect)> {
+        if !panel.is_open || self.layout_mode() == LayoutMode::Degenerate {
+            return None;
+        }
+
+        let panel_popup = self.build_panel_data(panel);
+        let frame_area = Rect::new(
+            0,
+            0,
+            self.config.term_width as u16,
+            self.config.term_height as u16,
+        );
+        let popup_height = panel_popup.items.len() as u16 + 8;
+        let popup_area = centered_rect(70, popup_height, frame_area);
+        let popup_layout = Layout::vertical([
+            Constraint::Length(panel_popup.items.len() as u16 + 2),
+            Constraint::Length(5),
+        ])
+        .split(popup_area);
+
+        Some((popup_area, popup_layout[0], popup_layout[1]))
+    }
+
+    pub fn mouse_action_for_panel(
+        &self,
+        panel: &ControlPanelState,
+        column: u16,
+        row: u16,
+        scroll_up: bool,
+        scroll_down: bool,
+    ) -> TerminalMouseAction {
+        if !panel.is_open {
+            return TerminalMouseAction::None;
+        }
+
+        if scroll_up {
+            return TerminalMouseAction::FocusPrevious;
+        }
+        if scroll_down {
+            return TerminalMouseAction::FocusNext;
+        }
+
+        let Some((popup_area, list_area, _help_area)) = self.panel_popup_geometry(panel) else {
+            return TerminalMouseAction::None;
+        };
+
+        let inside_popup = column >= popup_area.x
+            && column < popup_area.x + popup_area.width
+            && row >= popup_area.y
+            && row < popup_area.y + popup_area.height;
+
+        if !inside_popup {
+            return TerminalMouseAction::ClosePanel;
+        }
+
+        let inside_list_inner = column > list_area.x
+            && column < list_area.x + list_area.width.saturating_sub(1)
+            && row > list_area.y
+            && row < list_area.y + list_area.height.saturating_sub(1);
+
+        if !inside_list_inner {
+            return TerminalMouseAction::None;
+        }
+
+        let item_index = (row - list_area.y - 1) as usize;
+        let panel_popup = self.build_panel_data(panel);
+        panel_popup
+            .items
+            .get(item_index)
+            .and_then(|item| item.control)
+            .map(TerminalMouseAction::Activate)
+            .unwrap_or(TerminalMouseAction::None)
     }
 
     pub fn process_and_render_ratatui(&mut self, panel: &ControlPanelState) -> io::Result<()> {
@@ -888,6 +974,83 @@ mod tests {
         );
         assert_eq!(panel_title(LayoutMode::Compact), " Input Helper ");
         assert_eq!(panel_title(LayoutMode::Minimal), " ... ");
+    }
+
+    #[test]
+    fn test_mouse_action_activates_clicked_control() {
+        let config = TerminalConfig {
+            width: 48,
+            height: 6,
+            requested_width: None,
+            requested_height: None,
+            mode: TerminalMode::BarMeter,
+            use_color: true,
+            use_unicode: false,
+            term_width: 80,
+            term_height: 24,
+        };
+        let visualizer = TerminalVisualizer::new(config, None);
+        let mut panel = ControlPanelState::new();
+        panel.open_for_surface(false);
+
+        let (_, list_area, _) = visualizer.panel_popup_geometry(&panel).unwrap();
+        let click_column = list_area.x + 3;
+        let click_row = list_area.y + 2;
+
+        assert_eq!(
+            visualizer.mouse_action_for_panel(&panel, click_column, click_row, false, false),
+            TerminalMouseAction::Activate(Control::DeviceSelector)
+        );
+    }
+
+    #[test]
+    fn test_mouse_action_closes_when_clicking_outside_popup() {
+        let config = TerminalConfig {
+            width: 48,
+            height: 6,
+            requested_width: None,
+            requested_height: None,
+            mode: TerminalMode::BarMeter,
+            use_color: true,
+            use_unicode: false,
+            term_width: 80,
+            term_height: 24,
+        };
+        let visualizer = TerminalVisualizer::new(config, None);
+        let mut panel = ControlPanelState::new();
+        panel.open_for_surface(false);
+
+        assert_eq!(
+            visualizer.mouse_action_for_panel(&panel, 0, 0, false, false),
+            TerminalMouseAction::ClosePanel
+        );
+    }
+
+    #[test]
+    fn test_mouse_action_scroll_moves_focus() {
+        let config = TerminalConfig {
+            width: 48,
+            height: 6,
+            requested_width: None,
+            requested_height: None,
+            mode: TerminalMode::BarMeter,
+            use_color: true,
+            use_unicode: false,
+            term_width: 80,
+            term_height: 24,
+        };
+        let visualizer = TerminalVisualizer::new(config, None);
+        let mut panel = ControlPanelState::new();
+        panel.open_for_surface(false);
+
+        assert_eq!(
+            visualizer.mouse_action_for_panel(&panel, 10, 10, true, false),
+            TerminalMouseAction::FocusPrevious
+        );
+        assert_eq!(
+            visualizer.mouse_action_for_panel(&panel, 10, 10, false, true),
+            TerminalMouseAction::FocusNext
+        );
     }
 
     #[test]

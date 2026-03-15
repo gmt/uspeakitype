@@ -5,7 +5,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use clap::{Parser, ValueEnum};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton,
+    MouseEventKind,
+};
+use crossterm::execute;
 use crossterm::terminal;
 use supports_unicode::Stream;
 use terminal_size::{terminal_size, Height, Width};
@@ -1776,6 +1780,7 @@ fn run_terminal_loop(
     let mut last_save_time: Option<Instant> = None;
 
     terminal::enable_raw_mode()?;
+    execute!(std::io::stdout(), EnableMouseCapture)?;
     visualizer.init_terminal()?;
 
     let result = (|| -> anyhow::Result<()> {
@@ -1943,6 +1948,133 @@ fn run_terminal_loop(
                         let (final_w, final_h) = flush_resize_events((width, height));
                         visualizer.resize(final_w, final_h);
                     }
+                    Event::Mouse(mouse) => {
+                        let action = match mouse.kind {
+                            MouseEventKind::Down(MouseButton::Left) => visualizer
+                                .mouse_action_for_panel(
+                                    &control_panel,
+                                    mouse.column,
+                                    mouse.row,
+                                    false,
+                                    false,
+                                ),
+                            MouseEventKind::ScrollUp => visualizer.mouse_action_for_panel(
+                                &control_panel,
+                                mouse.column,
+                                mouse.row,
+                                true,
+                                false,
+                            ),
+                            MouseEventKind::ScrollDown => visualizer.mouse_action_for_panel(
+                                &control_panel,
+                                mouse.column,
+                                mouse.row,
+                                false,
+                                true,
+                            ),
+                            _ => ui::terminal::TerminalMouseAction::None,
+                        };
+
+                        match action {
+                            ui::terminal::TerminalMouseAction::None => {}
+                            ui::terminal::TerminalMouseAction::ClosePanel => {
+                                control_panel.close();
+                                visualizer.set_panel_open(control_panel.is_open);
+                            }
+                            ui::terminal::TerminalMouseAction::FocusPrevious => {
+                                control_panel.focus_previous(false);
+                            }
+                            ui::terminal::TerminalMouseAction::FocusNext => {
+                                control_panel.focus_next(false);
+                            }
+                            ui::terminal::TerminalMouseAction::Activate(control) => {
+                                control_panel.set_focused(Some(control));
+                                match control {
+                                    ui::control_panel::Control::DeviceSelector => {
+                                        let mut state = audio_state.write();
+                                        control_panel.cycle_device(&mut state);
+                                    }
+                                    ui::control_panel::Control::AgcCheckbox => {
+                                        control_panel.toggle_agc();
+                                        let mut state = audio_state.write();
+                                        control_panel.apply_agc(&mut state);
+                                    }
+                                    ui::control_panel::Control::InjectionToggle => {
+                                        let mut state = audio_state.write();
+                                        control_panel.toggle_injection(&mut state);
+                                    }
+                                    ui::control_panel::Control::PauseButton => {
+                                        control_panel.toggle_pause();
+                                        if let Some(ctrl) = capture_control {
+                                            control_panel.apply_pause(ctrl);
+                                        }
+                                    }
+                                    ui::control_panel::Control::VizToggle => {
+                                        control_panel.toggle_viz_mode();
+                                        visualizer.toggle_mode();
+                                    }
+                                    ui::control_panel::Control::ColorPicker => {
+                                        let next_scheme = match control_panel.color_scheme_name {
+                                            "flame" => "ice",
+                                            "ice" => "mono",
+                                            _ => "flame",
+                                        };
+                                        control_panel.set_color_scheme(next_scheme);
+                                        visualizer.set_color_scheme(get_color_scheme(next_scheme));
+                                    }
+                                    ui::control_panel::Control::GainSlider => {
+                                        let new_gain = if control_panel.gain_value >= 2.0 {
+                                            0.5
+                                        } else {
+                                            (control_panel.gain_value + 0.5).min(2.0)
+                                        };
+                                        control_panel.set_gain(new_gain);
+                                        let mut state = audio_state.write();
+                                        control_panel.apply_gain(&mut state);
+                                    }
+                                    ui::control_panel::Control::ModelSelector => {
+                                        let is_downloading =
+                                            audio_state.read().download_progress.is_some();
+                                        if is_downloading {
+                                            download_cancel
+                                                .store(true, std::sync::atomic::Ordering::Relaxed);
+                                            let _ = download_cmd_tx
+                                                .send(DownloadCommand::Cancel(control_panel.model));
+                                        } else {
+                                            control_panel.toggle_model();
+                                            let _ = model_swap_tx.send(control_panel.model);
+                                            let _ = download_cmd_tx.send(DownloadCommand::Request(
+                                                control_panel.model,
+                                            ));
+                                        }
+                                    }
+                                    ui::control_panel::Control::AutoSaveToggle => {
+                                        control_panel.toggle_auto_save();
+                                    }
+                                    ui::control_panel::Control::QuitButton => {
+                                        save_on_exit(
+                                            &control_panel,
+                                            &audio_state,
+                                            &config_path,
+                                            persisted_source.clone(),
+                                            persisted_model_dir.clone(),
+                                        );
+                                        break;
+                                    }
+                                    ui::control_panel::Control::OpacitySlider => {}
+                                }
+
+                                maybe_auto_save(
+                                    &control_panel,
+                                    &audio_state,
+                                    &config_path,
+                                    persisted_source.clone(),
+                                    persisted_model_dir.clone(),
+                                    &mut last_save_time,
+                                );
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -2018,6 +2150,7 @@ fn run_terminal_loop(
         Ok(())
     })();
 
+    let _ = execute!(std::io::stdout(), DisableMouseCapture);
     TerminalVisualizer::cleanup_terminal()?;
     terminal::disable_raw_mode()?;
 
