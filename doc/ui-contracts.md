@@ -110,6 +110,13 @@ The graphical overlay uses reserved-space layout, not text-over-spectrogram occl
 - the transcript panel reserves space at the bottom
 - the control panel, when open, is a centered modal that overlays both
 
+The helper shell itself now has stable internal roles:
+
+- a status strip that summarizes helper mode, source, and model provenance
+- a transcript body that yields to error/download state when needed
+- a focused-control help card in the panel
+- warm accent dividers and card backgrounds that stay readable across opacity changes
+
 Opaque panel backgrounds are intentional. Control and transcript panels should remain visually legible regardless of the global overlay opacity applied to the spectrogram/background layer.
 
 ## Small Window Behavior

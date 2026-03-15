@@ -18,6 +18,28 @@ The finish line is not "perfect KDE integration". It is:
 - clear trust boundaries around injection and model behavior
 - an automation story strong enough that follow-up work does not depend on manual heroics
 
+## Finish-Line Audit
+
+As of `topic/ui4real` tip `799351a`, the branch meets the finish line above.
+
+What is done:
+
+- ANSI and WGPU share one helper control model, section order, help copy, and persistence story.
+- Device selection is honest about being deferred, and both surfaces persist the same startup
+  intent.
+- The WGPU overlay now reads as a helper surface with explicit transcript/status/help regions
+  instead of a debug HUD.
+- Trust, source, and model provenance cues are shared across status strips, panel values, and
+  transcript shells.
+- Visual and TUI automation cover the helper shell well enough that regressions should trip tests
+  instead of waiting for human memory.
+
+What is intentionally left for later:
+
+- compositor-specific trusted-helper capabilities
+- deeper KWin/portal/helper-service cooperation
+- any future Qt or shell-container experiment
+
 ## Milestones
 
 ### 1. Shared Control Parity
@@ -161,4 +183,5 @@ Already landed:
 
 Still notably incomplete:
 
-- deeper compositor/helper capability work is still ahead of the shell polish
+- no `ui4real` blocker remains; the next meaningful work belongs to a new compositor/helper
+  capability branch rather than more shell churn here
