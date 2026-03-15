@@ -317,7 +317,11 @@ struct Args {
     #[arg(long, help = "Terminal UI mode (instead of graphical overlay)")]
     ansi: bool,
 
-    #[arg(long, hide = true, help = "Use the legacy WGPU overlay instead of the Qt shell")]
+    #[arg(
+        long,
+        hide = true,
+        help = "Use the legacy WGPU overlay instead of the Qt shell"
+    )]
     wgpu_legacy: bool,
 
     #[arg(long, help = "Spectrogram width in characters")]
@@ -1069,42 +1073,45 @@ fn main() -> anyhow::Result<()> {
         log::debug!("Injector thread exiting");
     });
 
-    let (capture_control, _capture_handle): (Option<Arc<CaptureControl>>, Option<AudioCapture>) =
-        if args.demo || args.ansi_sweep {
-            if args.ansi_sweep {
-                run_sweep_audio(audio_state.clone());
-            } else {
-                run_demo_audio(audio_state.clone(), injection_tx.clone());
-            }
-            (None, None)
+    let (capture_control, capture_handle, synthetic_audio_handle): (
+        Option<Arc<CaptureControl>>,
+        Option<AudioCapture>,
+        Option<std::thread::JoinHandle<()>>,
+    ) = if args.demo || args.ansi_sweep {
+        let synth_handle = if args.ansi_sweep {
+            run_sweep_audio(audio_state.clone(), running.clone())
         } else {
-            let auto_gain = args.auto_gain || config.auto_gain;
-            let capture_config = CaptureConfig {
-                auto_gain_enabled: auto_gain,
-                agc: Default::default(),
-                source: runtime_source.clone(),
-            };
-
-            let state = audio_state.clone();
-            let tx = audio_tx.clone();
-            let capture = AudioCapture::new(
-                Box::new(move |samples| {
-                    state.write().update_samples(samples);
-                    if tx.try_send(samples.to_vec()).is_err() {}
-                }),
-                capture_config,
-            )?;
-
-            let control = capture.control().clone();
-
-            if auto_gain {
-                audio_state.write().auto_gain_enabled = true;
-            }
-
-            // Keep capture alive - dropping it triggers shutdown cascade
-            // (closes audio channel → worker exits → injection channel closes → injector exits)
-            (Some(control), Some(capture))
+            run_demo_audio(audio_state.clone(), injection_tx.clone(), running.clone())
         };
+        (None, None, Some(synth_handle))
+    } else {
+        let auto_gain = args.auto_gain || config.auto_gain;
+        let capture_config = CaptureConfig {
+            auto_gain_enabled: auto_gain,
+            agc: Default::default(),
+            source: runtime_source.clone(),
+        };
+
+        let state = audio_state.clone();
+        let tx = audio_tx.clone();
+        let capture = AudioCapture::new(
+            Box::new(move |samples| {
+                state.write().update_samples(samples);
+                if tx.try_send(samples.to_vec()).is_err() {}
+            }),
+            capture_config,
+        )?;
+
+        let control = capture.control().clone();
+
+        if auto_gain {
+            audio_state.write().auto_gain_enabled = true;
+        }
+
+        // Keep capture alive - dropping it triggers shutdown cascade
+        // (closes audio channel → worker exits → injection channel closes → injector exits)
+        (Some(control), Some(capture), None)
+    };
 
     // Clone download_cmd_tx for TUI use (the original will be moved to shutdown)
     let download_cmd_tx_for_tui = download_cmd_tx.clone();
@@ -1425,9 +1432,15 @@ fn main() -> anyhow::Result<()> {
         log::warn!("Download manager thread panicked");
     }
 
-    drop(_capture_handle);
+    drop(capture_handle);
     drop(audio_tx);
     drop(injection_tx);
+    if let Some(handle) = synthetic_audio_handle {
+        log::debug!("Waiting for synthetic audio thread...");
+        if handle.join().is_err() {
+            log::warn!("Synthetic audio thread panicked");
+        }
+    }
     log::debug!("Waiting for injector thread...");
     if injector_handle.join().is_err() {
         log::warn!("Injector thread panicked");
@@ -1439,11 +1452,12 @@ fn main() -> anyhow::Result<()> {
 fn run_demo_audio(
     audio_state: ui::SharedAudioState,
     injection_tx: std::sync::mpsc::Sender<String>,
-) {
+    running: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let mut t = 0.0f32;
 
-        loop {
+        while running.load(Ordering::Relaxed) {
             std::thread::sleep(Duration::from_millis(16));
 
             let mut samples = vec![0.0f32; 512];
@@ -1489,16 +1503,19 @@ fn run_demo_audio(
                 audio_state.write().set_partial("transcription".to_string());
             }
         }
-    });
+    })
 }
 
-fn run_sweep_audio(audio_state: ui::SharedAudioState) {
+fn run_sweep_audio(
+    audio_state: ui::SharedAudioState,
+    running: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let sample_rate = 16000.0f32;
         let mut t = 0.0f32;
         let mut phase = 0.0f32;
 
-        loop {
+        while running.load(Ordering::Relaxed) {
             std::thread::sleep(Duration::from_millis(16));
 
             let mut samples = vec![0.0f32; 512];
@@ -1524,7 +1541,7 @@ fn run_sweep_audio(audio_state: ui::SharedAudioState) {
 
             t += 0.016;
         }
-    });
+    })
 }
 
 fn apply_demo_overlay_state(
@@ -2271,5 +2288,20 @@ mod tests {
         assert_eq!(config.opacity, 0.61);
         assert!(config.auto_gain);
         assert!(!config.injection_enabled);
+    }
+
+    #[test]
+    fn demo_audio_thread_exits_when_running_clears() {
+        let audio_state = ui::new_shared_state();
+        let (injection_tx, _injection_rx) = std::sync::mpsc::channel();
+        let running = Arc::new(AtomicBool::new(true));
+
+        let handle = run_demo_audio(audio_state, injection_tx, running.clone());
+        std::thread::sleep(Duration::from_millis(20));
+        running.store(false, Ordering::Relaxed);
+
+        handle
+            .join()
+            .expect("demo audio thread should stop cleanly");
     }
 }

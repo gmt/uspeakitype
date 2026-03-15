@@ -19,11 +19,11 @@ use std::sync::Arc;
 
 use crate::config::{AsrModelId, Config};
 
-pub use qt_external::run;
 pub use control_panel::{
     transcript_text_bounds, Control, ControlPanelState, PanelRect, PANEL_MARGIN, PANEL_MAX_WIDTH,
     PANEL_MIN_SIZE, PANEL_PADDING, ROW_HEIGHT, TEXT_PANEL_HEIGHT, TITLE_HEIGHT,
 };
+pub use qt_external::run;
 pub use status_widget::StatusWidget;
 pub use waterfall_widget::WaterfallWidget;
 

@@ -16,7 +16,6 @@ use std::time::{Duration, Instant, SystemTime};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::audio::CaptureControl;
 use super::app::{OverlayConfigContext, OverlayModelCommand, OverlayRunOptions};
 use super::control_panel::ControlPanelState;
 use super::spectrogram::SpectrogramMode;
@@ -24,6 +23,7 @@ use super::{
     build_runtime_config, helper_mode_label, helper_model_label, helper_source_label,
     helper_status_short_summary, SharedAudioState,
 };
+use crate::audio::CaptureControl;
 
 const SNAPSHOT_INTERVAL: Duration = Duration::from_millis(33);
 
@@ -80,10 +80,7 @@ fn run_inner(
 ) -> Result<()> {
     let executable = ensure_qt_overlay_built()?;
     let mut child = spawn_qt_overlay(&executable, tag.as_deref())?;
-    let mut child_stdin = child
-        .stdin
-        .take()
-        .context("qt overlay stdin unavailable")?;
+    let mut child_stdin = child.stdin.take().context("qt overlay stdin unavailable")?;
     let command_rx = spawn_command_reader(&mut child)?;
 
     let mut panel = options.control_panel.clone();
@@ -141,7 +138,10 @@ fn ensure_qt_overlay_built() -> Result<PathBuf> {
             .current_dir(&repo_root)
             .status()
             .with_context(|| format!("building qt overlay via {}", script.display()))?;
-        anyhow::ensure!(status.success(), "qt overlay build failed with status {status}");
+        anyhow::ensure!(
+            status.success(),
+            "qt overlay build failed with status {status}"
+        );
     }
 
     Ok(executable)
@@ -268,7 +268,9 @@ fn send_snapshot(stdin: &mut ChildStdin, snapshot: &QtSnapshot) -> Result<()> {
     stdin
         .write_all(line.as_bytes())
         .context("writing qt snapshot payload")?;
-    stdin.write_all(b"\n").context("writing qt snapshot newline")?;
+    stdin
+        .write_all(b"\n")
+        .context("writing qt snapshot newline")?;
     stdin.flush().context("flushing qt snapshot")?;
     Ok(())
 }
