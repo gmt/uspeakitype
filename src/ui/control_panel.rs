@@ -32,6 +32,22 @@ pub const HELP_PANEL_HEIGHT: f32 = 84.0; // Height of the contextual help card
 pub const HELP_PANEL_GAP: f32 = 12.0; // Gap between controls and help card
 pub const TEXT_PANEL_HEIGHT: f32 = 60.0; // Height for text panel at bottom
 
+pub fn helper_panel_content_height(include_wgpu_only: bool) -> f32 {
+    TITLE_HEIGHT
+        + panel_entries(include_wgpu_only)
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| match entry {
+                PanelEntry::Section(_) if index == 0 => SECTION_HEIGHT,
+                PanelEntry::Section(_) => SECTION_HEIGHT + SECTION_GAP,
+                PanelEntry::Control(_) => ROW_HEIGHT,
+            })
+            .sum::<f32>()
+        + HELP_PANEL_GAP
+        + HELP_PANEL_HEIGHT
+        + PANEL_PADDING * 2.0
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlSection {
     Capture,
@@ -78,19 +94,7 @@ impl PanelRect {
     /// Calculate panel rect for given window dimensions.
     /// Panel is centered with margin, clamped to minimum size.
     pub fn for_window(window_width: f32, window_height: f32) -> Self {
-        let raw_height = TITLE_HEIGHT
-            + panel_entries(true)
-                .iter()
-                .enumerate()
-                .map(|(index, entry)| match entry {
-                    PanelEntry::Section(_) if index == 0 => SECTION_HEIGHT,
-                    PanelEntry::Section(_) => SECTION_HEIGHT + SECTION_GAP,
-                    PanelEntry::Control(_) => ROW_HEIGHT,
-                })
-                .sum::<f32>()
-            + HELP_PANEL_GAP
-            + HELP_PANEL_HEIGHT
-            + PANEL_PADDING * 2.0;
+        let raw_height = helper_panel_content_height(true);
         let raw_width = PANEL_MAX_WIDTH;
 
         // Clamp to window bounds with margin

@@ -19,13 +19,32 @@ use winit::window::{WindowAttributes, WindowId};
 use crate::audio::CaptureControl;
 use crate::config::AsrModelId;
 
-use super::control_panel::{Control, ControlPanelState, PanelRect};
+use super::control_panel::{
+    helper_panel_content_height, Control, ControlPanelState, PanelRect, PANEL_MARGIN,
+    PANEL_MAX_WIDTH,
+};
 use super::renderer::Renderer;
 use super::spectrogram::SpectrogramMode;
 use super::{build_runtime_config, SharedAudioState};
 
 const MARGIN: i32 = 24;
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
+const CLOSED_WINDOW_HEIGHT: u32 = 210;
+
+fn desired_overlay_surface_size(base_width: u32, panel_open: bool) -> PhysicalSize<u32> {
+    let closed_width = base_width.max(300);
+
+    if panel_open {
+        let open_width = (PANEL_MAX_WIDTH + PANEL_MARGIN * 2.0).ceil() as u32;
+        let open_height = (helper_panel_content_height(true) + PANEL_MARGIN * 2.0).ceil() as u32;
+        PhysicalSize::new(
+            closed_width.max(open_width),
+            open_height.max(CLOSED_WINDOW_HEIGHT),
+        )
+    } else {
+        PhysicalSize::new(closed_width, CLOSED_WINDOW_HEIGHT.max(80))
+    }
+}
 
 #[derive(Clone)]
 pub enum OverlayModelCommand {
@@ -92,6 +111,16 @@ struct OverlayApp {
 }
 
 impl OverlayApp {
+    fn sync_panel_surface_size(&self) {
+        for renderer in self.renderers.values() {
+            let current = renderer.window.surface_size();
+            let desired = desired_overlay_surface_size(current.width, self.control_panel.is_open);
+            if current != desired {
+                let _ = renderer.window.request_surface_size(desired.into());
+            }
+        }
+    }
+
     fn request_repaint_now(&mut self) {
         self.next_redraw_deadline = Instant::now();
         for renderer in self.renderers.values() {
@@ -177,6 +206,7 @@ impl OverlayApp {
         if x >= gear_x && x < gear_x + gear_icon_size && y >= gear_y && y < gear_y + gear_icon_size
         {
             self.control_panel.toggle_open_for_surface(true);
+            self.sync_panel_surface_size();
             self.request_repaint_now();
             return;
         }
@@ -192,6 +222,7 @@ impl OverlayApp {
         // Click outside panel closes it
         if !rect.contains(x, y) {
             self.control_panel.close();
+            self.sync_panel_surface_size();
             self.request_repaint_now();
             return;
         }
@@ -327,8 +358,13 @@ impl ApplicationHandler for OverlayApp {
             return;
         };
 
-        let window_attrs =
-            create_window_attributes(event_loop, &mode, &monitor, self.tag.as_deref());
+        let window_attrs = create_window_attributes(
+            event_loop,
+            &mode,
+            &monitor,
+            self.tag.as_deref(),
+            self.control_panel.is_open,
+        );
         let window = event_loop
             .create_window(window_attrs)
             .expect("Failed to create window");
@@ -385,6 +421,7 @@ impl ApplicationHandler for OverlayApp {
                         }
                         Key::Character(ref c) if c == "c" || c == "C" => {
                             self.control_panel.toggle_open_for_surface(true);
+                            self.sync_panel_surface_size();
                             needs_repaint = true;
                         }
                         Key::Character(ref c) if c == "q" || c == "Q" => {
@@ -411,6 +448,7 @@ impl ApplicationHandler for OverlayApp {
                         Key::Named(NamedKey::Escape) => {
                             if self.control_panel.is_open {
                                 self.control_panel.close();
+                                self.sync_panel_surface_size();
                                 needs_repaint = true;
                             } else {
                                 // TODO: tray-icon - WGPU mode needs system tray icon for exit
@@ -507,12 +545,11 @@ fn create_window_attributes(
     mode: &VideoMode,
     monitor: &winit::monitor::MonitorHandle,
     tag: Option<&str>,
+    panel_open: bool,
 ) -> WindowAttributes {
     let monitor_size = mode.size();
-    let window_width = (monitor_size.width as f32 * 0.25) as u32;
-    let window_height = 210u32;
-
-    let size = PhysicalSize::new(window_width.max(300), window_height.max(80));
+    let default_width = ((monitor_size.width as f32) * 0.25) as u32;
+    let size = desired_overlay_surface_size(default_width, panel_open);
 
     let title = match tag {
         Some(t) => format!("usit [{}]", t),
