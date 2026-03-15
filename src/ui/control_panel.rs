@@ -252,7 +252,7 @@ impl Control {
         match self {
             Control::DeviceSelector => (
                 "Capture source",
-                "Choose which microphone or PipeWire source usit should listen to. This remains a shared control even while live hot-switching is still growing up.",
+                "Choose which microphone or PipeWire source usit should prefer on the next launch or capture restart. The current helper keeps this honest instead of pretending it can hot-switch a live PipeWire stream.",
             ),
             Control::GainSlider => (
                 "Software gain",
@@ -496,10 +496,7 @@ impl ControlPanelState {
 
     pub fn control_value(&self, control: Control, audio_state: &AudioState) -> String {
         match control {
-            Control::DeviceSelector => self
-                .selected_device
-                .map(|id| format!("#{}", id))
-                .unwrap_or_else(|| "Default".to_string()),
+            Control::DeviceSelector => self.device_value(audio_state),
             Control::GainSlider => {
                 if self.agc_enabled {
                     format!("{:.2}x (auto)", self.gain_value)
@@ -544,6 +541,27 @@ impl ControlPanelState {
             Control::OpacitySlider => format!("{}%", (self.opacity * 100.0) as u32),
             Control::QuitButton => "Stop helper".to_string(),
         }
+    }
+
+    fn device_value(&self, audio_state: &AudioState) -> String {
+        let mut label = self
+            .selected_device
+            .and_then(|id| self.device_list.iter().find(|device| device.id == id))
+            .map(|device| {
+                if device.description.is_empty() || device.description == device.name {
+                    device.name.clone()
+                } else {
+                    device.description.clone()
+                }
+            })
+            .or_else(|| audio_state.selected_source_name.clone())
+            .unwrap_or_else(|| "Default".to_string());
+
+        if audio_state.source_change_pending_restart {
+            label.push_str(" (next launch)");
+        }
+
+        label
     }
 
     fn model_value(&self, audio_state: &AudioState) -> String {
@@ -598,11 +616,35 @@ impl ControlPanelState {
         get_color_scheme(self.color_scheme_name)
     }
 
-    /// Apply device selection to AudioState
-    /// Note: Actual device switching requires audio system restart (out of scope)
-    /// This only updates the selected_source_id field in AudioState
+    /// Apply deferred device intent to shared state.
+    ///
+    /// This does not hot-swap a live PipeWire stream. It records which source should be preferred
+    /// on the next launch or capture restart, then lets config persistence make that intent real.
     pub fn apply_device(&self, audio_state: &mut AudioState) {
         audio_state.selected_source_id = self.selected_device;
+        audio_state.selected_source_name = self.selected_device.and_then(|id| {
+            self.device_list
+                .iter()
+                .find(|device| device.id == id)
+                .map(|device| device.name.clone())
+        });
+        audio_state.source_change_pending_restart =
+            audio_state.selected_source_name != audio_state.session_source_name;
+    }
+
+    pub fn cycle_device(&mut self, audio_state: &mut AudioState) {
+        let next_device = match self.selected_device {
+            None => self.device_list.first().map(|device| device.id),
+            Some(current_id) => self
+                .device_list
+                .iter()
+                .position(|device| device.id == current_id)
+                .and_then(|index| self.device_list.get(index + 1))
+                .map(|device| device.id),
+        };
+
+        self.selected_device = next_device;
+        self.apply_device(audio_state);
     }
 
     /// Toggle injection in AudioState
@@ -710,12 +752,23 @@ mod tests {
     #[test]
     fn apply_device_updates_audio_state() {
         let mut state = ControlPanelState::new();
+        state.update_device_list(vec![AudioSourceInfo {
+            id: 42,
+            name: "desk-mic".to_string(),
+            description: "Desk Mic".to_string(),
+        }]);
         state.set_device(Some(42));
 
         let mut audio_state = AudioState::new();
+        audio_state.session_source_name = Some("headset".to_string());
         state.apply_device(&mut audio_state);
 
         assert_eq!(audio_state.selected_source_id, Some(42));
+        assert_eq!(
+            audio_state.selected_source_name.as_deref(),
+            Some("desk-mic")
+        );
+        assert!(audio_state.source_change_pending_restart);
     }
 
     #[test]
@@ -809,6 +862,87 @@ mod tests {
             panel.control_value(Control::ModelSelector, &audio_state),
             "Moonshine Base -> Moonshine Tiny (dl)"
         );
+    }
+
+    #[test]
+    fn device_selector_help_mentions_next_launch() {
+        let (_, body) = Control::DeviceSelector.help();
+        assert!(body.contains("next launch"));
+    }
+
+    #[test]
+    fn device_value_uses_name_and_marks_pending_restart() {
+        let mut panel = ControlPanelState::new();
+        panel.update_device_list(vec![AudioSourceInfo {
+            id: 9,
+            name: "usb-mic".to_string(),
+            description: "USB Mic".to_string(),
+        }]);
+        panel.set_device(Some(9));
+
+        let mut audio_state = AudioState::new();
+        audio_state.session_source_name = Some("desk-mic".to_string());
+        audio_state.source_change_pending_restart = true;
+
+        assert_eq!(
+            panel.control_value(Control::DeviceSelector, &audio_state),
+            "USB Mic (next launch)"
+        );
+    }
+
+    #[test]
+    fn device_value_clears_next_launch_suffix_when_selection_matches_session() {
+        let mut panel = ControlPanelState::new();
+        panel.update_device_list(vec![AudioSourceInfo {
+            id: 9,
+            name: "usb-mic".to_string(),
+            description: "USB Mic".to_string(),
+        }]);
+        panel.set_device(Some(9));
+
+        let mut audio_state = AudioState::new();
+        audio_state.session_source_name = Some("usb-mic".to_string());
+        audio_state.selected_source_name = Some("usb-mic".to_string());
+        panel.apply_device(&mut audio_state);
+
+        assert_eq!(
+            panel.control_value(Control::DeviceSelector, &audio_state),
+            "USB Mic"
+        );
+        assert!(!audio_state.source_change_pending_restart);
+    }
+
+    #[test]
+    fn cycle_device_rotates_to_default_after_last_source() {
+        let mut panel = ControlPanelState::new();
+        panel.update_device_list(vec![
+            AudioSourceInfo {
+                id: 1,
+                name: "desk-mic".to_string(),
+                description: "Desk Mic".to_string(),
+            },
+            AudioSourceInfo {
+                id: 2,
+                name: "headset".to_string(),
+                description: "USB Headset".to_string(),
+            },
+        ]);
+
+        let mut audio_state = AudioState::new();
+        panel.cycle_device(&mut audio_state);
+        assert_eq!(panel.selected_device, Some(1));
+        assert_eq!(
+            audio_state.selected_source_name.as_deref(),
+            Some("desk-mic")
+        );
+
+        panel.cycle_device(&mut audio_state);
+        assert_eq!(panel.selected_device, Some(2));
+        assert_eq!(audio_state.selected_source_name.as_deref(), Some("headset"));
+
+        panel.cycle_device(&mut audio_state);
+        assert_eq!(panel.selected_device, None);
+        assert!(audio_state.selected_source_name.is_none());
     }
 }
 

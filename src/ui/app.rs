@@ -210,7 +210,8 @@ impl OverlayApp {
     fn activate_control(&mut self, control: Control, event_loop: &dyn ActiveEventLoop) {
         match control {
             Control::DeviceSelector => {
-                // No-op - device cycling is future work
+                let mut state = self.audio_state.write();
+                self.control_panel.cycle_device(&mut state);
             }
             Control::GainSlider => {
                 let new_gain = if self.control_panel.gain_value >= 2.0 {

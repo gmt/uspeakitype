@@ -13,13 +13,15 @@ This document defines usit's policy for device selection, gain control, and auto
 
 ### Policy
 1. **Default**: Use last-used device if still present; otherwise fall back to system default.
-2. **Persistence**: Selected device is saved to config when auto-save is enabled or user explicitly saves.
-3. **Hot-plug**: If selected device disconnects, pause capture and show warning. Do NOT auto-switch.
-4. **Wrong mic detection** (TODO): If input appears unusual (e.g., silent when speech expected, or picking up system audio), show a non-intrusive warning suggesting the user check their device selection.
+2. **Persistence**: Selected device intent is saved to config when auto-save is enabled or user explicitly saves.
+3. **Timing**: The current implementation treats device choice as startup intent. Changing it in the ANSI or WGPU control panel applies on next launch or capture restart rather than hot-switching a live PipeWire stream.
+4. **Hot-plug**: If selected device disconnects, pause capture and show warning. Do NOT auto-switch.
+5. **Wrong mic detection** (TODO): If input appears unusual (e.g., silent when speech expected, or picking up system audio), show a non-intrusive warning suggesting the user check their device selection.
 
 ### Non-goals
 - Never auto-switch to a "better" mic without explicit user action.
 - Never silently change devices.
+- Never pretend a deferred startup choice is a live-swapped source.
 
 ## Gain Control
 

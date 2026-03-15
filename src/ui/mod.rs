@@ -52,6 +52,9 @@ pub struct AudioState {
     pub current_gain: f32,
     pub available_sources: Vec<AudioSourceInfo>,
     pub selected_source_id: Option<u32>,
+    pub selected_source_name: Option<String>,
+    pub session_source_name: Option<String>,
+    pub source_change_pending_restart: bool,
     pub injection_enabled: bool,
     /// Download progress: None when not downloading, Some(0.0..1.0) during download
     pub download_progress: Option<f32>,
@@ -80,6 +83,9 @@ impl Default for AudioState {
             current_gain: 1.0,
             available_sources: Vec::new(),
             selected_source_id: None,
+            selected_source_name: None,
+            session_source_name: None,
+            source_change_pending_restart: false,
             injection_enabled: true,
             download_progress: None,
             model_error: None,
@@ -145,6 +151,12 @@ pub fn build_runtime_config(
     model_dir: Option<PathBuf>,
 ) -> Config {
     let state = audio_state.read();
+    let source = if state.source_change_pending_restart || state.selected_source_name.is_some() {
+        state.selected_source_name.clone()
+    } else {
+        source_override
+    };
+
     Config {
         model: panel.model,
         auto_gain: panel.agc_enabled,
@@ -154,7 +166,7 @@ pub fn build_runtime_config(
             spectrogram::SpectrogramMode::Waterfall => "waterfall".to_string(),
         },
         color: panel.color_scheme_name.to_string(),
-        source: source_override,
+        source,
         injection_enabled: state.injection_enabled,
         auto_save: panel.auto_save,
         model_dir,
@@ -271,7 +283,11 @@ mod tests {
     #[test]
     fn build_runtime_config_uses_panel_and_shared_state() {
         let shared = new_shared_state();
-        shared.write().injection_enabled = false;
+        {
+            let mut state = shared.write();
+            state.injection_enabled = false;
+            state.selected_source_name = Some("desk mic".to_string());
+        }
 
         let mut panel = ControlPanelState::new();
         panel.model = AsrModelId::MoonshineTinyJapanese;
@@ -285,7 +301,7 @@ mod tests {
         let config = build_runtime_config(
             &panel,
             &shared,
-            Some("desk mic".to_string()),
+            Some("command-line mic".to_string()),
             Some(PathBuf::from("/tmp/models")),
         );
 
@@ -301,6 +317,49 @@ mod tests {
         assert_eq!(config.opacity, 0.67);
     }
 
+    #[test]
+    fn build_runtime_config_prefers_deferred_source_intent() {
+        let shared = new_shared_state();
+        {
+            let mut state = shared.write();
+            state.selected_source_name = Some("usb-mic".to_string());
+            state.source_change_pending_restart = true;
+        }
+
+        let panel = ControlPanelState::new();
+        let config =
+            build_runtime_config(&panel, &shared, Some("startup-override".to_string()), None);
+
+        assert_eq!(config.source.as_deref(), Some("usb-mic"));
+    }
+
+    #[test]
+    fn build_runtime_config_falls_back_to_startup_source_when_no_runtime_selection_exists() {
+        let shared = new_shared_state();
+        let panel = ControlPanelState::new();
+
+        let config =
+            build_runtime_config(&panel, &shared, Some("startup-override".to_string()), None);
+
+        assert_eq!(config.source.as_deref(), Some("startup-override"));
+    }
+
+    #[test]
+    fn build_runtime_config_allows_gui_to_clear_source_intent() {
+        let shared = new_shared_state();
+        {
+            let mut state = shared.write();
+            state.session_source_name = Some("command-line mic".to_string());
+            state.source_change_pending_restart = true;
+        }
+        let panel = ControlPanelState::new();
+
+        let config =
+            build_runtime_config(&panel, &shared, Some("command-line mic".to_string()), None);
+
+        assert_eq!(config.source, None);
+    }
+
     // --- Async model selection/activation tests ---
 
     #[test]
@@ -309,6 +368,9 @@ mod tests {
         assert!(state.requested_model.is_none());
         assert!(state.active_model.is_none());
         assert!(state.download_progress_by_model.is_empty());
+        assert!(state.selected_source_name.is_none());
+        assert!(state.session_source_name.is_none());
+        assert!(!state.source_change_pending_restart);
     }
 
     #[test]

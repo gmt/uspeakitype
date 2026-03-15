@@ -82,6 +82,24 @@ as first-class sections instead of being buried among audio sliders.
 Each focused control also has shared help copy. ANSI and WGPU present that help differently, but
 they should describe the same trust boundary or behavioral nuance when a user lands on a control.
 
+The source selector is intentionally deferred:
+
+- choosing a source records startup intent instead of pretending to hot-swap a live capture stream
+- when the chosen source differs from the current session, both surfaces label it as applying on
+  the next launch
+- auto-save persists that same deferred intent regardless of whether the change happened in ANSI or
+  WGPU
+
+## Control Timing Semantics
+
+Shared controls also need honest timing semantics so neither surface implies powers the runtime does
+not have.
+
+- `DeviceSelector`: deferred until next launch or capture restart
+- `Gain`, `AGC`, `Pause`, `Injection`, `Auto-save`, `Quit`: immediate
+- `ModelSelector`: immediate request, async activation
+- `Opacity`: WGPU-local and purely visual
+
 ## WGPU Layout Contract
 
 The graphical overlay uses reserved-space layout, not text-over-spectrogram occlusion:

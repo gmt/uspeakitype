@@ -798,6 +798,23 @@ fn main() -> anyhow::Result<()> {
     // Apply config: injection_enabled
     audio_state.write().injection_enabled = config.injection_enabled;
 
+    let configured_source = args.source.clone().or(config.source.clone());
+    let startup_sources = if args.demo || args.ansi_sweep {
+        {
+            let mut state = audio_state.write();
+            state.available_sources = Vec::new();
+            state.selected_source_id = configured_source
+                .as_deref()
+                .and_then(|source| source.parse::<u32>().ok());
+            state.selected_source_name = configured_source.clone();
+            state.session_source_name = configured_source.clone();
+            state.source_change_pending_restart = false;
+        }
+        Vec::new()
+    } else {
+        seed_audio_source_state(&audio_state, configured_source.as_deref())
+    };
+
     // Create download manager channels
     let (download_cmd_tx, download_cmd_rx): (
         std::sync::mpsc::Sender<DownloadCommand>,
@@ -1015,11 +1032,10 @@ fn main() -> anyhow::Result<()> {
             (None, None)
         } else {
             let auto_gain = args.auto_gain || config.auto_gain;
-            let source = args.source.clone().or(config.source.clone());
             let capture_config = CaptureConfig {
                 auto_gain_enabled: auto_gain,
                 agc: Default::default(),
-                source,
+                source: configured_source.clone(),
             };
 
             let state = audio_state.clone();
@@ -1300,14 +1316,20 @@ fn main() -> anyhow::Result<()> {
             ColorSchemeName::Ice => "ice",
             ColorSchemeName::Mono => "mono",
         };
-        let overlay_panel =
-            build_initial_control_panel(&config, mode, color_name, args.opacity.clamp(0.0, 1.0));
+        let overlay_panel = build_initial_control_panel(
+            &config,
+            mode,
+            color_name,
+            args.opacity.clamp(0.0, 1.0),
+            startup_sources.clone(),
+            audio_state.read().selected_source_id,
+        );
 
         let overlay_options = ui::app::OverlayRunOptions {
             control_panel: overlay_panel,
             config: ui::app::OverlayConfigContext {
                 path: Config::config_path(),
-                source_override: args.source.clone().or(config.source.clone()),
+                source_override: configured_source.clone(),
                 model_dir: args.model_dir.clone().or(config.model_dir.clone()),
             },
             model_command: Arc::new(move |command| match command {
@@ -1470,11 +1492,58 @@ fn build_config_from_state(
     ui::build_runtime_config(panel, audio_state, source_override, model_dir)
 }
 
+fn seed_audio_source_state(
+    audio_state: &ui::SharedAudioState,
+    configured_source: Option<&str>,
+) -> Vec<ui::AudioSourceInfo> {
+    let discovered_sources = match audio::list_audio_sources() {
+        Ok(sources) => sources,
+        Err(error) => {
+            log::warn!("Failed to enumerate audio sources for UI state: {}", error);
+            Vec::new()
+        }
+    };
+
+    let available_sources = discovered_sources
+        .iter()
+        .map(|source| ui::AudioSourceInfo {
+            id: source.id,
+            name: source.name.clone(),
+            description: source.description.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    let selected_source = configured_source.and_then(|requested| {
+        if let Ok(id) = requested.parse::<u32>() {
+            available_sources.iter().find(|source| source.id == id)
+        } else {
+            available_sources
+                .iter()
+                .find(|source| source.name == requested || source.description == requested)
+        }
+    });
+
+    {
+        let mut state = audio_state.write();
+        state.available_sources = available_sources.clone();
+        state.selected_source_id = selected_source.map(|source| source.id);
+        state.selected_source_name = selected_source
+            .map(|source| source.name.clone())
+            .or_else(|| configured_source.map(str::to_string));
+        state.session_source_name = state.selected_source_name.clone();
+        state.source_change_pending_restart = false;
+    }
+
+    available_sources
+}
+
 fn build_initial_control_panel(
     config: &Config,
     mode: SpectrogramMode,
     color_name: &'static str,
     opacity: f32,
+    available_sources: Vec<ui::AudioSourceInfo>,
+    selected_source_id: Option<u32>,
 ) -> ui::control_panel::ControlPanelState {
     let mut control_panel = ui::control_panel::ControlPanelState::new();
     control_panel.color_scheme_name = color_name;
@@ -1484,6 +1553,8 @@ fn build_initial_control_panel(
     control_panel.model = config.model;
     control_panel.agc_enabled = config.auto_gain;
     control_panel.opacity = opacity.clamp(0.0, 1.0);
+    control_panel.update_device_list(available_sources);
+    control_panel.set_device(selected_source_id);
     control_panel
 }
 
@@ -1585,6 +1656,7 @@ fn run_terminal_loop(
     };
     visualizer.set_color_scheme(get_color_scheme(color_name));
 
+    let selected_source_id = audio_state.read().selected_source_id;
     let mut control_panel = build_initial_control_panel(
         config,
         match mode {
@@ -1593,6 +1665,8 @@ fn run_terminal_loop(
         },
         color_name,
         args.opacity,
+        audio_state.read().available_sources.clone(),
+        selected_source_id,
     );
 
     let config_path = Config::config_path();
@@ -1638,6 +1712,10 @@ fn run_terminal_loop(
                                         control_panel.focus_next(false);
                                     }
                                     KeyCode::Enter => match control_panel.focused_control {
+                                        Some(ui::control_panel::Control::DeviceSelector) => {
+                                            let mut state = audio_state.write();
+                                            control_panel.cycle_device(&mut state);
+                                        }
                                         Some(ui::control_panel::Control::AgcCheckbox) => {
                                             control_panel.toggle_agc();
                                             let mut state = audio_state.write();
@@ -1774,6 +1852,8 @@ fn run_terminal_loop(
                 partial,
                 is_speaking,
                 injection_enabled,
+                selected_source_name,
+                source_change_pending_restart,
                 download_progress,
                 model_error,
                 requested_model,
@@ -1786,6 +1866,8 @@ fn run_terminal_loop(
                     state.partial.clone(),
                     state.is_speaking,
                     state.injection_enabled,
+                    state.selected_source_name.clone(),
+                    state.source_change_pending_restart,
                     state.download_progress,
                     state.model_error.clone(),
                     state.requested_model,
@@ -1823,6 +1905,7 @@ fn run_terminal_loop(
             visualizer.set_paused(control_panel.is_paused);
             visualizer.set_speaking(is_speaking);
             visualizer.set_injection_enabled(injection_enabled);
+            visualizer.set_source_status(selected_source_name, source_change_pending_restart);
             visualizer.set_model_status(requested_model, active_model);
 
             // Render visualization (unified ratatui draw loop)

@@ -255,6 +255,8 @@ pub struct TerminalVisualizer {
     is_paused: bool,
     is_speaking: bool,
     injection_enabled: bool,
+    selected_source_name: Option<String>,
+    source_change_pending_restart: bool,
     requested_model: Option<AsrModelId>,
     active_model: Option<AsrModelId>,
     download_progress: Option<f32>,
@@ -313,6 +315,8 @@ impl TerminalVisualizer {
             is_paused: false,
             is_speaking: false,
             injection_enabled: true,
+            selected_source_name: None,
+            source_change_pending_restart: false,
             requested_model: None,
             active_model: None,
             download_progress: None,
@@ -427,6 +431,15 @@ impl TerminalVisualizer {
         self.injection_enabled = enabled;
     }
 
+    pub fn set_source_status(
+        &mut self,
+        selected_source_name: Option<String>,
+        source_change_pending_restart: bool,
+    ) {
+        self.selected_source_name = selected_source_name;
+        self.source_change_pending_restart = source_change_pending_restart;
+    }
+
     pub fn set_model_status(
         &mut self,
         requested_model: Option<AsrModelId>,
@@ -511,6 +524,8 @@ impl TerminalVisualizer {
         let (help_title, help_body) = panel.help_copy();
         let audio_state = crate::ui::AudioState {
             injection_enabled: self.injection_enabled,
+            selected_source_name: self.selected_source_name.clone(),
+            source_change_pending_restart: self.source_change_pending_restart,
             requested_model: self.requested_model,
             active_model: self.active_model,
             download_progress: self.download_progress,
