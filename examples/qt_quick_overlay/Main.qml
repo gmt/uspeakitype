@@ -4,7 +4,8 @@ import QtQuick.Window 2.15
 Window {
     id: root
     width: 1080
-    height: 290
+    height: 380
+    minimumWidth: root.controlDrawerOpen ? 1022 : 746
     visible: true
     color: "#140c0a"
     title: "usit Qt Quick Overlay Concept"

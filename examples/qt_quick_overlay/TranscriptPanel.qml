@@ -19,32 +19,30 @@ Rectangle {
         }
     }
 
-    Text {
-        id: committed
-        text: root.committedText
-        color: "#e8deca"
-        font.pixelSize: 16
-        font.weight: Font.Medium
-        wrapMode: Text.WordWrap
+    Column {
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.leftMargin: 16
-        anchors.rightMargin: 16
-        anchors.topMargin: 10
-    }
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.margins: 16
+        spacing: 4
 
-    Text {
-        id: partial
-        text: root.partialText
-        color: "#c2b8a3"
-        font.pixelSize: 16
-        wrapMode: Text.WordWrap
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: committed.bottom
-        anchors.leftMargin: 16
-        anchors.rightMargin: 16
-        anchors.topMargin: 4
+        Text {
+            id: committed
+            text: root.committedText
+            color: "#e8deca"
+            font.pixelSize: 16
+            font.weight: Font.Medium
+            wrapMode: Text.WordWrap
+            width: parent.width
+        }
+
+        Text {
+            id: partial
+            text: root.partialText
+            color: "#c2b8a3"
+            font.pixelSize: 16
+            wrapMode: Text.WordWrap
+            width: parent.width
+        }
     }
 }
