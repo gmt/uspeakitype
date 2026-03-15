@@ -1852,6 +1852,7 @@ fn run_terminal_loop(
                 partial,
                 is_speaking,
                 injection_enabled,
+                transcription_available,
                 selected_source_name,
                 source_change_pending_restart,
                 download_progress,
@@ -1866,6 +1867,7 @@ fn run_terminal_loop(
                     state.partial.clone(),
                     state.is_speaking,
                     state.injection_enabled,
+                    state.transcription_available,
                     state.selected_source_name.clone(),
                     state.source_change_pending_restart,
                     state.download_progress,
@@ -1905,6 +1907,7 @@ fn run_terminal_loop(
             visualizer.set_paused(control_panel.is_paused);
             visualizer.set_speaking(is_speaking);
             visualizer.set_injection_enabled(injection_enabled);
+            visualizer.set_transcription_available(transcription_available);
             visualizer.set_source_status(selected_source_name, source_change_pending_restart);
             visualizer.set_model_status(requested_model, active_model);
 

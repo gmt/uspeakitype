@@ -28,6 +28,7 @@ fn panel_text_bounds(rect: &PanelRect) -> TextBounds {
 
 const WINDOW_WIDTH: u32 = 400;
 const SPECTROGRAM_HEIGHT: u32 = 120;
+const TEXT_STATUS_HEIGHT: f32 = 18.0;
 
 pub fn compute_layout_heights(window_height: u32) -> (u32, u32) {
     let text_panel_height_const = TEXT_PANEL_HEIGHT as u32;
@@ -43,6 +44,66 @@ pub fn compute_layout_heights(window_height: u32) -> (u32, u32) {
         .max(1);
 
     (spectrogram_height, actual_text_panel_height)
+}
+
+fn capability_summary(transcription_available: bool, injection_enabled: bool) -> &'static str {
+    if !transcription_available {
+        "display-only"
+    } else if injection_enabled {
+        "trusted typing"
+    } else {
+        "transcription only"
+    }
+}
+
+fn source_summary(
+    available_sources: &[super::AudioSourceInfo],
+    selected_source_id: Option<u32>,
+    selected_source_name: Option<&str>,
+    source_change_pending_restart: bool,
+) -> String {
+    let label = selected_source_id
+        .and_then(|id| available_sources.iter().find(|source| source.id == id))
+        .map(|source| {
+            if source.description.is_empty() || source.description == source.name {
+                source.name.clone()
+            } else {
+                source.description.clone()
+            }
+        })
+        .or_else(|| selected_source_name.map(str::to_string))
+        .unwrap_or_else(|| "default".to_string());
+
+    if source_change_pending_restart {
+        format!("src {} (next)", label)
+    } else {
+        format!("src {}", label)
+    }
+}
+
+fn model_summary(
+    requested_model: Option<crate::config::AsrModelId>,
+    active_model: Option<crate::config::AsrModelId>,
+    download_progress: Option<f32>,
+) -> String {
+    let Some(requested_model) = requested_model.or(active_model) else {
+        return "model unavailable".to_string();
+    };
+
+    if download_progress.is_some() && active_model != Some(requested_model) {
+        match active_model {
+            Some(active_model) => format!("model {} -> {} (dl)", active_model, requested_model),
+            None => format!("model {} (dl)", requested_model),
+        }
+    } else if let Some(active_model) = active_model {
+        if active_model != requested_model {
+            format!("model {} -> {}", active_model, requested_model)
+        } else {
+            format!("model {}", active_model)
+        }
+    } else {
+        format!("model {}", requested_model)
+    }
 }
 
 pub struct Renderer {
@@ -451,7 +512,21 @@ impl Renderer {
             pass.draw(0..4, 0..1);
         }
 
-        let (committed, partial, samples, model_error, download_progress) = {
+        let (
+            committed,
+            partial,
+            samples,
+            model_error,
+            download_progress,
+            injection_enabled,
+            transcription_available,
+            available_sources,
+            selected_source_id,
+            selected_source_name,
+            source_change_pending_restart,
+            requested_model,
+            active_model,
+        ) = {
             let state = self.audio_state.read();
             (
                 state.committed.clone(),
@@ -459,6 +534,14 @@ impl Renderer {
                 state.samples.clone(),
                 state.model_error.clone(),
                 state.download_progress,
+                state.injection_enabled,
+                state.transcription_available,
+                state.available_sources.clone(),
+                state.selected_source_id,
+                state.selected_source_name.clone(),
+                state.source_change_pending_restart,
+                state.requested_model,
+                state.active_model,
             )
         };
 
@@ -480,7 +563,39 @@ impl Renderer {
             let theme_wgpu = self.theme.to_wgpu();
             self.render_panel_background(&mut encoder, &view, &text_rect, theme_wgpu.panel_bg);
 
+            if actual_text_panel_height as f32 > TEXT_STATUS_HEIGHT + 8.0 {
+                let summary = format!(
+                    "{}  ·  {}  ·  {}",
+                    capability_summary(transcription_available, injection_enabled),
+                    source_summary(
+                        &available_sources,
+                        selected_source_id,
+                        selected_source_name.as_deref(),
+                        source_change_pending_restart,
+                    ),
+                    model_summary(requested_model, active_model, download_progress),
+                );
+
+                let status_bounds = transcript_text_bounds(&text_rect);
+                self.text_renderer.render_panel_text(
+                    &mut encoder,
+                    &view,
+                    vec![PanelTextLine {
+                        text: summary,
+                        x: text_rect.x + 10.0,
+                        y: text_rect.y + 8.0,
+                        color: Color::rgba(214, 203, 189, 255),
+                        font_size: 11.0,
+                    }],
+                    status_bounds,
+                    text_rect.width - 20.0,
+                );
+            }
+
             let transcript_bounds = transcript_text_bounds(&text_rect);
+            let transcript_top = text_panel_y + TEXT_STATUS_HEIGHT;
+            let transcript_height =
+                actual_text_panel_height.saturating_sub(TEXT_STATUS_HEIGHT as u32);
 
             // Priority display: error > download progress > transcript
             let (display_committed, display_partial, is_error) =
@@ -505,10 +620,10 @@ impl Renderer {
                 &display_committed,
                 &display_partial,
                 0.0,
-                text_panel_y,
+                transcript_top,
                 1.0,
                 self.config.width,
-                actual_text_panel_height,
+                transcript_height,
                 10.0,
                 transcript_bounds,
                 is_error,

@@ -17,7 +17,7 @@ use crate::audio::CaptureControl;
 use crate::config::AsrModelId;
 use crate::spectrum::{get_color_scheme, ColorScheme};
 use crate::ui::spectrogram::{Spectrogram, SpectrogramMode};
-use crate::ui::{AudioSourceInfo, AudioState};
+use crate::ui::{helper_capability_label, AudioSourceInfo, AudioState};
 
 // Panel geometry constants
 pub const PANEL_MAX_WIDTH: f32 = 460.0;
@@ -523,13 +523,10 @@ impl ControlPanelState {
                 SpectrogramMode::Waterfall => "Waterfall".to_string(),
             },
             Control::ColorPicker => self.color_scheme_name.to_string(),
-            Control::InjectionToggle => {
-                if audio_state.injection_enabled {
-                    "Trusted".to_string()
-                } else {
-                    "Display-only".to_string()
-                }
-            }
+            Control::InjectionToggle => match helper_capability_label(audio_state) {
+                "Trusted input" => "Trusted".to_string(),
+                _ => "Display-only".to_string(),
+            },
             Control::ModelSelector => self.model_value(audio_state),
             Control::AutoSaveToggle => {
                 if self.auto_save {

@@ -174,6 +174,103 @@ pub fn build_runtime_config(
     }
 }
 
+pub fn helper_capability_label(state: &AudioState) -> &'static str {
+    if state.injection_enabled && state.transcription_available {
+        "Trusted input"
+    } else {
+        "Display-only"
+    }
+}
+
+pub fn helper_model_label(state: &AudioState) -> String {
+    let requested = state.requested_model;
+    let active = state.active_model;
+
+    if state.download_progress.is_some() && active != requested {
+        match (active, requested) {
+            (Some(active_model), Some(requested_model)) => {
+                format!("{} -> {} (dl)", active_model, requested_model)
+            }
+            (None, Some(requested_model)) => format!("{} (dl)", requested_model),
+            (Some(active_model), None) => active_model.to_string(),
+            (None, None) => "No model".to_string(),
+        }
+    } else if let Some(active_model) = active {
+        if Some(active_model) != requested {
+            match requested {
+                Some(requested_model) => format!("{} -> {}", active_model, requested_model),
+                None => active_model.to_string(),
+            }
+        } else {
+            active_model.to_string()
+        }
+    } else if let Some(requested_model) = requested {
+        requested_model.to_string()
+    } else {
+        "No model".to_string()
+    }
+}
+
+pub fn helper_mode_label(state: &AudioState) -> &'static str {
+    if !state.transcription_available {
+        "Display-only"
+    } else if state.injection_enabled {
+        "Trusted input"
+    } else {
+        "Transcribing only"
+    }
+}
+
+pub fn helper_mode_short_label(state: &AudioState) -> &'static str {
+    if !state.transcription_available {
+        "display"
+    } else if state.injection_enabled {
+        "trusted"
+    } else {
+        "transcribe"
+    }
+}
+
+pub fn model_provenance_label(state: &AudioState) -> String {
+    match (
+        state.active_model,
+        state.requested_model,
+        state.download_progress,
+    ) {
+        (Some(active), Some(requested), Some(_)) if active != requested => {
+            format!("Model: {} -> {} (downloading)", active, requested)
+        }
+        (Some(active), Some(requested), _) if active != requested => {
+            format!("Model: {} -> {}", active, requested)
+        }
+        (Some(active), _, _) => format!("Model: {}", active),
+        (None, Some(requested), Some(_)) => {
+            format!("Model: {} (requested, downloading)", requested)
+        }
+        (None, Some(requested), _) => format!("Model: {} (requested)", requested),
+        (None, None, _) => "Model: none".to_string(),
+    }
+}
+
+pub fn model_provenance_short_label(state: &AudioState) -> String {
+    match (
+        state.active_model,
+        state.requested_model,
+        state.download_progress,
+    ) {
+        (Some(active), Some(requested), Some(_)) if active != requested => {
+            format!("{}->{}(dl)", active.dir_name(), requested.dir_name())
+        }
+        (Some(active), Some(requested), _) if active != requested => {
+            format!("{}->{}", active.dir_name(), requested.dir_name())
+        }
+        (Some(active), _, _) => active.dir_name().to_string(),
+        (None, Some(requested), Some(_)) => format!("{}(dl)", requested.dir_name()),
+        (None, Some(requested), _) => format!("{}(req)", requested.dir_name()),
+        (None, None, _) => "no-model".to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,6 +442,31 @@ mod tests {
     }
 
     #[test]
+    fn helper_capability_label_requires_model_and_injection() {
+        let mut state = AudioState::new();
+        state.injection_enabled = true;
+        state.transcription_available = true;
+        assert_eq!(helper_capability_label(&state), "Trusted input");
+
+        state.transcription_available = false;
+        assert_eq!(helper_capability_label(&state), "Display-only");
+
+        state.transcription_available = true;
+        state.injection_enabled = false;
+        assert_eq!(helper_capability_label(&state), "Display-only");
+    }
+
+    #[test]
+    fn helper_model_label_surfaces_requested_and_active_models() {
+        let mut state = AudioState::new();
+        state.requested_model = Some(AsrModelId::MoonshineTiny);
+        state.active_model = Some(AsrModelId::MoonshineBase);
+        state.download_progress = Some(0.3);
+
+        assert_eq!(helper_model_label(&state), "Moonshine Base -> Moonshine Tiny (dl)");
+    }
+
+    #[test]
     fn build_runtime_config_allows_gui_to_clear_source_intent() {
         let shared = new_shared_state();
         {
@@ -358,6 +480,38 @@ mod tests {
             build_runtime_config(&panel, &shared, Some("command-line mic".to_string()), None);
 
         assert_eq!(config.source, None);
+    }
+
+    #[test]
+    fn helper_mode_labels_respect_capability_boundary() {
+        let mut state = AudioState::new();
+        assert_eq!(helper_mode_label(&state), "Display-only");
+        assert_eq!(helper_mode_short_label(&state), "display");
+
+        state.transcription_available = true;
+        assert_eq!(helper_mode_label(&state), "Trusted input");
+        assert_eq!(helper_mode_short_label(&state), "trusted");
+
+        state.injection_enabled = false;
+        assert_eq!(helper_mode_label(&state), "Transcribing only");
+        assert_eq!(helper_mode_short_label(&state), "transcribe");
+    }
+
+    #[test]
+    fn model_provenance_labels_distinguish_active_and_requested_models() {
+        let mut state = AudioState::new();
+        state.active_model = Some(AsrModelId::MoonshineBase);
+        state.requested_model = Some(AsrModelId::MoonshineTiny);
+        state.download_progress = Some(0.42);
+
+        assert_eq!(
+            model_provenance_label(&state),
+            "Model: Moonshine Base -> Moonshine Tiny (downloading)"
+        );
+        assert_eq!(
+            model_provenance_short_label(&state),
+            "moonshine-base->moonshine-tiny(dl)"
+        );
     }
 
     // --- Async model selection/activation tests ---

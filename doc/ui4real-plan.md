@@ -148,6 +148,7 @@ Already landed:
 - first pass at WGPU/TUI structural parity
 - startup source discovery feeding shared ANSI/WGPU device state
 - deferred "next launch" source semantics with unified config persistence
+- capability and model provenance cues in the ANSI status line and transcript shell
 
 Still notably incomplete:
 

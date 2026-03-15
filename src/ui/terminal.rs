@@ -255,6 +255,7 @@ pub struct TerminalVisualizer {
     is_paused: bool,
     is_speaking: bool,
     injection_enabled: bool,
+    transcription_available: bool,
     selected_source_name: Option<String>,
     source_change_pending_restart: bool,
     requested_model: Option<AsrModelId>,
@@ -315,6 +316,7 @@ impl TerminalVisualizer {
             is_paused: false,
             is_speaking: false,
             injection_enabled: true,
+            transcription_available: false,
             selected_source_name: None,
             source_change_pending_restart: false,
             requested_model: None,
@@ -429,6 +431,10 @@ impl TerminalVisualizer {
 
     pub fn set_injection_enabled(&mut self, enabled: bool) {
         self.injection_enabled = enabled;
+    }
+
+    pub fn set_transcription_available(&mut self, available: bool) {
+        self.transcription_available = available;
     }
 
     pub fn set_source_status(
@@ -669,7 +675,8 @@ impl TerminalVisualizer {
             } else {
                 let status_widget = StatusWidget::new(status_info, self.tag.clone())
                     .paused(is_paused)
-                    .speaking(is_speaking);
+                    .speaking(is_speaking)
+                    .capability(self.transcription_available, self.injection_enabled);
                 frame.render_widget(status_widget, status_area);
             }
 

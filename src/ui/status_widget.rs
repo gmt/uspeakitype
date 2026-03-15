@@ -18,6 +18,9 @@ pub struct StatusWidget {
     pub info: StatusInfo,
     pub is_paused: bool,
     pub is_speaking: bool,
+    pub transcription_available: bool,
+    pub injection_enabled: bool,
+    pub helper_summary: Option<String>,
     pub tag: Option<String>,
 }
 
@@ -27,6 +30,9 @@ impl StatusWidget {
             info,
             is_paused: false,
             is_speaking: false,
+            transcription_available: true,
+            injection_enabled: true,
+            helper_summary: None,
             tag,
         }
     }
@@ -38,6 +44,17 @@ impl StatusWidget {
 
     pub fn speaking(mut self, speaking: bool) -> Self {
         self.is_speaking = speaking;
+        self
+    }
+
+    pub fn capability(mut self, transcription_available: bool, injection_enabled: bool) -> Self {
+        self.transcription_available = transcription_available;
+        self.injection_enabled = injection_enabled;
+        self
+    }
+
+    pub fn helper_summary(mut self, summary: Option<String>) -> Self {
+        self.helper_summary = summary;
         self
     }
 
@@ -60,11 +77,19 @@ impl StatusWidget {
     }
 
     fn build_candidates(&self) -> Vec<String> {
+        let capability = if !self.transcription_available {
+            "view"
+        } else if self.injection_enabled {
+            "typed"
+        } else {
+            "transcribe"
+        };
+
         match self.info {
             StatusInfo::Demo => vec![
-                "  spc:pause  c:settings  w:viz  demo  q:quit".to_string(),
-                " spc:pause c:settings w:viz demo q:quit".to_string(),
-                " spc c:set w:viz demo q:quit".to_string(),
+                format!("  spc:pause  c:settings  w:viz  {}  q:quit", capability),
+                format!(" spc:pause c:settings w:viz {} q:quit", capability),
+                format!(" spc c:set w:viz {} q:quit", capability),
                 " spc c w q".to_string(),
             ],
             StatusInfo::Live {
@@ -75,15 +100,18 @@ impl StatusWidget {
                 let rate_khz = sample_rate / 1000;
                 vec![
                     format!(
-                        "  spc:pause  c:settings  w:viz  {}Hz {}  q:quit",
-                        sample_rate, ch
+                        "  spc:pause  c:settings  w:viz  {}  {}Hz {}  q:quit",
+                        capability, sample_rate, ch
                     ),
                     format!(
-                        " spc:pause c:settings w:viz {}Hz {} q:quit",
-                        sample_rate, ch
+                        " spc:pause c:settings w:viz {} {}Hz {} q:quit",
+                        capability, sample_rate, ch
                     ),
-                    format!(" spc c:set w:viz {}kHz {} q:quit", rate_khz, ch),
-                    format!(" spc c:set w:viz {}k q:quit", rate_khz),
+                    format!(
+                        " spc c:set w:viz {} {}kHz {} q:quit",
+                        capability, rate_khz, ch
+                    ),
+                    format!(" spc c:set w:viz {} {}k q:quit", capability, rate_khz),
                     " spc c w q".to_string(),
                 ]
             }
@@ -148,5 +176,28 @@ impl Widget for StatusWidget {
         let line = Line::from(vec![Span::styled(icon, Style::default().fg(color))]);
         let paragraph = Paragraph::new(line).alignment(Alignment::Center);
         paragraph.render(area, buf);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn demo_candidates_surface_typed_capability() {
+        let widget = StatusWidget::new(StatusInfo::Demo, None).capability(true, true);
+        let candidates = widget.build_candidates();
+        assert!(candidates
+            .iter()
+            .any(|candidate| candidate.contains("typed")));
+    }
+
+    #[test]
+    fn demo_candidates_surface_display_only_capability() {
+        let widget = StatusWidget::new(StatusInfo::Demo, None).capability(false, true);
+        let candidates = widget.build_candidates();
+        assert!(candidates
+            .iter()
+            .any(|candidate| candidate.contains("view")));
     }
 }
