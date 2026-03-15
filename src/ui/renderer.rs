@@ -28,7 +28,9 @@ fn panel_text_bounds(rect: &PanelRect) -> TextBounds {
 
 const WINDOW_WIDTH: u32 = 400;
 const SPECTROGRAM_HEIGHT: u32 = 120;
-const TEXT_STATUS_HEIGHT: f32 = 18.0;
+const TEXT_STATUS_HEIGHT: f32 = 24.0;
+const TEXT_PANEL_INSET: f32 = 10.0;
+const TRANSCRIPT_TOP_PADDING: f32 = 6.0;
 
 pub fn compute_layout_heights(window_height: u32) -> (u32, u32) {
     let text_panel_height_const = TEXT_PANEL_HEIGHT as u32;
@@ -484,6 +486,19 @@ impl Renderer {
                 state.active_model,
             )
         };
+        let helper_state = super::AudioState {
+            available_sources: available_sources.clone(),
+            selected_source_id,
+            selected_source_name: selected_source_name.clone(),
+            source_change_pending_restart,
+            injection_enabled,
+            transcription_available,
+            requested_model,
+            active_model,
+            download_progress,
+            model_error: model_error.clone(),
+            ..super::AudioState::default()
+        };
 
         let (_spectrogram_height, actual_text_panel_height) =
             compute_layout_heights(self.config.height);
@@ -502,41 +517,84 @@ impl Renderer {
             };
             let theme_wgpu = self.theme.to_wgpu();
             self.render_panel_background(&mut encoder, &view, &text_rect, theme_wgpu.panel_bg);
+            self.render_panel_background(
+                &mut encoder,
+                &view,
+                &PanelRect {
+                    x: text_rect.x,
+                    y: text_rect.y,
+                    width: text_rect.width,
+                    height: 2.0,
+                },
+                [
+                    theme_wgpu.accent[0],
+                    theme_wgpu.accent[1],
+                    theme_wgpu.accent[2],
+                    0.58,
+                ],
+            );
 
             if actual_text_panel_height as f32 > TEXT_STATUS_HEIGHT + 8.0 {
-                let summary = helper_status_short_summary(&super::AudioState {
-                    available_sources: available_sources.clone(),
-                    selected_source_id,
-                    selected_source_name: selected_source_name.clone(),
-                    source_change_pending_restart,
-                    injection_enabled,
-                    transcription_available,
-                    requested_model,
-                    active_model,
-                    download_progress,
-                    ..super::AudioState::default()
-                });
-
-                let status_bounds = transcript_text_bounds(&text_rect);
-                self.text_renderer.render_panel_text(
+                let status_rect = PanelRect {
+                    x: text_rect.x + TEXT_PANEL_INSET,
+                    y: text_rect.y + 6.0,
+                    width: text_rect.width - TEXT_PANEL_INSET * 2.0,
+                    height: TEXT_STATUS_HEIGHT,
+                };
+                self.render_panel_background(
                     &mut encoder,
                     &view,
-                    vec![PanelTextLine {
-                        text: summary,
-                        x: text_rect.x + 10.0,
-                        y: text_rect.y + 8.0,
-                        color: Color::rgba(214, 203, 189, 255),
-                        font_size: 11.0,
-                    }],
-                    status_bounds,
-                    text_rect.width - 20.0,
+                    &status_rect,
+                    [
+                        theme_wgpu.panel_alt[0],
+                        theme_wgpu.panel_alt[1],
+                        theme_wgpu.panel_alt[2],
+                        0.93,
+                    ],
                 );
             }
 
-            let transcript_bounds = transcript_text_bounds(&text_rect);
-            let transcript_top = text_panel_y + TEXT_STATUS_HEIGHT;
-            let transcript_height =
-                actual_text_panel_height.saturating_sub(TEXT_STATUS_HEIGHT as u32);
+            let transcript_top = text_panel_y + TEXT_STATUS_HEIGHT + TRANSCRIPT_TOP_PADDING;
+            let transcript_height = actual_text_panel_height
+                .saturating_sub(TEXT_STATUS_HEIGHT as u32)
+                .saturating_sub(TRANSCRIPT_TOP_PADDING as u32);
+            let transcript_rect = PanelRect {
+                x: text_rect.x + TEXT_PANEL_INSET,
+                y: transcript_top,
+                width: text_rect.width - TEXT_PANEL_INSET * 2.0,
+                height: transcript_height as f32,
+            };
+            let transcript_bounds = transcript_text_bounds(&transcript_rect);
+            let status_lines = if actual_text_panel_height as f32 > TEXT_STATUS_HEIGHT + 8.0 {
+                vec![
+                    PanelTextLine {
+                        text: "INPUT HELPER".to_string(),
+                        x: text_rect.x + TEXT_PANEL_INSET + 10.0,
+                        y: text_rect.y + 12.0,
+                        color: Color::rgba(
+                            (theme_wgpu.accent[0] * 255.0) as u8,
+                            (theme_wgpu.accent[1] * 255.0) as u8,
+                            (theme_wgpu.accent[2] * 255.0) as u8,
+                            255,
+                        ),
+                        font_size: 10.0,
+                    },
+                    PanelTextLine {
+                        text: helper_status_short_summary(&helper_state),
+                        x: text_rect.x + TEXT_PANEL_INSET + 104.0,
+                        y: text_rect.y + 11.0,
+                        color: Color::rgba(
+                            (theme_wgpu.text_committed[0] * 255.0) as u8,
+                            (theme_wgpu.text_committed[1] * 255.0) as u8,
+                            (theme_wgpu.text_committed[2] * 255.0) as u8,
+                            255,
+                        ),
+                        font_size: 11.0,
+                    },
+                ]
+            } else {
+                Vec::new()
+            };
 
             // Priority display: error > download progress > transcript
             let (display_committed, display_partial, is_error) =
@@ -555,17 +613,17 @@ impl Renderer {
                     (committed.clone(), partial.clone(), false)
                 };
 
-            self.text_renderer.render_with_error(
+            self.text_renderer.render_transcript_panel_with_error(
                 &view,
                 &mut encoder,
+                &status_lines,
                 &display_committed,
                 &display_partial,
-                0.0,
+                transcript_rect.x,
                 transcript_top,
                 1.0,
-                self.config.width,
-                transcript_height,
-                10.0,
+                transcript_rect.width.max(1.0) as u32,
+                0.0,
                 transcript_bounds,
                 is_error,
             );
@@ -615,6 +673,22 @@ impl Renderer {
             0.96,
         ];
         self.render_panel_background(encoder, view, &rect, shell_color);
+        self.render_panel_background(
+            encoder,
+            view,
+            &PanelRect {
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: 2.0,
+            },
+            [
+                theme_wgpu.accent[0],
+                theme_wgpu.accent[1],
+                theme_wgpu.accent[2],
+                0.6,
+            ],
+        );
 
         let help_rect = rect.help_rect();
         self.render_panel_background(
@@ -622,18 +696,36 @@ impl Renderer {
             view,
             &help_rect,
             [
-                theme_wgpu.background[0] * 1.1,
-                theme_wgpu.background[1] * 1.1,
-                theme_wgpu.background[2] * 1.1,
+                theme_wgpu.panel_alt[0],
+                theme_wgpu.panel_alt[1],
+                theme_wgpu.panel_alt[2],
                 0.92,
             ],
         );
 
-        let accent = Color::rgba(214, 174, 93, 255);
-        let heading = Color::rgba(236, 228, 214, 255);
-        let body = Color::rgba(212, 203, 193, 255);
-        let muted = Color::rgba(148, 132, 118, 255);
+        let accent = Color::rgba(
+            (theme_wgpu.accent[0] * 255.0) as u8,
+            (theme_wgpu.accent[1] * 255.0) as u8,
+            (theme_wgpu.accent[2] * 255.0) as u8,
+            255,
+        );
+        let heading = Color::rgba(
+            (theme_wgpu.text_committed[0] * 255.0) as u8,
+            (theme_wgpu.text_committed[1] * 255.0) as u8,
+            (theme_wgpu.text_committed[2] * 255.0) as u8,
+            255,
+        );
+        let body = Color::rgba(216, 205, 191, 255);
+        let muted = Color::rgba(
+            (theme_wgpu.text_partial[0] * 255.0) as u8,
+            (theme_wgpu.text_partial[1] * 255.0) as u8,
+            (theme_wgpu.text_partial[2] * 255.0) as u8,
+            255,
+        );
         let focus = Color::rgba(237, 196, 106, 255);
+
+        let panel_state = self.audio_state.read();
+        let helper_summary = helper_status_short_summary(&panel_state);
 
         let mut lines: Vec<PanelTextLine> = Vec::new();
         lines.push(PanelTextLine {
@@ -644,14 +736,19 @@ impl Renderer {
             font_size: 16.0,
         });
         lines.push(PanelTextLine {
-            text: "Capture, recognition, trust, and session controls".to_string(),
-            x: rect.x + PANEL_PADDING + 120.0,
-            y: rect.title_y() + 1.0,
+            text: helper_summary,
+            x: rect.x + PANEL_PADDING,
+            y: rect.title_y() + 16.0,
             color: muted,
-            font_size: 12.0,
+            font_size: 11.0,
         });
-
-        let panel_state = self.audio_state.read();
+        lines.push(PanelTextLine {
+            text: "Capture, recognition, trust, and session controls".to_string(),
+            x: rect.x + PANEL_PADDING,
+            y: rect.title_y() + 30.0,
+            color: accent,
+            font_size: 10.0,
+        });
         for layout in rect.entry_layouts(true) {
             match layout.entry {
                 PanelEntry::Section(section) => lines.push(PanelTextLine {
@@ -669,7 +766,7 @@ impl Renderer {
                         body
                     };
                     let title = if panel.focused_control == Some(control) {
-                        format!("> {}: {}", control.title(), value)
+                        format!("› {}: {}", control.title(), value)
                     } else {
                         format!("{}: {}", control.title(), value)
                     };
@@ -688,7 +785,7 @@ impl Renderer {
         let help_title_y = help_rect.y + PANEL_PADDING;
         let help_body_y = help_title_y + HELP_PANEL_GAP + 6.0;
         lines.push(PanelTextLine {
-            text: help_title.to_string(),
+            text: format!("Focused control · {}", help_title),
             x: help_rect.x + PANEL_PADDING,
             y: help_title_y,
             color: heading,

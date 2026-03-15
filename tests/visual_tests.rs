@@ -166,6 +166,32 @@ fn text_panel_region() -> (u32, u32, u32, u32) {
     (x + 10, y + h.saturating_sub(58), w.saturating_sub(20), 48)
 }
 
+fn control_panel_region() -> (u32, u32, u32, u32) {
+    let output_width = 1920u32;
+    let output_height = 1080u32;
+    let panel_width = 460u32;
+    let panel_height = 430u32;
+    let x = (output_width.saturating_sub(panel_width)) / 2;
+    let y = (output_height.saturating_sub(panel_height)) / 2;
+    (
+        x + 12,
+        y + 12,
+        panel_width.saturating_sub(24),
+        panel_height.saturating_sub(24),
+    )
+}
+
+fn control_help_region() -> (u32, u32, u32, u32) {
+    let (x, y, w, h) = control_panel_region();
+    let help_height = 96u32.min(h / 3);
+    (
+        x + 8,
+        y + h.saturating_sub(help_height + 8),
+        w.saturating_sub(16),
+        help_height,
+    )
+}
+
 fn region_hash_distance(path_a: &Path, path_b: &Path, region: (u32, u32, u32, u32)) -> u32 {
     fn hash_region(path: &Path, region: (u32, u32, u32, u32)) -> image_hasher::ImageHash {
         let image = image::open(path)
@@ -411,6 +437,55 @@ fn test_wgpu_download_and_error_states_render_distinct_text_panel() {
     assert!(
         downloading_vs_error > 0,
         "Downloading and error states should visibly differ"
+    );
+}
+
+#[test]
+#[serial]
+fn test_wgpu_open_panel_renders_distinct_shell_regions() {
+    if !visual::screenshot::screenshot_available() {
+        if is_canonical() {
+            panic!("CANONICAL: {}", visual::screenshot::skip_reason());
+        } else {
+            eprintln!("Skipping: {}", visual::screenshot::skip_reason());
+            return;
+        }
+    }
+
+    let closed = try_or_skip!(
+        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"], "helper_panel_closed"),
+        "spawn closed"
+    );
+    let open = try_or_skip!(
+        visual::wgpu_harness::WgpuTestHarness::spawn(
+            &["--demo", "--demo-open-panel"],
+            "helper_panel_open"
+        ),
+        "spawn open"
+    );
+
+    closed.wait_demo_milestone(3.0);
+    open.wait_demo_milestone(3.0);
+
+    let closed_capture = try_or_skip!(closed.capture("helper_panel_closed"), "capture closed");
+    let open_capture = try_or_skip!(open.capture("helper_panel_open"), "capture open");
+
+    let panel_distance =
+        region_hash_distance(&closed_capture, &open_capture, control_panel_region());
+    let help_distance = region_hash_distance(&closed_capture, &open_capture, control_help_region());
+
+    println!(
+        "helper panel distances: panel={}, help={}",
+        panel_distance, help_distance
+    );
+
+    assert!(
+        panel_distance > 0,
+        "Open helper panel should alter the panel shell region"
+    );
+    assert!(
+        help_distance > 0,
+        "Open helper panel should alter the help card region"
     );
 }
 
@@ -701,7 +776,10 @@ fn test_wgpu_control_panel_full() {
     }
 
     let harness = try_or_skip!(
-        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"], "wgpu_control_panel_full"),
+        visual::wgpu_harness::WgpuTestHarness::spawn(
+            &["--demo", "--demo-open-panel"],
+            "wgpu_control_panel_full"
+        ),
         "spawn"
     );
 

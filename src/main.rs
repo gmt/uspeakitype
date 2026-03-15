@@ -296,6 +296,14 @@ struct Args {
     )]
     demo_overlay_state: DemoOverlayState,
 
+    #[arg(
+        long,
+        hide = true,
+        requires = "demo",
+        help = "Open the helper panel immediately for deterministic UI captures"
+    )]
+    demo_open_panel: bool,
+
     #[arg(long, help = "Enable automatic gain control")]
     auto_gain: bool,
 
@@ -1348,7 +1356,7 @@ fn main() -> anyhow::Result<()> {
             ColorSchemeName::Ice => "ice",
             ColorSchemeName::Mono => "mono",
         };
-        let overlay_panel = build_initial_control_panel(
+        let mut overlay_panel = build_initial_control_panel(
             &config,
             mode,
             color_name,
@@ -1356,6 +1364,9 @@ fn main() -> anyhow::Result<()> {
             startup_sources.clone(),
             audio_state.read().selected_source_id,
         );
+        if args.demo_open_panel {
+            overlay_panel.open_for_surface(true);
+        }
 
         let overlay_options = ui::app::OverlayRunOptions {
             control_panel: overlay_panel,
@@ -1754,6 +1765,10 @@ fn run_terminal_loop(
         audio_state.read().available_sources.clone(),
         selected_source_id,
     );
+    if args.demo_open_panel {
+        control_panel.open_for_surface(false);
+        visualizer.set_panel_open(true);
+    }
 
     let config_path = Config::config_path();
     let persisted_source = config.source.clone();
@@ -2075,6 +2090,7 @@ mod tests {
             headless: false,
             demo: false,
             demo_overlay_state: DemoOverlayState::Default,
+            demo_open_panel: false,
             auto_gain: false,
             list_sources: false,
             ansi: false,

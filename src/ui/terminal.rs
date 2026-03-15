@@ -52,7 +52,7 @@ use crate::spectrum::{
 use super::control_panel::{panel_entries, Control, ControlPanelState, PanelEntry};
 use super::theme::{Theme, DEFAULT_THEME};
 use crate::config::AsrModelId;
-use crate::ui::{helper_capability_label, helper_model_label};
+use crate::ui::helper_status_short_summary;
 
 const BLOCK_CHARS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 const ASCII_CHARS: [char; 9] = [' ', '.', ':', '-', '=', '+', '*', '#', '@'];
@@ -177,8 +177,8 @@ fn format_control_label(control: Control, value: &str, mode: LayoutMode) -> Stri
 /// Get panel title appropriate for layout mode
 fn panel_title(mode: LayoutMode) -> &'static str {
     match mode {
-        LayoutMode::Full => " Helper Panel (Up/Dn/Enter/Esc) ",
-        LayoutMode::Compact => " Helper Panel ",
+        LayoutMode::Full => " Input Helper (Up/Dn/Enter/Esc) ",
+        LayoutMode::Compact => " Input Helper ",
         LayoutMode::Minimal => " ... ",
         LayoutMode::Degenerate => "", // Not used (panel hidden)
     }
@@ -644,11 +644,7 @@ impl TerminalVisualizer {
             model_error: self.model_error.clone(),
             ..crate::ui::AudioState::default()
         };
-        let helper_summary = format!(
-            "{} · Model: {}",
-            helper_capability_label(&helper_state),
-            helper_model_label(&helper_state)
-        );
+        let helper_summary = helper_status_short_summary(&helper_state);
 
         let color_scheme = &*self.color_scheme;
         let charset = self.charset;
@@ -769,7 +765,11 @@ impl TerminalVisualizer {
 
                 let help_text = format!("{}\n{}", panel_popup.help_title, panel_popup.help_body);
                 let help = Paragraph::new(help_text)
-                    .block(Block::default().borders(Borders::ALL).title(" Focus "))
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(" Focused control "),
+                    )
                     .wrap(ratatui::widgets::Wrap { trim: true })
                     .style(Style::default().fg(Color::Gray));
 
@@ -884,9 +884,9 @@ mod tests {
     fn test_panel_title() {
         assert_eq!(
             panel_title(LayoutMode::Full),
-            " Helper Panel (Up/Dn/Enter/Esc) "
+            " Input Helper (Up/Dn/Enter/Esc) "
         );
-        assert_eq!(panel_title(LayoutMode::Compact), " Helper Panel ");
+        assert_eq!(panel_title(LayoutMode::Compact), " Input Helper ");
         assert_eq!(panel_title(LayoutMode::Minimal), " ... ");
     }
 

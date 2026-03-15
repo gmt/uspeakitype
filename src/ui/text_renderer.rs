@@ -165,10 +165,7 @@ impl TextRenderer {
         if committed.is_empty() && partial.is_empty() {
             return;
         }
-
         let theme_wgpu = self.theme.to_wgpu();
-
-        // Use error color (red) for committed text when is_error is true
         let committed_rgba = if is_error {
             theme_wgpu.text_error
         } else {
@@ -181,7 +178,6 @@ impl TextRenderer {
             (committed_rgba[2] * 255.0) as u8,
             (committed_rgba[3] * 255.0) as u8,
         );
-
         let partial_color = Color::rgba(
             (theme_wgpu.text_partial[0] * 255.0) as u8,
             (theme_wgpu.text_partial[1] * 255.0) as u8,
@@ -191,14 +187,11 @@ impl TextRenderer {
 
         let font_size = 14.0 * scale;
         let metrics = Metrics::new(font_size, font_size * 1.3);
-
         self.buffer.lines.clear();
         self.buffer_partial.lines.clear();
-
         self.buffer.set_metrics(&mut self.font_system, metrics);
         self.buffer_partial
             .set_metrics(&mut self.font_system, metrics);
-
         self.buffer
             .set_size(&mut self.font_system, Some(area_width as f32), None);
         self.buffer_partial
@@ -217,7 +210,6 @@ impl TextRenderer {
                 Some(Align::Left),
             );
             self.buffer.shape_until_scroll(&mut self.font_system, true);
-
             text_areas.push(TextArea {
                 buffer: &self.buffer,
                 left: x + padding,
@@ -255,7 +247,6 @@ impl TextRenderer {
             );
             self.buffer_partial
                 .shape_until_scroll(&mut self.font_system, true);
-
             text_areas.push(TextArea {
                 buffer: &self.buffer_partial,
                 left: x + padding + offset,
@@ -375,6 +366,197 @@ impl TextRenderer {
         if prepare_result.is_ok() {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Panel Text Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+                occlusion_query_set: None,
+            });
+
+            let _ = self
+                .renderer
+                .render(&self.atlas, &self.viewport, &mut render_pass);
+        }
+
+        self.atlas.trim();
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_transcript_panel_with_error(
+        &mut self,
+        view: &TextureView,
+        encoder: &mut wgpu::CommandEncoder,
+        status_lines: &[PanelTextLine],
+        committed: &str,
+        partial: &str,
+        x: f32,
+        y: f32,
+        scale: f32,
+        area_width: u32,
+        padding: f32,
+        transcript_bounds: TextBounds,
+        is_error: bool,
+    ) {
+        let theme_wgpu = self.theme.to_wgpu();
+        let line_count = status_lines.len().min(self.panel_buffers.len());
+
+        for (i, line) in status_lines.iter().take(line_count).enumerate() {
+            let line_height = (line.font_size * 1.3).max(18.0);
+            self.panel_buffers[i].set_metrics(
+                &mut self.font_system,
+                Metrics::new(line.font_size, line_height),
+            );
+            self.panel_buffers[i].set_size(
+                &mut self.font_system,
+                Some(self.size.width as f32),
+                None,
+            );
+            self.panel_buffers[i].set_text(
+                &mut self.font_system,
+                &line.text,
+                &Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+                Some(Align::Left),
+            );
+            self.panel_buffers[i].shape_until_scroll(&mut self.font_system, false);
+        }
+
+        let committed_rgba = if is_error {
+            theme_wgpu.text_error
+        } else {
+            theme_wgpu.text_committed
+        };
+        let committed_color = Color::rgba(
+            (committed_rgba[0] * 255.0) as u8,
+            (committed_rgba[1] * 255.0) as u8,
+            (committed_rgba[2] * 255.0) as u8,
+            (committed_rgba[3] * 255.0) as u8,
+        );
+        let partial_color = Color::rgba(
+            (theme_wgpu.text_partial[0] * 255.0) as u8,
+            (theme_wgpu.text_partial[1] * 255.0) as u8,
+            (theme_wgpu.text_partial[2] * 255.0) as u8,
+            (theme_wgpu.text_partial[3] * 255.0) as u8,
+        );
+
+        let font_size = 14.0 * scale;
+        let metrics = Metrics::new(font_size, font_size * 1.3);
+        self.buffer.lines.clear();
+        self.buffer_partial.lines.clear();
+        self.buffer.set_metrics(&mut self.font_system, metrics);
+        self.buffer_partial
+            .set_metrics(&mut self.font_system, metrics);
+        self.buffer
+            .set_size(&mut self.font_system, Some(area_width as f32), None);
+        self.buffer_partial
+            .set_size(&mut self.font_system, Some(area_width as f32), None);
+
+        let mut text_areas: Vec<TextArea> = (0..line_count)
+            .map(|i| {
+                let line = &status_lines[i];
+                TextArea {
+                    buffer: &self.panel_buffers[i],
+                    left: line.x,
+                    top: line.y,
+                    scale: 1.0,
+                    bounds: transcript_bounds,
+                    default_color: line.color,
+                    custom_glyphs: &[],
+                }
+            })
+            .collect();
+
+        if !committed.is_empty() {
+            self.buffer.set_text(
+                &mut self.font_system,
+                committed,
+                &Attrs::new()
+                    .family(Family::SansSerif)
+                    .color(committed_color),
+                Shaping::Advanced,
+                Some(Align::Left),
+            );
+            self.buffer.shape_until_scroll(&mut self.font_system, true);
+            text_areas.push(TextArea {
+                buffer: &self.buffer,
+                left: x + padding,
+                top: y + padding,
+                scale: 1.0,
+                bounds: transcript_bounds,
+                default_color: committed_color,
+                custom_glyphs: &[],
+            });
+        }
+
+        if !partial.is_empty() {
+            let committed_width = if committed.is_empty() {
+                0.0
+            } else {
+                self.buffer
+                    .layout_runs()
+                    .flat_map(|run| run.glyphs.iter())
+                    .map(|glyph| glyph.w)
+                    .sum::<f32>()
+            };
+            let offset = if committed.is_empty() {
+                0.0
+            } else {
+                committed_width + font_size * 0.3
+            };
+
+            self.buffer_partial.set_text(
+                &mut self.font_system,
+                partial,
+                &Attrs::new().family(Family::SansSerif).color(partial_color),
+                Shaping::Advanced,
+                Some(Align::Left),
+            );
+            self.buffer_partial
+                .shape_until_scroll(&mut self.font_system, true);
+            text_areas.push(TextArea {
+                buffer: &self.buffer_partial,
+                left: x + padding + offset,
+                top: y + padding,
+                scale: 1.0,
+                bounds: transcript_bounds,
+                default_color: partial_color,
+                custom_glyphs: &[],
+            });
+        }
+
+        if text_areas.is_empty() {
+            return;
+        }
+
+        self.viewport.update(
+            &self.queue,
+            Resolution {
+                width: self.size.width,
+                height: self.size.height,
+            },
+        );
+
+        let prepare_result = self.renderer.prepare(
+            &self.device,
+            &self.queue,
+            &mut self.font_system,
+            &mut self.atlas,
+            &self.viewport,
+            text_areas,
+            &mut self.swash_cache,
+        );
+
+        if prepare_result.is_ok() {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Transcript Panel Text Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view,
                     resolve_target: None,

@@ -5,6 +5,14 @@
 mod tui_harness;
 use tui_harness::{pty_available, TuiTestHarness};
 
+fn has_helper_panel_title(harness: &TuiTestHarness) -> bool {
+    harness.has_text("Input") || harness.has_text("Panel")
+}
+
+fn has_any_panel_title(harness: &TuiTestHarness) -> bool {
+    harness.has_text("...") || has_helper_panel_title(harness)
+}
+
 // ============================================================================
 // 9-TILE GRID TESTS
 // ============================================================================
@@ -25,7 +33,7 @@ fn test_size_20x6_degenerate() {
     // 'c' should be ignored (no panel)
     harness.send_keys("c").unwrap();
     harness.wait_frames(2).unwrap();
-    assert!(!harness.has_text("Panel"));
+    assert!(!has_helper_panel_title(&harness));
 
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
@@ -45,7 +53,7 @@ fn test_size_20x8_degenerate_width() {
     // Width < 25, so degenerate even though height >= 8
     harness.send_keys("c").unwrap();
     harness.wait_frames(2).unwrap();
-    assert!(!harness.has_text("Panel"));
+    assert!(!has_helper_panel_title(&harness));
 
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
@@ -65,7 +73,7 @@ fn test_size_20x12_degenerate_width() {
     // Width < 25, so degenerate
     harness.send_keys("c").unwrap();
     harness.wait_frames(2).unwrap();
-    assert!(!harness.has_text("Panel"));
+    assert!(!has_helper_panel_title(&harness));
 
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
@@ -85,7 +93,7 @@ fn test_size_30x6_degenerate_height() {
     // Height < 8, so degenerate even though width >= 25
     harness.send_keys("c").unwrap();
     harness.wait_frames(2).unwrap();
-    assert!(!harness.has_text("Panel"));
+    assert!(!has_helper_panel_title(&harness));
 
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
@@ -107,7 +115,7 @@ fn test_size_30x8_minimal() {
     harness.wait_frames(3).unwrap();
 
     // Should show panel with minimal labels (single-char)
-    assert!(harness.has_text("...") || harness.has_text("Panel"));
+    assert!(has_any_panel_title(&harness));
 
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
@@ -127,7 +135,7 @@ fn test_size_30x12_minimal() {
     // Minimal mode
     harness.send_keys("c").unwrap();
     harness.wait_frames(3).unwrap();
-    assert!(harness.has_text("...") || harness.has_text("Panel"));
+    assert!(has_any_panel_title(&harness));
 
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
@@ -147,7 +155,7 @@ fn test_size_40x12_compact() {
     // Compact mode: 35 <= width < 50
     harness.send_keys("c").unwrap();
     harness.wait_frames(3).unwrap();
-    assert!(harness.has_text("Panel"));
+    assert!(has_helper_panel_title(&harness));
 
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
@@ -167,7 +175,7 @@ fn test_size_80x6_degenerate_height() {
     // Height < 8, so degenerate even though width >= 50
     harness.send_keys("c").unwrap();
     harness.wait_frames(2).unwrap();
-    assert!(!harness.has_text("Panel"));
+    assert!(!has_helper_panel_title(&harness));
 
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
@@ -187,7 +195,7 @@ fn test_size_80x24_full() {
     // Full mode: width >= 50, height >= 10
     harness.send_keys("c").unwrap();
     harness.wait_frames(5).unwrap();
-    assert!(harness.has_text("Panel"));
+    assert!(has_helper_panel_title(&harness));
 
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
@@ -210,7 +218,7 @@ fn test_boundary_width_24_25() {
     harness.wait_frames(3).unwrap();
     harness.send_keys("c").unwrap();
     harness.wait_frames(2).unwrap();
-    assert!(!harness.has_text("Panel"));
+    assert!(!has_helper_panel_title(&harness));
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
 
@@ -220,7 +228,7 @@ fn test_boundary_width_24_25() {
     harness.wait_frames(3).unwrap();
     harness.send_keys("c").unwrap();
     harness.wait_frames(3).unwrap();
-    assert!(harness.has_text("...") || harness.has_text("Panel"));
+    assert!(has_any_panel_title(&harness));
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
 }
@@ -238,7 +246,7 @@ fn test_boundary_width_34_35() {
     harness.wait_frames(3).unwrap();
     harness.send_keys("c").unwrap();
     harness.wait_frames(3).unwrap();
-    assert!(harness.has_text("...") || harness.has_text("Panel"));
+    assert!(has_any_panel_title(&harness));
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
 
@@ -248,7 +256,7 @@ fn test_boundary_width_34_35() {
     harness.wait_frames(3).unwrap();
     harness.send_keys("c").unwrap();
     harness.wait_frames(3).unwrap();
-    assert!(harness.has_text("Panel"));
+    assert!(has_helper_panel_title(&harness));
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
 }
@@ -266,7 +274,7 @@ fn test_boundary_width_49_50() {
     harness.wait_frames(3).unwrap();
     harness.send_keys("c").unwrap();
     harness.wait_frames(3).unwrap();
-    assert!(harness.has_text("Panel"));
+    assert!(has_helper_panel_title(&harness));
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
 
@@ -276,7 +284,7 @@ fn test_boundary_width_49_50() {
     harness.wait_frames(3).unwrap();
     harness.send_keys("c").unwrap();
     harness.wait_frames(3).unwrap();
-    assert!(harness.has_text("Panel"));
+    assert!(has_helper_panel_title(&harness));
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
 }
@@ -294,7 +302,7 @@ fn test_boundary_height_7_8() {
     harness.wait_frames(3).unwrap();
     harness.send_keys("c").unwrap();
     harness.wait_frames(2).unwrap();
-    assert!(!harness.has_text("Panel"));
+    assert!(!has_helper_panel_title(&harness));
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
 
@@ -332,7 +340,7 @@ fn test_boundary_height_9_10() {
     harness.wait_frames(3).unwrap();
     harness.send_keys("c").unwrap();
     harness.wait_frames(3).unwrap();
-    assert!(harness.has_text("Panel"));
+    assert!(has_helper_panel_title(&harness));
     harness.send_keys("q").unwrap();
     let _ = harness.wait_exit(1000);
 }

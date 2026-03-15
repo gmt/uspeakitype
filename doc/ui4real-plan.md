@@ -156,7 +156,9 @@ Already landed:
 - empty source lists are inert instead of silently clearing deferred source state
 - visual harness coverage for helper status-strip modes plus downloading/error text-panel states
 - hidden demo helper-state overrides for automation without changing the normal UI contract
+- deterministic demo-open-panel coverage for the helper shell and focused-control card
+- warmer helper-shell hierarchy with distinct status/help cards in the real WGPU surface
 
 Still notably incomplete:
 
-- helper-shell polish is still behind the product posture docs
+- deeper compositor/helper capability work is still ahead of the shell polish

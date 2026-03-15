@@ -64,7 +64,9 @@ changing the normal product UI:
 
 - hidden `--demo-overlay-state` values such as `display`, `transcribe`, `trusted`,
   `downloading`, and `error`
+- hidden `--demo-open-panel` to force the helper panel open for deterministic shell captures
 - screenshot-region comparisons over the transcript/status panel for those demo states
+- deterministic open-panel coverage over the helper shell and focused-control card
 
 This is intentionally narrower than a full golden-capture matrix. It gives us automated coverage
 for trust and fallback cues while keeping the public CLI and the committed goldens relatively calm.
