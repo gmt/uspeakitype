@@ -30,6 +30,10 @@ tradeoffs around:
 - `hellnuxit/`
   In-process Rust experiment using raw C++ interop instead of a higher-level
   Qt bridge.
+- `nuxglit/`
+  In-process Rust plus bare-Qt widgets experiment using `QOpenGLWidget` and
+  `QOpenGLPaintDevice` for a native GL-backed canvas inside a normal widget
+  hierarchy.
 
 ## Quick Runs
 
@@ -43,6 +47,8 @@ tradeoffs around:
   `cd experiments/nuxxit && QT_QPA_PLATFORM=offscreen timeout 3s env CARGO_HOME=/tmp/usit-cargo-home cargo run`
 - `hellnuxit`
   `cd experiments/hellnuxit && HELLNUXIT_AUTOSTOP_MS=1200 QT_QPA_PLATFORM=offscreen env CARGO_HOME=/tmp/usit-cargo-home cargo run`
+- `nuxglit`
+  `cd experiments/nuxglit && NUXGLIT_AUTOSTOP_MS=1500 QT_QPA_PLATFORM=offscreen LIBGL_ALWAYS_SOFTWARE=1 cargo run`
 
 ## What "done enough" means here
 

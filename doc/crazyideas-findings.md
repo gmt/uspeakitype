@@ -15,6 +15,9 @@ which kinds of ugliness feel survivable.
   beat either the current subprocess bridge or a thin manual C++ shim.
 - Raw C++ interop was less scary than expected for a tiny shell, but exactly as
   annoying as expected for anything larger than a tiny shell.
+- A bare-Qt OpenGL canvas feels much more plausible than I expected as a
+  compromise position: native hierarchy, no text wire, and no Qt Quick
+  commitment.
 
 ## per spike
 
@@ -131,6 +134,35 @@ Verdict:
 - Bad as a sweeping rewrite strategy.
 - Very plausible if we intentionally keep the C++ side small and disciplined.
 
+### nuxglit
+
+The good:
+
+- `QOpenGLWidget` drops neatly into a normal Qt Widgets hierarchy, which makes
+  the whole thing feel much less exotic than a Quick scenegraph experiment.
+- `QOpenGLPaintDevice` gives us a real "paint into the current GL context"
+  seam without making the visualizer a subprocess or a text-decoded protocol
+  performance test.
+- The Rust/C++ boundary stays pleasingly boring: scalars, a status string, and
+  a bin buffer. No QML object-model contortions, no wire protocol.
+
+The pain:
+
+- This is still a C++ island, and the build knows it immediately.
+- The current spike still copies bins across the boundary each frame, so it is
+  not yet the "absolutely zero-copy forever" dream.
+- `QOpenGLPaintDevice` feels like a widgets/OpenGL trick, not a general
+  desktop-graphics abstraction. It is promising, but also quite specific.
+
+Verdict:
+
+- Stronger than expected.
+- If the future shell stays bare Qt rather than Quick, this is one of the most
+  credible directions we have touched so far.
+- It does not prove we should abandon the current direction, but it does prove
+  that "native Qt hierarchy plus hot Rust data path" is a real thing, not a
+  fantasy.
+
 ## what might actually beat the current direction?
 
 Two things seem capable of beating the current direction, but only in narrow
@@ -142,6 +174,9 @@ forms:
 - `hellnuxit` style thin manual shim
   - if we want one process and very explicit ownership, and we are disciplined
     enough to keep the C++ side small
+- `nuxglit` style native GL canvas in a thin C++ shell layer
+  - if we want the visualizer to stay rich and local without accepting either a
+    text wire or a full Qt Quick worldview
 
 What did not feel like an improvement:
 
