@@ -1,64 +1,26 @@
-# crazyideas
+# experiments
 
-Disposable architecture spikes for answering "what if we changed the shell,
-the bridge, or both?" without wrecking the real app.
+Only `nuxglit` remains here as a living spike.
 
-These experiments are intentionally isolated from the main `cargo build`
-graph. Each subdirectory has its own build instructions and makes different
-tradeoffs around:
-
-- who owns the main executable
-- where audio lives
-- how UI state crosses the Rust/C++ boundary
-- how much Qt/Rust object-model pain we accept
+The rest of the architecture zoo has been retired on branch history. `nuxglit`
+survives because it is the one experiment that still appears likely to inform
+the real app.
 
 ## Layout
 
-- `common/`
-  Shared notes about wire formats and evaluation criteria.
-- `nusit/`
-  C++ shell as the main executable, with a Rust helper over a simple wire
-  protocol and a trivial level meter.
-- `nucit/`
-  C++ shell plus audio I/O and level meter on the C++ side, with a narrower
-  Rust worker.
-- `shared_memory_bridge/`
-  Qt shell and Rust helper communicating through a shared memory region instead
-  of newline-delimited JSON over stdio.
-- `nuxxit/`
-  In-process Rust experiment using CXX-Qt.
-- `hellnuxit/`
-  In-process Rust experiment using raw C++ interop instead of a higher-level
-  Qt bridge.
 - `nuxglit/`
   In-process Rust plus bare-Qt widgets experiment using `QOpenGLWidget` and
   `QOpenGLPaintDevice` for a native GL-backed canvas inside a normal widget
   hierarchy, with a single fixed-frame handoff and optional live audio capture.
 
-## Quick Runs
+## Quick Run
 
-- `nusit`
-  `cd experiments/nusit && ./build.sh && QT_QPA_PLATFORM=offscreen timeout 3s ./shell/build/nusit`
-- `nucit`
-  `cd experiments/nucit && ./build.sh && QT_QPA_PLATFORM=offscreen timeout 3s ./shell/build/nucit`
-- `shared_memory_bridge`
-  `QT_QPA_PLATFORM=offscreen ./experiments/shared_memory_bridge/run_demo.sh --auto-quit-ms 1500`
-- `nuxxit`
-  `cd experiments/nuxxit && QT_QPA_PLATFORM=offscreen timeout 3s env CARGO_HOME=/tmp/usit-cargo-home cargo run`
-- `hellnuxit`
-  `cd experiments/hellnuxit && HELLNUXIT_AUTOSTOP_MS=1200 QT_QPA_PLATFORM=offscreen env CARGO_HOME=/tmp/usit-cargo-home cargo run`
-- `nuxglit`
-  `cd experiments/nuxglit && NUXGLIT_AUTOSTOP_MS=1500 QT_QPA_PLATFORM=offscreen LIBGL_ALWAYS_SOFTWARE=1 cargo run -- --demo`
+`cd experiments/nuxglit && NUXGLIT_AUTOSTOP_MS=1500 QT_QPA_PLATFORM=offscreen LIBGL_ALWAYS_SOFTWARE=1 cargo run -- --demo`
 
-## What "done enough" means here
+## Why Keep It
 
-Each spike should answer at least these questions:
+`nuxglit` is the surviving reference for:
 
-1. What is the process model?
-2. What is the control/state protocol?
-3. Where does audio live?
-4. Where does the minimal visualizer live?
-5. How awkward is the build/run loop in practice?
-
-The code here is expected to be throwaway. The goal is to feel the direction,
-not to prematurely bless one of these as production architecture.
+- a native-feeling bare-Qt visualizer
+- a Rust-owned hot data path
+- a smaller, more disciplined graphical shell than the current `usit`
