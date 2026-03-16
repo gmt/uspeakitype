@@ -27,6 +27,7 @@ pub struct AudioSource {
 #[derive(Debug, Clone)]
 pub struct CaptureConfig {
     pub auto_gain_enabled: bool,
+    pub gain: f32,
     pub agc: AgcConfig,
     pub source: Option<String>,
 }
@@ -36,6 +37,7 @@ impl Default for CaptureConfig {
     fn default() -> Self {
         Self {
             auto_gain_enabled: false,
+            gain: 1.0,
             agc: AgcConfig::default(),
             source: None,
         }
@@ -64,6 +66,7 @@ impl Default for AgcConfig {
 pub struct CaptureControl {
     pub paused: AtomicBool,
     pub auto_gain_enabled: AtomicBool,
+    manual_gain: AtomicU32,
     pub current_gain: std::sync::atomic::AtomicU32,
     running: AtomicBool,
     sample_rate: AtomicU32,
@@ -75,6 +78,7 @@ impl CaptureControl {
         Self {
             paused: AtomicBool::new(false),
             auto_gain_enabled: AtomicBool::new(false),
+            manual_gain: AtomicU32::new(f32::to_bits(1.0)),
             current_gain: AtomicU32::new(f32::to_bits(1.0)),
             running: AtomicBool::new(true),
             sample_rate: AtomicU32::new(0),
@@ -111,7 +115,16 @@ impl CaptureControl {
         f32::from_bits(self.current_gain.load(Ordering::Relaxed))
     }
 
-    fn set_current_gain(&self, gain: f32) {
+    pub fn set_manual_gain(&self, gain: f32) {
+        self.manual_gain
+            .store(gain.clamp(0.1, 10.0).to_bits(), Ordering::Relaxed);
+    }
+
+    pub fn get_manual_gain(&self) -> f32 {
+        f32::from_bits(self.manual_gain.load(Ordering::Relaxed))
+    }
+
+    pub(crate) fn set_current_gain(&self, gain: f32) {
         self.current_gain.store(gain.to_bits(), Ordering::Relaxed);
     }
 
@@ -151,8 +164,17 @@ pub struct AudioCapture {
 
 impl AudioCapture {
     pub fn new(callback: AudioCallback, config: CaptureConfig) -> Result<Self> {
-        let control = Arc::new(CaptureControl::new());
+        Self::with_control(callback, config, Arc::new(CaptureControl::new()))
+    }
+
+    pub fn with_control(
+        callback: AudioCallback,
+        config: CaptureConfig,
+        control: Arc<CaptureControl>,
+    ) -> Result<Self> {
         control.set_auto_gain(config.auto_gain_enabled);
+        control.set_manual_gain(config.gain);
+        control.set_current_gain(config.gain);
 
         let control_clone = control.clone();
         let sources = Arc::new(RwLock::new(Vec::new()));
@@ -724,6 +746,13 @@ fn run_capture_loop(
                     &mut user_data.bandpass,
                     &mut user_data.limiter,
                 );
+                if !user_data.control.is_auto_gain_enabled() {
+                    let gain = user_data.control.get_manual_gain();
+                    for sample in &mut samples {
+                        *sample = (*sample * gain).clamp(-1.0, 1.0);
+                    }
+                    user_data.control.set_current_gain(gain);
+                }
 
                 (user_data.callback)(&samples);
             }
@@ -909,6 +938,7 @@ mod tests {
         assert!(!control.is_paused());
         assert!(!control.is_auto_gain_enabled());
         assert!(control.is_running());
+        assert!((control.get_manual_gain() - 1.0).abs() < 0.001);
         assert!((control.get_current_gain() - 1.0).abs() < 0.001);
     }
 

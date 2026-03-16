@@ -6,13 +6,17 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 mod ansi;
-mod logging;
 #[path = "audio/capture.rs"]
 mod capture;
+mod config;
+mod cpl;
+mod logging;
 #[path = "spectrum.rs"]
 mod spectrum;
 
 use capture::{AudioCapture, CaptureConfig};
+use config::Config;
+use cpl::{install_qt_controls, RuntimeControls};
 use spectrum::{SpectrumAnalyzer, SpectrumConfig};
 
 const BIN_COUNT: usize = 96;
@@ -63,13 +67,16 @@ fn fill_bins(frame_number: u64, bins: &mut [f32; BIN_COUNT]) {
         let wave = ((frame_number as f32 / 18.0) + x * 10.0).sin() * 0.24 + 0.34;
         let shimmer = ((frame_number as f32 / 11.0) + x * 33.0).cos() * 0.14 + 0.16;
         let ridge = (((frame_number as f32 / 43.0) + x * 4.0).sin() * 0.5 + 0.5).powf(3.2);
-        let pulse = (((frame_number as f32 / 27.0) + x * 7.0).cos() * 0.5 + 0.5).powf(5.0)
-            * 0.3;
+        let pulse = (((frame_number as f32 / 27.0) + x * 7.0).cos() * 0.5 + 0.5).powf(5.0) * 0.3;
         *bin = (wave + shimmer + ridge * 0.38 + pulse).clamp(0.02, 1.0);
     }
 }
 
-fn spawn_demo_producer(running: Arc<AtomicBool>, sink: FrameSink) -> thread::JoinHandle<()> {
+fn spawn_demo_producer(
+    running: Arc<AtomicBool>,
+    controls: Arc<RuntimeControls>,
+    sink: FrameSink,
+) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut frame_number = 0u64;
         let mut snapshot = FrameSnapshot {
@@ -79,21 +86,32 @@ fn spawn_demo_producer(running: Arc<AtomicBool>, sink: FrameSink) -> thread::Joi
         };
 
         while running.load(Ordering::Relaxed) {
+            let paused = controls.capture().is_paused();
+            let manual_gain = controls.capture().get_manual_gain();
             fill_bins(frame_number, &mut snapshot.bins);
             let phase = frame_number as f32 / 17.0;
-            let level = (phase.sin() * 0.5 + 0.5).clamp(0.0, 1.0);
-            snapshot.level = level;
-            snapshot.peak = snapshot.bins.iter().copied().fold(0.0f32, f32::max);
+            let level = ((phase.sin() * 0.5 + 0.5) * (manual_gain / 2.0)).clamp(0.0, 1.0);
+            snapshot.level = if paused { 0.0 } else { level };
+            snapshot.peak = if paused {
+                0.0
+            } else {
+                snapshot.bins.iter().copied().fold(0.0f32, f32::max)
+            };
+            if paused {
+                snapshot.bins.fill(0.0);
+            }
 
-            let mode = if (frame_number / 80) % 2 == 0 {
+            let mode = if paused {
+                "demo paused"
+            } else if (frame_number / 80) % 2 == 0 {
                 "demo sweep"
             } else {
                 "warm glass bars"
             };
             let status = format!(
-                "{mode} · {:.0}% level · {} bins",
-                level * 100.0,
-                BIN_COUNT
+                "{mode} · {:.0}% level · {:.1}x gain",
+                snapshot.level * 100.0,
+                manual_gain
             );
             sink(snapshot, &status);
 
@@ -113,21 +131,30 @@ fn rms(samples: &[f32]) -> f32 {
     mean_square.sqrt()
 }
 
-fn start_live_capture(source: Option<String>, sink: FrameSink) -> Result<AudioCapture> {
+fn start_live_capture(
+    source: Option<String>,
+    controls: Arc<RuntimeControls>,
+    sink: FrameSink,
+) -> Result<AudioCapture> {
     let status_label = source
         .as_deref()
         .map(|name| format!("live capture · requested source {name}"))
         .unwrap_or_else(|| "live capture · default source".to_string());
-    sink(FrameSnapshot::default(), &format!("{status_label} · waiting for audio"));
+    sink(
+        FrameSnapshot::default(),
+        &format!("{status_label} · waiting for audio"),
+    );
 
-    let analyzer = Arc::new(std::sync::Mutex::new(SpectrumAnalyzer::new(SpectrumConfig {
-        num_bands: BIN_COUNT,
-        smoothing: 0.2,
-        ..Default::default()
-    })));
+    let analyzer = Arc::new(std::sync::Mutex::new(SpectrumAnalyzer::new(
+        SpectrumConfig {
+            num_bands: BIN_COUNT,
+            smoothing: 0.2,
+            ..Default::default()
+        },
+    )));
     let live_label = status_label.clone();
 
-    AudioCapture::new(
+    AudioCapture::with_control(
         Box::new(move |samples| {
             let level = (rms(samples) * 5.5).clamp(0.0, 1.0);
             let Ok(mut analyzer) = analyzer.lock() else {
@@ -153,10 +180,12 @@ fn start_live_capture(source: Option<String>, sink: FrameSink) -> Result<AudioCa
             sink(snapshot, &status);
         }),
         CaptureConfig {
-            auto_gain_enabled: false,
+            auto_gain_enabled: controls.capture().is_auto_gain_enabled(),
+            gain: controls.capture().get_manual_gain(),
             source,
             ..Default::default()
         },
+        controls.capture(),
     )
 }
 
@@ -177,6 +206,22 @@ fn spawn_autostop(
 fn parse_source(args: &[String]) -> Option<String> {
     args.windows(2)
         .find_map(|window| (window[0] == "--source").then(|| window[1].clone()))
+}
+
+fn parse_gain(args: &[String]) -> Option<f32> {
+    args.windows(2)
+        .find_map(|window| (window[0] == "--gain").then(|| window[1].parse::<f32>().ok()))
+        .flatten()
+}
+
+fn parse_flag(args: &[String], name: &str) -> bool {
+    args.iter().any(|arg| arg == name)
+}
+
+fn parse_config_path(args: &[String]) -> Option<std::path::PathBuf> {
+    args.windows(2)
+        .find_map(|window| (window[0] == "--config").then(|| window[1].clone()))
+        .map(Into::into)
 }
 
 fn qt_sink() -> FrameSink {
@@ -217,10 +262,33 @@ fn main() -> Result<()> {
                 .and_then(|value| value.parse::<u64>().ok())
         });
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let demo_mode = args.iter().any(|arg| arg == "--demo");
-    let ansi_mode = args.iter().any(|arg| arg == "--ansi");
-    let source = parse_source(&args);
-    emit_startup_probe(startup_probe_enabled, startup_started_at, "arguments parsed");
+    let demo_mode = parse_flag(&args, "--demo");
+    let ansi_mode = parse_flag(&args, "--ansi");
+    let config_path = parse_config_path(&args).unwrap_or_else(Config::config_path);
+    let file_config = Config::load(&config_path)?;
+    emit_startup_probe(startup_probe_enabled, startup_started_at, "config loaded");
+
+    let source = parse_source(&args).or(file_config.source.clone());
+    let auto_gain = if parse_flag(&args, "--auto-gain") {
+        true
+    } else if parse_flag(&args, "--no-auto-gain") {
+        false
+    } else {
+        file_config.auto_gain
+    };
+    let gain = parse_gain(&args)
+        .unwrap_or(file_config.gain)
+        .clamp(0.1, 10.0);
+    emit_startup_probe(
+        startup_probe_enabled,
+        startup_started_at,
+        "arguments parsed",
+    );
+    let source_label = source
+        .as_deref()
+        .map(|value| format!("requested source: {value}"))
+        .unwrap_or_else(|| "requested source: default".to_string());
+    let controls = RuntimeControls::new(source_label, auto_gain, gain);
 
     let (sink, frontend) = if ansi_mode {
         let state = Arc::new(ansi::AnsiState::default());
@@ -229,9 +297,10 @@ fn main() -> Result<()> {
                 let state = state.clone();
                 Arc::new(move |frame, status: &str| state.publish(frame, status)) as FrameSink
             },
-            Frontend::Ansi(state),
+            Frontend::Ansi(state, controls.clone()),
         )
     } else {
+        install_qt_controls(controls.clone());
         (qt_sink(), Frontend::Qt)
     };
 
@@ -240,21 +309,23 @@ fn main() -> Result<()> {
             Frontend::Qt => Some(Arc::new(|| unsafe {
                 usit_qt_request_quit();
             }) as Arc<dyn Fn() + Send + Sync + 'static>),
-            Frontend::Ansi(_) => None,
+            Frontend::Ansi(_, _) => None,
         };
         spawn_autostop(limit_ms, running.clone(), on_timeout)
     });
 
     let mut producer = if demo_mode {
-        sink(
-            FrameSnapshot::default(),
-            if ansi_mode {
-                "demo mode · ansi visualizer"
-            } else {
-                "demo mode · synthesizing bars"
-            },
-        );
-        Some(spawn_demo_producer(running.clone(), sink.clone()))
+        let demo_status = if ansi_mode {
+            format!("demo mode · ansi visualizer · gain {:.2}x", gain)
+        } else {
+            format!("demo mode · synthesizing bars · gain {:.2}x", gain)
+        };
+        sink(FrameSnapshot::default(), &demo_status);
+        Some(spawn_demo_producer(
+            running.clone(),
+            controls.clone(),
+            sink.clone(),
+        ))
     } else {
         None
     };
@@ -267,7 +338,7 @@ fn main() -> Result<()> {
             startup_started_at,
             "starting live capture bootstrap",
         );
-        match start_live_capture(source.clone(), sink.clone()) {
+        match start_live_capture(source.clone(), controls.clone(), sink.clone()) {
             Ok(capture) => Some(capture),
             Err(error) => {
                 log::warn!("live capture unavailable ({error}); falling back to demo");
@@ -275,7 +346,7 @@ fn main() -> Result<()> {
                     FrameSnapshot::default(),
                     "live capture failed · falling back to demo",
                 );
-                producer = Some(spawn_demo_producer(running.clone(), sink));
+                producer = Some(spawn_demo_producer(running.clone(), controls, sink));
                 None
             }
         }
@@ -296,7 +367,7 @@ fn main() -> Result<()> {
 #[derive(Clone)]
 enum Frontend {
     Qt,
-    Ansi(Arc<ansi::AnsiState>),
+    Ansi(Arc<ansi::AnsiState>, Arc<RuntimeControls>),
 }
 
 fn run_frontend(
@@ -315,7 +386,7 @@ fn run_frontend(
                 Err(anyhow::anyhow!("Qt app exited with status {exit_code}"))
             }
         }
-        Frontend::Ansi(state) => ansi::run(state, running.clone()),
+        Frontend::Ansi(state, controls) => ansi::run(state, controls, running.clone()),
     };
 
     running.store(false, Ordering::Relaxed);

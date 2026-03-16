@@ -1,6 +1,6 @@
 use std::io::{self, Stdout, Write};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -9,13 +9,14 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::queue;
 use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
 use crossterm::terminal::{
-    self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
-    enable_raw_mode,
+    self, disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen,
+    LeaveAlternateScreen,
 };
 use parking_lot::Mutex;
 
-use crate::FrameSnapshot;
+use crate::cpl::{ControlId, RuntimeControls};
 use crate::spectrum::{ColorScheme, FlameScheme};
+use crate::FrameSnapshot;
 
 #[derive(Default)]
 pub(crate) struct AnsiState {
@@ -41,7 +42,11 @@ impl AnsiState {
     }
 }
 
-pub(crate) fn run(state: Arc<AnsiState>, running: Arc<AtomicBool>) -> Result<()> {
+pub(crate) fn run(
+    state: Arc<AnsiState>,
+    controls: Arc<RuntimeControls>,
+    running: Arc<AtomicBool>,
+) -> Result<()> {
     let mut terminal = TerminalGuard::enter()?;
 
     while running.load(Ordering::Relaxed) {
@@ -49,7 +54,29 @@ pub(crate) fn run(state: Arc<AnsiState>, running: Arc<AtomicBool>) -> Result<()>
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => {
-                        running.store(false, Ordering::Relaxed);
+                        if controls.is_open() && matches!(key.code, KeyCode::Esc) {
+                            controls.close_panel();
+                        } else {
+                            running.store(false, Ordering::Relaxed);
+                        }
+                    }
+                    KeyCode::Char('c') => {
+                        controls.toggle_panel();
+                    }
+                    KeyCode::Up if controls.is_open() => {
+                        controls.focus_previous();
+                    }
+                    KeyCode::Down if controls.is_open() => {
+                        controls.focus_next();
+                    }
+                    KeyCode::Left if controls.is_open() => {
+                        controls.adjust_selected(-1);
+                    }
+                    KeyCode::Right if controls.is_open() => {
+                        controls.adjust_selected(1);
+                    }
+                    KeyCode::Enter | KeyCode::Char(' ') if controls.is_open() => {
+                        controls.activate_selected();
                     }
                     _ => {}
                 },
@@ -58,7 +85,7 @@ pub(crate) fn run(state: Arc<AnsiState>, running: Arc<AtomicBool>) -> Result<()>
             }
         }
 
-        render(&mut terminal.stdout, &state.snapshot())?;
+        render(&mut terminal.stdout, &state.snapshot(), &controls)?;
         terminal.stdout.flush()?;
         std::thread::sleep(Duration::from_millis(33));
     }
@@ -88,7 +115,7 @@ impl Drop for TerminalGuard {
     }
 }
 
-fn render(stdout: &mut Stdout, snapshot: &AnsiSnapshot) -> Result<()> {
+fn render(stdout: &mut Stdout, snapshot: &AnsiSnapshot, controls: &RuntimeControls) -> Result<()> {
     let (cols, rows) = terminal::size()?;
     queue!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
 
@@ -111,12 +138,21 @@ fn render(stdout: &mut Stdout, snapshot: &AnsiSnapshot) -> Result<()> {
     let title = " usit ansi ";
     queue!(stdout, MoveTo(panel_x + 2, panel_y), Print(title))?;
 
+    let control_snapshot = controls.snapshot();
     let status_y = panel_y + panel_height.saturating_sub(2);
+    let status_text = if control_snapshot.panel_open {
+        format!(
+            "{} · c toggles controls · ↑↓ focus · ←→ gain · enter toggles · q quits",
+            snapshot.status
+        )
+    } else {
+        format!("{} · c controls · q quits", snapshot.status)
+    };
     queue!(
         stdout,
         MoveTo(panel_x + 2, status_y),
         Print(truncate(
-            &format!("{} · q quits", snapshot.status),
+            &status_text,
             panel_width.saturating_sub(4) as usize
         ))
     )?;
@@ -124,7 +160,11 @@ fn render(stdout: &mut Stdout, snapshot: &AnsiSnapshot) -> Result<()> {
     let viz_x = panel_x + 2;
     let viz_y = panel_y + 2;
     let viz_width = panel_width.saturating_sub(4);
-    let viz_height = panel_height.saturating_sub(5);
+    let viz_height = if control_snapshot.panel_open {
+        panel_height.saturating_sub(13)
+    } else {
+        panel_height.saturating_sub(5)
+    };
     if viz_width > 0 && viz_height > 0 {
         draw_bars(
             stdout,
@@ -135,6 +175,120 @@ fn render(stdout: &mut Stdout, snapshot: &AnsiSnapshot) -> Result<()> {
             &snapshot.frame,
         )?;
     }
+
+    if control_snapshot.panel_open && panel_height > 10 {
+        let cpl_height = 7;
+        let cpl_y = panel_y + panel_height.saturating_sub(cpl_height + 3);
+        draw_border(
+            stdout,
+            panel_x + 2,
+            cpl_y,
+            panel_width.saturating_sub(4),
+            cpl_height,
+        )?;
+        draw_controls(
+            stdout,
+            panel_x + 4,
+            cpl_y + 1,
+            panel_width.saturating_sub(8) as usize,
+            &control_snapshot,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn draw_controls(
+    stdout: &mut Stdout,
+    x: u16,
+    y: u16,
+    width: usize,
+    snapshot: &crate::cpl::RuntimeControlSnapshot,
+) -> Result<()> {
+    let controls = [
+        (
+            ControlId::Pause,
+            format!(
+                "{}: {}",
+                ControlId::Pause.title(),
+                if snapshot.paused {
+                    "paused"
+                } else {
+                    "listening"
+                }
+            ),
+        ),
+        (
+            ControlId::AutoGain,
+            format!(
+                "{}: {}",
+                ControlId::AutoGain.title(),
+                if snapshot.auto_gain_enabled {
+                    "on"
+                } else {
+                    "off"
+                }
+            ),
+        ),
+        (
+            ControlId::Gain,
+            format!(
+                "{}: {:.1}x{}",
+                ControlId::Gain.title(),
+                snapshot.manual_gain,
+                if snapshot.auto_gain_enabled {
+                    format!(" (active {:.1}x)", snapshot.current_gain)
+                } else {
+                    String::new()
+                }
+            ),
+        ),
+    ];
+
+    for (index, (control, line)) in controls.iter().enumerate() {
+        let selected = *control == snapshot.selected_control;
+        queue!(
+            stdout,
+            MoveTo(x, y + index as u16),
+            SetForegroundColor(if selected {
+                Color::Rgb {
+                    r: 242,
+                    g: 215,
+                    b: 122,
+                }
+            } else {
+                Color::Rgb {
+                    r: 200,
+                    g: 176,
+                    b: 141,
+                }
+            }),
+            Print(truncate(
+                &format!("{} {}", if selected { ">" } else { " " }, line),
+                width
+            )),
+            ResetColor
+        )?;
+    }
+
+    queue!(
+        stdout,
+        MoveTo(x, y + 4),
+        SetForegroundColor(Color::Rgb {
+            r: 160,
+            g: 136,
+            b: 110
+        }),
+        Print(truncate(
+            &format!(
+                "{} · {}",
+                snapshot.source_label,
+                snapshot.selected_control.help()
+            ),
+            width
+        )),
+        ResetColor
+    )?;
 
     Ok(())
 }

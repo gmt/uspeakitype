@@ -1,6 +1,6 @@
 [package]
 name = "uspeakitype"
-version = "0.2.22"
+version = "0.2.23"
 edition = "2021"
 description = "Streaming ASR with live revision"
 license = "MIT"
@@ -15,11 +15,14 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0.100"
 crossterm = "0.29.0"
+dirs = "6.0.0"
 env_logger = "0.11.8"
 log = "0.4.29"
 parking_lot = "0.12.5"
 pipewire = "0.9.2"
 rustfft = "6.4.1"
+serde = { version = "1.0.228", features = ["derive"] }
+toml = "0.9.8"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 systemd-journal-logger = "2"

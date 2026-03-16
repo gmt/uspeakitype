@@ -5,6 +5,7 @@
 #include <QtCore/QTimer>
 #include <QtGui/QColor>
 #include <QtGui/QFont>
+#include <QtGui/QKeyEvent>
 #include <QtGui/QLinearGradient>
 #include <QtOpenGL/QOpenGLPaintDevice>
 #include <QtGui/QPainter>
@@ -46,6 +47,8 @@ protected:
     void paintGL() override {
         UsitQtFrameSnapshot frame = {};
         std::string status;
+        UsitQtControlSnapshot controls = {};
+        usit_qt_get_control_snapshot(&controls);
         {
             const std::lock_guard<std::mutex> guard(g_state_mutex);
             frame = g_frame;
@@ -71,20 +74,34 @@ protected:
         painter.drawRoundedRect(shell, 18.0, 18.0);
 
         const QRectF canvas = shell.adjusted(18, 18, -18, -86);
+        const bool controls_open = controls.panel_open != 0;
+        const QRectF chart = controls_open
+            ? canvas.adjusted(0, 0, -240, 0)
+            : canvas;
+        const QRectF controls_panel(
+            chart.right() + 16.0,
+            canvas.top(),
+            std::max<qreal>(0.0, canvas.right() - chart.right() - 16.0),
+            canvas.height());
         painter.setPen(QPen(QColor("#6d5341"), 1.0));
         painter.setBrush(QColor("#120d09"));
-        painter.drawRoundedRect(canvas, 16.0, 16.0);
+        painter.drawRoundedRect(chart, 16.0, 16.0);
+        if (controls_open && controls_panel.width() > 80.0) {
+            painter.setPen(QPen(QColor("#745844"), 1.0));
+            painter.setBrush(QColor("#17100c"));
+            painter.drawRoundedRect(controls_panel, 16.0, 16.0);
+        }
 
-        const qreal baseline = canvas.bottom() - 18.0;
-        const qreal usable_height = canvas.height() - 36.0;
+        const qreal baseline = chart.bottom() - 18.0;
+        const qreal usable_height = chart.height() - 36.0;
         const qreal bar_gap = 2.0;
         const qreal bar_width = std::max<qreal>(
             2.0,
-            (canvas.width() - (USIT_QT_BIN_COUNT - 1) * bar_gap) / USIT_QT_BIN_COUNT);
+            (chart.width() - (USIT_QT_BIN_COUNT - 1) * bar_gap - 20.0) / USIT_QT_BIN_COUNT);
         for (size_t index = 0; index < USIT_QT_BIN_COUNT; ++index) {
             const qreal magnitude = std::clamp<qreal>(frame.bins[index], 0.0, 1.0);
             const qreal bar_height = std::max<qreal>(8.0, usable_height * magnitude);
-            const qreal x = canvas.left() + 10.0 + index * (bar_width + bar_gap);
+            const qreal x = chart.left() + 10.0 + index * (bar_width + bar_gap);
             const QRectF bar(
                 x,
                 baseline - bar_height,
@@ -100,9 +117,9 @@ protected:
         }
 
         const QRectF meter(
-            canvas.left() + 14.0,
+            chart.left() + 14.0,
             shell.bottom() - 54.0,
-            shell.width() - 28.0,
+            chart.width() - 28.0,
             18.0);
         painter.setPen(Qt::NoPen);
         painter.setBrush(QColor("#2d231c"));
@@ -149,7 +166,77 @@ protected:
             Qt::AlignLeft | Qt::AlignVCenter,
             QString::fromUtf8(status.c_str()));
 
+        if (controls_open && controls_panel.width() > 80.0) {
+            drawControlPanel(painter, controls_panel, controls);
+        }
+
         painter.end();
+    }
+
+    static void drawControlPanel(
+        QPainter& painter,
+        const QRectF& panel,
+        const UsitQtControlSnapshot& controls) {
+        painter.setPen(QColor("#f0e2cd"));
+        QFont title_font = painter.font();
+        title_font.setPointSize(13);
+        title_font.setBold(true);
+        painter.setFont(title_font);
+        painter.drawText(
+            QRectF(panel.left() + 16, panel.top() + 12, panel.width() - 32, 24),
+            Qt::AlignLeft | Qt::AlignVCenter,
+            "Control");
+
+        QFont body_font = painter.font();
+        body_font.setPointSize(10);
+        body_font.setBold(false);
+        painter.setFont(body_font);
+
+        struct Row {
+            const char* label;
+            QString value;
+        };
+        const Row rows[] = {
+            {"Capture pause", controls.paused ? "paused" : "listening"},
+            {"Auto gain", controls.auto_gain_enabled ? "on" : "off"},
+            {"Manual gain", QString::asprintf("%.1fx", controls.manual_gain)},
+        };
+
+        qreal row_y = panel.top() + 48.0;
+        for (size_t index = 0; index < std::size(rows); ++index) {
+            const bool selected = index == controls.selected_index;
+            const QRectF row(panel.left() + 12.0, row_y, panel.width() - 24.0, 42.0);
+            painter.setPen(QPen(selected ? QColor("#f2d77a") : QColor("#4d392d"), 1.0));
+            painter.setBrush(selected ? QColor("#2a1e17") : QColor("#1b1410"));
+            painter.drawRoundedRect(row, 11.0, 11.0);
+
+            painter.setPen(selected ? QColor("#f7edd0") : QColor("#ccb08d"));
+            painter.drawText(
+                QRectF(row.left() + 12.0, row.top() + 5.0, row.width() - 24.0, 16.0),
+                Qt::AlignLeft | Qt::AlignVCenter,
+                rows[index].label);
+            painter.drawText(
+                QRectF(row.left() + 12.0, row.top() + 19.0, row.width() - 24.0, 18.0),
+                Qt::AlignLeft | Qt::AlignVCenter,
+                rows[index].value);
+
+            row_y += 50.0;
+        }
+
+        painter.setPen(QColor("#a0886e"));
+        const int current_gain_percent = static_cast<int>(std::round(controls.current_gain * 100.0));
+        painter.drawText(
+            QRectF(panel.left() + 16.0, panel.bottom() - 62.0, panel.width() - 32.0, 20.0),
+            Qt::AlignLeft | Qt::AlignVCenter,
+            QString::fromUtf8(controls.source_label));
+        painter.drawText(
+            QRectF(panel.left() + 16.0, panel.bottom() - 40.0, panel.width() - 32.0, 20.0),
+            Qt::AlignLeft | Qt::AlignVCenter,
+            QString("c controls · arrows move/adjust · enter toggles"));
+        painter.drawText(
+            QRectF(panel.left() + 16.0, panel.bottom() - 20.0, panel.width() - 32.0, 20.0),
+            Qt::AlignLeft | Qt::AlignVCenter,
+            QString("active gain %1%").arg(current_gain_percent));
     }
 };
 
@@ -159,6 +246,7 @@ public:
         setWindowTitle("usit");
         resize(780, 360);
         setMinimumSize(640, 300);
+        setFocusPolicy(Qt::StrongFocus);
 
         auto* layout = new QVBoxLayout(this);
         layout->setContentsMargins(14, 14, 14, 14);
@@ -187,6 +275,64 @@ public:
     }
 
 private:
+    void keyPressEvent(QKeyEvent* event) override {
+        UsitQtControlSnapshot controls = {};
+        usit_qt_get_control_snapshot(&controls);
+
+        switch (event->key()) {
+        case Qt::Key_Q:
+            QCoreApplication::quit();
+            return;
+        case Qt::Key_Escape:
+            if (controls.panel_open != 0) {
+                usit_qt_toggle_controls();
+                meter_.update();
+            } else {
+                QCoreApplication::quit();
+            }
+            return;
+        case Qt::Key_C:
+            usit_qt_toggle_controls();
+            meter_.update();
+            return;
+        case Qt::Key_Up:
+            if (controls.panel_open != 0) {
+                usit_qt_focus_previous_control();
+                meter_.update();
+            }
+            return;
+        case Qt::Key_Down:
+            if (controls.panel_open != 0) {
+                usit_qt_focus_next_control();
+                meter_.update();
+            }
+            return;
+        case Qt::Key_Left:
+            if (controls.panel_open != 0) {
+                usit_qt_adjust_control(-1);
+                meter_.update();
+            }
+            return;
+        case Qt::Key_Right:
+            if (controls.panel_open != 0) {
+                usit_qt_adjust_control(1);
+                meter_.update();
+            }
+            return;
+        case Qt::Key_Return:
+        case Qt::Key_Enter:
+        case Qt::Key_Space:
+            if (controls.panel_open != 0) {
+                usit_qt_activate_control();
+                meter_.update();
+            }
+            return;
+        default:
+            QWidget::keyPressEvent(event);
+            return;
+        }
+    }
+
     GlMeterWidget meter_;
     QTimer timer_;
 };
