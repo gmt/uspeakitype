@@ -37,11 +37,11 @@ This mockup keeps that seam visible on purpose.
 If you have Qt Quick tooling installed:
 
 ```bash
-qml examples/qt_quick_overlay/Main.qml
+qml example/qt_quick_overlay/Main.qml
 ```
 
 Or:
 
 ```bash
-qmlscene examples/qt_quick_overlay/Main.qml
+qmlscene example/qt_quick_overlay/Main.qml
 ```

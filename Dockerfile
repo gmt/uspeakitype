@@ -62,7 +62,7 @@ RUN sha256sum Cargo.lock | cut -d' ' -f1 > /app/.cargo-lock-hash && \
 RUN cargo build --release
 
 # Test entrypoint
-COPY scripts/docker-test.sh /docker-test.sh
+COPY script/docker-test.sh /docker-test.sh
 RUN chmod +x /docker-test.sh
 
 ENTRYPOINT ["/docker-test.sh"]

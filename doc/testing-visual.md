@@ -2,7 +2,7 @@
 
 This note summarizes the durable rules behind `usit`'s graphical regression tests.
 
-For the full harness walkthrough, package list, and golden-capture procedure, see [`tests/visual/README.md`](../tests/visual/README.md).
+For the full harness walkthrough, package list, and golden-capture procedure, see [`test/visual/README.md`](../test/visual/README.md).
 
 ## Canonical Environment
 

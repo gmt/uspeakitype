@@ -247,7 +247,7 @@ The Docker image uses:
 If golden images need updating for the Docker environment:
 
 ```bash
-docker compose run shell bash tests/visual/scripts/capture_goldens.sh
+docker compose run shell bash test/visual/script/capture_goldens.sh
 ```
 
 ## How to Update Golden Images
@@ -258,14 +258,14 @@ Golden images are reference screenshots used for regression testing. Update them
 
 ```bash
 # Run from clean TTY (Ctrl+Alt+F2) or CI container
-bash tests/visual/scripts/capture_goldens.sh
+bash test/visual/script/capture_goldens.sh
 ```
 
 The script:
 1. Starts headless Sway with canonical configuration
 2. Isolates usit from user config (uses defaults)
 3. Captures screenshots at demo milestones (t=3.0s, t=5.5s, t=7.5s)
-4. Saves to `tests/visual/golden/`
+4. Saves to `test/visual/golden/`
 
 ### Manual Capture (Development)
 
@@ -282,13 +282,13 @@ sleep 2.0
 grim /tmp/demo_twotone.png
 ```
 
-Then copy to `tests/visual/golden/` after visual inspection.
+Then copy to `test/visual/golden/` after visual inspection.
 
 ### Using KDE Spectacle (Phase 2)
 
 KDE Plasma users can use Spectacle for development goldens:
 ```bash
-spectacle -b -o tests/visual/golden/demo_partial_listening.png
+spectacle -b -o test/visual/golden/demo_partial_listening.png
 ```
 
 (Full CI support for KDE is Phase 2)
@@ -349,7 +349,7 @@ cargo test --release --test visual_tests -- --ignored --nocapture --test-threads
 
 # Manually compare
 grim /tmp/current.png
-# Compare /tmp/current.png with tests/visual/golden/demo_committed_hello.png visually
+# Compare /tmp/current.png with test/visual/golden/demo_committed_hello.png visually
 ```
 
 ### "CANONICAL: screenshot differs"
@@ -360,7 +360,7 @@ grim /tmp/current.png
 - This is a real failure - investigate the regression
 - Check if usit code changed (visual output)
 - Check if fonts/theme changed in CI environment
-- Update golden images if change is intentional: `bash tests/visual/scripts/capture_goldens.sh`
+- Update golden images if change is intentional: `bash test/visual/script/capture_goldens.sh`
 
 ### usit crashes under headless Sway
 
@@ -387,7 +387,7 @@ cargo run --release -- --demo
 ### Test Structure
 
 ```
-tests/
+test/
 ├── visual_tests.rs          # Integration test entry point
 └── visual/
     ├── mod.rs               # Module declarations
@@ -402,7 +402,7 @@ tests/
     │   ├── baseline.png
     │   ├── baseline_similar.png
     │   └── completely_different.png
-    └── scripts/
+    └── script/
         └── capture_goldens.sh  # Golden image capture script
 ```
 

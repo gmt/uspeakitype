@@ -1,12 +1,12 @@
 #!/bin/bash
-# tests/visual/scripts/capture_goldens.sh
+# test/visual/script/capture_goldens.sh
 #
 # Captures golden reference images for visual regression testing.
 # MUST be run from a clean environment (no existing Wayland sessions).
 # 
 # Usage:
 #   - Switch to a TTY (Ctrl+Alt+F2) or use a fresh container
-#   - Run: ./tests/visual/scripts/capture_goldens.sh
+#   - Run: ./test/visual/script/capture_goldens.sh
 #
 # Requirements:
 #   - sway (wlroots compositor)

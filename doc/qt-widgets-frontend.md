@@ -27,7 +27,7 @@ The seam is deliberately simple:
 
 ## Build And Run
 
-The companion app lives in [`qt_widgets_overlay`](../qt_widgets_overlay) and is built by [`scripts/build-qt-overlay.sh`](../scripts/build-qt-overlay.sh).
+The companion app lives in [`oldcrap/qt_widgets_overlay`](../oldcrap/qt_widgets_overlay) and is built by [`script/build-qt-overlay.sh`](../script/build-qt-overlay.sh).
 
 Graphical `usit` now tries to build and launch that shell automatically.
 

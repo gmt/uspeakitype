@@ -1,6 +1,6 @@
 # Qt Quick Container Concept
 
-This note accompanies the prototype in [`examples/qt_quick_overlay`](../examples/qt_quick_overlay).
+This note accompanies the prototype in [`example/qt_quick_overlay`](../example/qt_quick_overlay).
 
 ## Why Bother
 

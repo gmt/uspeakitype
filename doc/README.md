@@ -20,9 +20,9 @@ This directory holds the durable project notes that are still useful after the i
 
 - [`bridge-to-moonshine-voice.md`](./bridge-to-moonshine-voice.md) - design note for bridging to the newer Moonshine runtime family
 - [`nemo-tdt-onnx-workflow.md`](./nemo-tdt-onnx-workflow.md) - NeMo/Parakeet export layout expected by `usit`
-- [`../experiments/nuxglit/README.md`](../experiments/nuxglit/README.md) - surviving bare-Qt visualizer spike that is still informing the real app direction
+- [`../experiment/nuxglit/README.md`](../experiment/nuxglit/README.md) - surviving bare-Qt visualizer spike that is still informing the real app direction
 - [`upstream-audit-2026-03.md`](./upstream-audit-2026-03.md) - recent upstream model and project audit
 
 ## Early Ideas
 
-- [`ideas/nascent/README.md`](./ideas/nascent/README.md) - intentionally lightweight speculative notes
+- [`idea/nascent/README.md`](./idea/nascent/README.md) - intentionally lightweight speculative notes

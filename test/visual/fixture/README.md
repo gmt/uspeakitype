@@ -31,7 +31,7 @@ Using `image_hasher` with `HashAlg::Gradient`:
 ## Regenerating Fixtures
 
 ```bash
-cd tests/visual/fixtures
+cd test/visual/fixture
 
 # Baseline: white rectangle on black
 magick -size 1920x1080 xc:black -fill white -draw "rectangle 710,390 1210,690" baseline.png

@@ -1,6 +1,23 @@
-# usit - Streaming ASR with Live Revision
+## Project Overview
 
-**uspeakitype** ("you speak, I type") - streaming speech-to-text for Linux.
+**usit** (uspeakitype - "you speak, I type") is a streaming speech-to-text overlay for Linux. Unlike batch ASR systems (Whisper), usit streams words as you speak and revises them in real-time as context improves accuracy. It provides both terminal (ANSI/Ratatui) and graphical (Wayland layer shell/WGPU) interfaces.
+
+## Repository Drift Note
+
+The repo is in active reconstruction. A few layout details are intentionally
+nonstandard right now:
+
+- Root directories were renamed to singular forms on purpose:
+  `doc/`, `example/`, `experiment/`, `script/`, `test/`
+- `oldcrap/` is a quarantine zone for retired or legacy code that we are
+  reintroducing selectively; do not assume paths there are live
+- `oldcrap/README.md` explains why the quarantine exists and how to treat it
+- Some architecture notes below describe the historical WGPU-era layout and may
+  lag the current rebuild; trust the live tree over stale prose if they diverge
+
+If you are looking for something and the plural path seems "obvious," check the
+singular form first before assuming the repo is broken.
+
 
 ## Quick Reference
 
@@ -15,6 +32,15 @@ cargo fmt                # Format (no config - uses defaults)
 cargo test               # Run all tests
 cargo test test_name     # Run single test
 cargo test -- --nocapture  # Show println! output
+```
+
+### Docker Tests
+
+```bash
+docker compose run visual-tests cargo test --release --test visual_tests -- --ignored --nocapture
+docker compose run kde-tests      # KDE/fcitx5 injection tests
+docker compose run audio-tests    # PipeWire audio capture tests
+docker compose run kde-shell      # Interactive debugging shell
 ```
 
 ## Architecture
@@ -189,7 +215,7 @@ cargo test --doc                  # Doc tests only
 When adding:
 
 - Unit tests in same file with `#[cfg(test)]` module
-- Integration tests in `tests/` directory
+- Integration tests in `test/` directory
 - Use `#[test]` attribute
 
 ## Common Patterns
@@ -317,7 +343,7 @@ User should not see AGC fighting their manual adjustments.
 
 - Bump **patch version** when a Sisyphus boulder is complete (e.g., 0.2.5 → 0.2.6)
 - Version lives in `Cargo.toml` - update it as part of the final commit
-- Tag after committing: `./scripts/tag-version.sh`
+- Tag after committing: `./script/tag-version.sh`
 - Push with tags: `git push` (followTags config handles it)
 
 ### Visual Agent Observation (tmux environments)

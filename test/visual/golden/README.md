@@ -41,7 +41,7 @@ Running from within a KDE session fails because:
 cd /home/greg/src/usit
 
 # 4. Run the capture script
-./tests/visual/scripts/capture_goldens.sh
+./test/visual/script/capture_goldens.sh
 
 # 5. Return to KDE (Ctrl+Alt+F1 or F7)
 ```
@@ -54,7 +54,7 @@ podman run --rm -it \
   -v /home/greg/src/usit:/workspace \
   -w /workspace \
   archlinux:latest \
-  bash -c "pacman -Sy --noconfirm sway grim cargo && ./tests/visual/scripts/capture_goldens.sh"
+  bash -c "pacman -Sy --noconfirm sway grim cargo && ./test/visual/script/capture_goldens.sh"
 ```
 
 ### Option 3: CI Environment
@@ -94,7 +94,7 @@ For canonical CI goldens at 1920x1080, use the headless Sway capture script (see
 
 Current images:
 ```bash
-$ file tests/visual/golden/*.png
+$ file test/visual/golden/*.png
 demo_committed_hello.png:        PNG image data, 5120 x 1440, 8-bit/color RGBA, non-interlaced
 demo_partial_listening.png:      PNG image data, 5120 x 1440, 8-bit/color RGBA, non-interlaced
 demo_twotone_streaming.png:      PNG image data, 5120 x 1440, 8-bit/color RGBA, non-interlaced

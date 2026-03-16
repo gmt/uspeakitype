@@ -49,7 +49,7 @@ pw-cli ls Node | grep -E "(usit-test|Audio/Source)" || echo "(none with expected
 echo ""
 echo "=== Test 3: Feed audio to virtual source ==="
 # pw-play can target by name
-pw-cat --playback --target=usit-test-sink /app/tests/audio/speech_sample.wav &
+pw-cat --playback --target=usit-test-sink /app/test/audio/speech_sample.wav &
 PLAY_PID=$!
 echo "Playing speech_sample.wav into usit-test-sink..."
 sleep 1

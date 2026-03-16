@@ -21,7 +21,7 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ./test-output:/app/test-output
-    entrypoint: /app/scripts/docker-ime-test.sh
+    entrypoint: /app/script/docker-ime-test.sh
 
   # KDE/fcitx5 IME injection tests
   kde-tests:

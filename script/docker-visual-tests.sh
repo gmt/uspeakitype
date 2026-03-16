@@ -1,14 +1,14 @@
 #!/bin/bash
-# scripts/docker-visual-tests.sh
+# script/docker-visual-tests.sh
 #
 # Wrapper for running Docker visual tests with staleness detection.
 # Automatically rebuilds if Docker image doesn't match current git state.
 #
 # Usage:
-#   ./scripts/docker-visual-tests.sh                    # Run all visual tests
-#   ./scripts/docker-visual-tests.sh test_opacity_half  # Run specific test
-#   USIT_STRICT_SYNC=1 ./scripts/docker-visual-tests.sh # Fail instead of rebuild
-#   USIT_NO_REBUILD=1 ./scripts/docker-visual-tests.sh  # Warn but don't rebuild
+#   ./script/docker-visual-tests.sh                    # Run all visual tests
+#   ./script/docker-visual-tests.sh test_opacity_half  # Run specific test
+#   USIT_STRICT_SYNC=1 ./script/docker-visual-tests.sh # Fail instead of rebuild
+#   USIT_NO_REBUILD=1 ./script/docker-visual-tests.sh  # Warn but don't rebuild
 
 set -e
 
@@ -59,7 +59,7 @@ fi
 if [ "$IMAGE_STATE_OK" = false ]; then
     if [ "${USIT_STRICT_SYNC:-0}" = "1" ]; then
         echo "ERROR: USIT_STRICT_SYNC=1, aborting due to stale image"
-        echo "Run: ./scripts/docker-visual-tests.sh (without USIT_STRICT_SYNC) to auto-rebuild"
+        echo "Run: ./script/docker-visual-tests.sh (without USIT_STRICT_SYNC) to auto-rebuild"
         exit 1
     elif [ "${USIT_NO_REBUILD:-0}" = "1" ]; then
         echo "WARNING: Image is stale (USIT_NO_REBUILD=1, continuing anyway)"
