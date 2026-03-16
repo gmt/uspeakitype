@@ -143,14 +143,17 @@ The good:
 - `QOpenGLPaintDevice` gives us a real "paint into the current GL context"
   seam without making the visualizer a subprocess or a text-decoded protocol
   performance test.
-- The Rust/C++ boundary stays pleasingly boring: scalars, a status string, and
-  a bin buffer. No QML object-model contortions, no wire protocol.
+- The Rust/C++ boundary stays pleasingly boring: one fixed numeric frame plus a
+  status string. No QML object-model contortions, no wire protocol.
+- It now works against actual PipeWire capture as well as a deterministic demo
+  source, so the path is no longer purely ornamental.
 
 The pain:
 
 - This is still a C++ island, and the build knows it immediately.
-- The current spike still copies bins across the boundary each frame, so it is
-  not yet the "absolutely zero-copy forever" dream.
+- The current spike still copies one frame struct across the boundary each
+  refresh, so it is meaningfully better than a chatty bridge but not yet the
+  "absolutely zero-copy forever" dream.
 - `QOpenGLPaintDevice` feels like a widgets/OpenGL trick, not a general
   desktop-graphics abstraction. It is promising, but also quite specific.
 

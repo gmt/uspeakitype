@@ -33,7 +33,7 @@ tradeoffs around:
 - `nuxglit/`
   In-process Rust plus bare-Qt widgets experiment using `QOpenGLWidget` and
   `QOpenGLPaintDevice` for a native GL-backed canvas inside a normal widget
-  hierarchy.
+  hierarchy, with a single fixed-frame handoff and optional live audio capture.
 
 ## Quick Runs
 
@@ -48,7 +48,7 @@ tradeoffs around:
 - `hellnuxit`
   `cd experiments/hellnuxit && HELLNUXIT_AUTOSTOP_MS=1200 QT_QPA_PLATFORM=offscreen env CARGO_HOME=/tmp/usit-cargo-home cargo run`
 - `nuxglit`
-  `cd experiments/nuxglit && NUXGLIT_AUTOSTOP_MS=1500 QT_QPA_PLATFORM=offscreen LIBGL_ALWAYS_SOFTWARE=1 cargo run`
+  `cd experiments/nuxglit && NUXGLIT_AUTOSTOP_MS=1500 QT_QPA_PLATFORM=offscreen LIBGL_ALWAYS_SOFTWARE=1 cargo run -- --demo`
 
 ## What "done enough" means here
 

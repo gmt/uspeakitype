@@ -8,7 +8,7 @@
 
 This experiment uses:
 
-- Rust as the producer for a fake level plus 96 spectrum bins
+- Rust as the producer for either live PipeWire audio or a demo signal
 - a tiny raw C ABI bridge
 - `QOpenGLWidget` as the native Qt canvas host
 - `QOpenGLPaintDevice` so the canvas can be painted with `QPainter` on top of the
@@ -29,10 +29,25 @@ Optional auto-exit:
 NUXGLIT_AUTOSTOP_MS=1500 cargo run
 ```
 
+Demo fallback:
+
+```bash
+cargo run -- --demo
+```
+
+Specific source:
+
+```bash
+cargo run -- --source "Built-in Audio Analog Stereo"
+```
+
 ## What it demonstrates
 
 - plain Qt Widgets can host a GL-backed canvas in a normal hierarchy
 - Rust can feed the hot path without a text protocol
+- the hot numeric path can collapse into one fixed frame struct instead of
+  multiple per-frame calls
+- the same shell can run against a real audio capture path or a synthetic demo
 - `QOpenGLPaintDevice` is a plausible truffle patch if the future shell stays bare Qt
 
 ## What it does not demonstrate

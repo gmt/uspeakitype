@@ -17,17 +17,17 @@
 
 #include <algorithm>
 #include <atomic>
+#include <array>
 #include <cmath>
+#include <cstring>
 #include <mutex>
 #include <string>
-#include <vector>
 
 namespace {
 
 std::mutex g_state_mutex;
-float g_level = 0.0f;
 std::string g_status = "QOpenGLPaintDevice idle";
-std::vector<float> g_bins(96, 0.0f);
+NuxglitFrameSnapshot g_frame = {};
 std::atomic<bool> g_quit_requested{false};
 
 class GlMeterWidget : public QOpenGLWidget, protected QOpenGLFunctions {
@@ -45,14 +45,12 @@ protected:
     }
 
     void paintGL() override {
-        std::vector<float> bins;
+        NuxglitFrameSnapshot frame = {};
         std::string status;
-        float level = 0.0f;
         {
             const std::lock_guard<std::mutex> guard(g_state_mutex);
-            bins = g_bins;
+            frame = g_frame;
             status = g_status;
-            level = std::clamp(g_level, 0.0f, 1.0f);
         }
 
         glViewport(0, 0, width(), height());
@@ -81,10 +79,11 @@ protected:
         const qreal baseline = canvas.bottom() - 18.0;
         const qreal usable_height = canvas.height() - 36.0;
         const qreal bar_gap = 2.0;
-        const qreal bar_width =
-            std::max<qreal>(2.0, (canvas.width() - (bins.size() - 1) * bar_gap) / bins.size());
-        for (size_t index = 0; index < bins.size(); ++index) {
-            const qreal magnitude = std::clamp<qreal>(bins[index], 0.0, 1.0);
+        const qreal bar_width = std::max<qreal>(
+            2.0,
+            (canvas.width() - (NUXGLIT_BIN_COUNT - 1) * bar_gap) / NUXGLIT_BIN_COUNT);
+        for (size_t index = 0; index < NUXGLIT_BIN_COUNT; ++index) {
+            const qreal magnitude = std::clamp<qreal>(frame.bins[index], 0.0, 1.0);
             const qreal bar_height = std::max<qreal>(8.0, usable_height * magnitude);
             const qreal x =
                 canvas.left() + 10.0 + index * (bar_width + bar_gap);
@@ -114,7 +113,7 @@ protected:
         const QRectF fill(
             meter.left() + 3.0,
             meter.top() + 3.0,
-            std::max<qreal>(12.0, (meter.width() - 6.0) * level),
+            std::max<qreal>(12.0, (meter.width() - 6.0) * std::clamp<qreal>(frame.level, 0.0, 1.0)),
             meter.height() - 6.0);
         QLinearGradient fill_gradient(fill.topLeft(), fill.topRight());
         fill_gradient.setColorAt(0.0, QColor("#8c553d"));
@@ -122,6 +121,13 @@ protected:
         fill_gradient.setColorAt(1.0, QColor("#efe3a8"));
         painter.setBrush(fill_gradient);
         painter.drawRoundedRect(fill, 7.0, 7.0);
+
+        const qreal peak_x =
+            meter.left() + 3.0 + (meter.width() - 6.0) * std::clamp<qreal>(frame.peak, 0.0, 1.0);
+        painter.setPen(QPen(QColor("#fff4c6"), 2.0));
+        painter.drawLine(
+            QPointF(peak_x, meter.top() + 2.0),
+            QPointF(peak_x, meter.bottom() - 2.0));
 
         painter.setPen(QColor("#f0e2cd"));
         QFont title_font = painter.font();
@@ -177,19 +183,18 @@ private:
 
 }  // namespace
 
-extern "C" void nuxglit_set_level(float level) {
-    const std::lock_guard<std::mutex> guard(g_state_mutex);
-    g_level = level;
-}
-
 extern "C" void nuxglit_set_status(const char* text) {
     const std::lock_guard<std::mutex> guard(g_state_mutex);
     g_status = text ? text : "";
 }
 
-extern "C" void nuxglit_set_bins(const float* bins, size_t len) {
+extern "C" void nuxglit_publish_frame(const NuxglitFrameSnapshot* frame) {
     const std::lock_guard<std::mutex> guard(g_state_mutex);
-    g_bins.assign(bins, bins + len);
+    if (!frame) {
+        std::memset(&g_frame, 0, sizeof(g_frame));
+        return;
+    }
+    g_frame = *frame;
 }
 
 extern "C" void nuxglit_request_quit() {
