@@ -27,6 +27,8 @@ namespace {
 
 std::mutex g_state_mutex;
 std::string g_status = "usit qt visualizer idle";
+std::string g_committed;
+std::string g_partial;
 UsitQtFrameSnapshot g_frame = {};
 std::atomic<bool> g_quit_requested{false};
 
@@ -47,12 +49,16 @@ protected:
     void paintGL() override {
         UsitQtFrameSnapshot frame = {};
         std::string status;
+        std::string committed;
+        std::string partial;
         UsitQtControlSnapshot controls = {};
         usit_qt_get_control_snapshot(&controls);
         {
             const std::lock_guard<std::mutex> guard(g_state_mutex);
             frame = g_frame;
             status = g_status;
+            committed = g_committed;
+            partial = g_partial;
         }
 
         glViewport(0, 0, width(), height());
@@ -162,7 +168,17 @@ protected:
         body_font.setBold(false);
         painter.setFont(body_font);
         painter.drawText(
-            QRectF(shell.left() + 18, shell.bottom() - 34, shell.width() - 36, 22),
+            QRectF(shell.left() + 18, shell.bottom() - 58, shell.width() - 36, 18),
+            Qt::AlignLeft | Qt::AlignVCenter,
+            QString("heard: %1").arg(QString::fromUtf8(committed.c_str())));
+        painter.setPen(QColor("#dcc3a4"));
+        painter.drawText(
+            QRectF(shell.left() + 18, shell.bottom() - 40, shell.width() - 36, 18),
+            Qt::AlignLeft | Qt::AlignVCenter,
+            QString("live: %1").arg(QString::fromUtf8(partial.c_str())));
+        painter.setPen(QColor("#c8b08d"));
+        painter.drawText(
+            QRectF(shell.left() + 18, shell.bottom() - 22, shell.width() - 36, 18),
             Qt::AlignLeft | Qt::AlignVCenter,
             QString::fromUtf8(status.c_str()));
 
@@ -342,6 +358,12 @@ private:
 extern "C" void usit_qt_set_status(const char* text) {
     const std::lock_guard<std::mutex> guard(g_state_mutex);
     g_status = text ? text : "";
+}
+
+extern "C" void usit_qt_set_transcript(const char* committed, const char* partial) {
+    const std::lock_guard<std::mutex> guard(g_state_mutex);
+    g_committed = committed ? committed : "";
+    g_partial = partial ? partial : "";
 }
 
 extern "C" void usit_qt_publish_frame(const UsitQtFrameSnapshot* frame) {

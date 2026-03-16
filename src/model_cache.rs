@@ -364,7 +364,10 @@ fn manifest_needs_refresh(model_dir: &Path) -> bool {
         return false;
     };
 
-    manifest.files.iter().any(|entry| entry.modified_at.is_none())
+    manifest
+        .files
+        .iter()
+        .any(|entry| entry.modified_at.is_none())
 }
 
 fn extra_required_file_checks(model_dir: &Path, model_id: AsrModelId) -> Vec<IntegrityError> {

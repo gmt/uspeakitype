@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::ffi::CString;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -8,23 +9,25 @@ use std::time::{Duration, Instant};
 mod ansi;
 #[path = "audio/capture.rs"]
 mod capture;
-#[path = "audio/vad.rs"]
-mod vad;
-#[path = "backend/moonshine.rs"]
-mod moonshine;
 mod config;
 mod cpl;
 mod download;
 mod logging;
 mod model_cache;
+#[path = "backend/moonshine.rs"]
+mod moonshine;
 #[path = "spectrum.rs"]
 mod spectrum;
+mod streaming;
+#[path = "audio/vad.rs"]
+mod vad;
 
 use capture::{AudioCapture, CaptureConfig};
 use config::{AsrModelId, Config};
 use cpl::{install_qt_controls, RuntimeControls};
 use moonshine::MoonshineStreamer;
 use spectrum::{SpectrumAnalyzer, SpectrumConfig};
+use streaming::{DefaultStreamingTranscriber, StreamEvent, StreamingConfig};
 use vad::{SileroVad, VadConfig};
 
 const BIN_COUNT: usize = 96;
@@ -49,9 +52,51 @@ impl Default for FrameSnapshot {
 
 type FrameSink = Arc<dyn Fn(FrameSnapshot, &str) + Send + Sync + 'static>;
 
+#[derive(Clone, Default)]
+pub(crate) struct TranscriptSnapshot {
+    pub(crate) committed: String,
+    pub(crate) partial: String,
+}
+
+#[derive(Default)]
+pub(crate) struct TranscriptState {
+    inner: parking_lot::Mutex<TranscriptSnapshot>,
+}
+
+impl TranscriptState {
+    pub(crate) fn snapshot(&self) -> TranscriptSnapshot {
+        self.inner.lock().clone()
+    }
+
+    fn set_partial(&self, text: String) {
+        self.inner.lock().partial = text;
+    }
+
+    fn commit(&self, text: String) {
+        let mut inner = self.inner.lock();
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            if !inner.committed.is_empty() {
+                inner.committed.push(' ');
+            }
+            inner.committed.push_str(trimmed);
+        }
+        inner.partial.clear();
+    }
+
+    fn set_error(&self, error: impl Into<String>) {
+        let mut inner = self.inner.lock();
+        inner.partial = format!("ERR: {}", error.into());
+    }
+}
+
 unsafe extern "C" {
     fn usit_qt_run() -> i32;
     fn usit_qt_set_status(text: *const std::os::raw::c_char);
+    fn usit_qt_set_transcript(
+        committed: *const std::os::raw::c_char,
+        partial: *const std::os::raw::c_char,
+    );
     fn usit_qt_publish_frame(frame: *const FrameSnapshot);
     fn usit_qt_request_quit();
 }
@@ -66,6 +111,14 @@ fn set_status(text: &str) {
 fn publish_frame(frame: &FrameSnapshot) {
     unsafe {
         usit_qt_publish_frame(frame as *const FrameSnapshot);
+    }
+}
+
+fn set_transcript(committed: &str, partial: &str) {
+    let committed = CString::new(committed).expect("committed text should be valid");
+    let partial = CString::new(partial).expect("partial text should be valid");
+    unsafe {
+        usit_qt_set_transcript(committed.as_ptr(), partial.as_ptr());
     }
 }
 
@@ -143,6 +196,7 @@ fn start_live_capture(
     source: Option<String>,
     controls: Arc<RuntimeControls>,
     sink: FrameSink,
+    audio_tx: Option<mpsc::Sender<Vec<f32>>>,
 ) -> Result<AudioCapture> {
     let status_label = source
         .as_deref()
@@ -165,6 +219,9 @@ fn start_live_capture(
     AudioCapture::with_control(
         Box::new(move |samples| {
             let level = (rms(samples) * 5.5).clamp(0.0, 1.0);
+            if let Some(audio_tx) = audio_tx.as_ref() {
+                let _ = audio_tx.send(samples.to_vec());
+            }
             let Ok(mut analyzer) = analyzer.lock() else {
                 return;
             };
@@ -284,7 +341,11 @@ fn prepare_requested_model(
 
     match model_cache::prepare_for_activation(&asr_dir, model) {
         model_cache::ActivationResult::Success => {
-            emit_startup_probe(startup_probe_enabled, startup_started_at, "model cache ready");
+            emit_startup_probe(
+                startup_probe_enabled,
+                startup_started_at,
+                "model cache ready",
+            );
             Ok(())
         }
         model_cache::ActivationResult::NeedsDownload
@@ -366,12 +427,55 @@ fn load_requested_vad(
         "starting silero load",
     );
     let vad = SileroVad::new(&vad_path, VadConfig::default())?;
-    emit_startup_probe(
-        startup_probe_enabled,
-        startup_started_at,
-        "silero ready",
-    );
+    emit_startup_probe(startup_probe_enabled, startup_started_at, "silero ready");
     Ok(vad)
+}
+
+fn spawn_transcription_worker(
+    running: Arc<AtomicBool>,
+    model: MoonshineStreamer,
+    vad: SileroVad,
+    transcript: Arc<TranscriptState>,
+) -> (mpsc::Sender<Vec<f32>>, thread::JoinHandle<()>) {
+    let (audio_tx, audio_rx) = mpsc::channel::<Vec<f32>>();
+
+    let handle = thread::spawn(move || {
+        let mut transcriber =
+            DefaultStreamingTranscriber::new(vad, Box::new(model), StreamingConfig::default());
+
+        while running.load(Ordering::Relaxed) {
+            let Ok(samples) = audio_rx.recv_timeout(Duration::from_millis(100)) else {
+                continue;
+            };
+
+            match transcriber.process(&samples) {
+                Ok(events) => {
+                    for event in events {
+                        match event {
+                            StreamEvent::Partial(text) => {
+                                transcript.set_partial(text);
+                                let snapshot = transcript.snapshot();
+                                set_transcript(&snapshot.committed, &snapshot.partial);
+                            }
+                            StreamEvent::Commit(text) => {
+                                transcript.commit(text);
+                                let snapshot = transcript.snapshot();
+                                set_transcript(&snapshot.committed, &snapshot.partial);
+                            }
+                        }
+                    }
+                }
+                Err(error) => {
+                    log::warn!("transcription worker error: {error}");
+                    transcript.set_error(error.to_string());
+                    let snapshot = transcript.snapshot();
+                    set_transcript(&snapshot.committed, &snapshot.partial);
+                }
+            }
+        }
+    });
+
+    (audio_tx, handle)
 }
 
 fn main() -> Result<()> {
@@ -436,6 +540,8 @@ fn main() -> Result<()> {
         .map(|value| format!("requested source: {value}"))
         .unwrap_or_else(|| "requested source: default".to_string());
     let controls = RuntimeControls::new(source_label, auto_gain, gain);
+    let transcript = Arc::new(TranscriptState::default());
+    set_transcript("", "");
 
     let (sink, frontend) = if ansi_mode {
         let state = Arc::new(ansi::AnsiState::default());
@@ -444,7 +550,7 @@ fn main() -> Result<()> {
                 let state = state.clone();
                 Arc::new(move |frame, status: &str| state.publish(frame, status)) as FrameSink
             },
-            Frontend::Ansi(state, controls.clone()),
+            Frontend::Ansi(state, controls.clone(), transcript.clone()),
         )
     } else {
         install_qt_controls(controls.clone());
@@ -456,7 +562,7 @@ fn main() -> Result<()> {
             Frontend::Qt => Some(Arc::new(|| unsafe {
                 usit_qt_request_quit();
             }) as Arc<dyn Fn() + Send + Sync + 'static>),
-            Frontend::Ansi(_, _) => None,
+            Frontend::Ansi(_, _, _) => None,
         };
         spawn_autostop(limit_ms, running.clone(), on_timeout)
     });
@@ -479,6 +585,8 @@ fn main() -> Result<()> {
 
     let mut loaded_model = None;
     let mut loaded_vad = None;
+    let mut transcription_worker = None;
+    let mut audio_tx = None;
     let mut capture = if demo_mode {
         None
     } else {
@@ -518,12 +626,7 @@ fn main() -> Result<()> {
                 }
             }
 
-            match load_requested_vad(
-                &model_dir,
-                &sink,
-                startup_probe_enabled,
-                startup_started_at,
-            ) {
+            match load_requested_vad(&model_dir, &sink, startup_probe_enabled, startup_started_at) {
                 Ok(vad) => {
                     sink(FrameSnapshot::default(), "vad ready · silero");
                     loaded_vad = Some(vad);
@@ -536,6 +639,17 @@ fn main() -> Result<()> {
                     );
                 }
             }
+
+            if let (Some(model), Some(vad)) = (loaded_model.take(), loaded_vad.take()) {
+                let (tx, handle) =
+                    spawn_transcription_worker(running.clone(), model, vad, transcript.clone());
+                audio_tx = Some(tx);
+                transcription_worker = Some(handle);
+                sink(
+                    FrameSnapshot::default(),
+                    "transcription ready · listening live",
+                );
+            }
         }
 
         emit_startup_probe(
@@ -543,7 +657,12 @@ fn main() -> Result<()> {
             startup_started_at,
             "starting live capture bootstrap",
         );
-        match start_live_capture(source.clone(), controls.clone(), sink.clone()) {
+        match start_live_capture(
+            source.clone(),
+            controls.clone(),
+            sink.clone(),
+            audio_tx.clone(),
+        ) {
             Ok(capture) => Some(capture),
             Err(error) => {
                 log::warn!("live capture unavailable ({error}); falling back to demo");
@@ -574,13 +693,18 @@ fn main() -> Result<()> {
         capture.take(),
         loaded_model,
         loaded_vad,
+        transcription_worker,
     )
 }
 
 #[derive(Clone)]
 enum Frontend {
     Qt,
-    Ansi(Arc<ansi::AnsiState>, Arc<RuntimeControls>),
+    Ansi(
+        Arc<ansi::AnsiState>,
+        Arc<RuntimeControls>,
+        Arc<TranscriptState>,
+    ),
 }
 
 fn run_frontend(
@@ -591,6 +715,7 @@ fn run_frontend(
     mut capture: Option<AudioCapture>,
     _loaded_model: Option<MoonshineStreamer>,
     _loaded_vad: Option<SileroVad>,
+    transcription_worker: Option<thread::JoinHandle<()>>,
 ) -> Result<()> {
     let result = match frontend {
         Frontend::Qt => {
@@ -601,7 +726,9 @@ fn run_frontend(
                 Err(anyhow::anyhow!("Qt app exited with status {exit_code}"))
             }
         }
-        Frontend::Ansi(state, controls) => ansi::run(state, controls, running.clone()),
+        Frontend::Ansi(state, controls, transcript) => {
+            ansi::run(state, controls, transcript, running.clone())
+        }
     };
 
     running.store(false, Ordering::Relaxed);
@@ -613,6 +740,9 @@ fn run_frontend(
     }
     if let Some(autostop) = autostop {
         let _ = autostop.join();
+    }
+    if let Some(worker) = transcription_worker {
+        let _ = worker.join();
     }
 
     result

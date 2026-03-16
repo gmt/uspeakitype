@@ -16,7 +16,7 @@ use parking_lot::Mutex;
 
 use crate::cpl::{ControlId, RuntimeControls};
 use crate::spectrum::{ColorScheme, FlameScheme};
-use crate::FrameSnapshot;
+use crate::{FrameSnapshot, TranscriptState};
 
 #[derive(Default)]
 pub(crate) struct AnsiState {
@@ -45,6 +45,7 @@ impl AnsiState {
 pub(crate) fn run(
     state: Arc<AnsiState>,
     controls: Arc<RuntimeControls>,
+    transcript: Arc<TranscriptState>,
     running: Arc<AtomicBool>,
 ) -> Result<()> {
     let mut terminal = TerminalGuard::enter()?;
@@ -85,7 +86,12 @@ pub(crate) fn run(
             }
         }
 
-        render(&mut terminal.stdout, &state.snapshot(), &controls)?;
+        render(
+            &mut terminal.stdout,
+            &state.snapshot(),
+            &transcript.snapshot(),
+            &controls,
+        )?;
         terminal.stdout.flush()?;
         std::thread::sleep(Duration::from_millis(33));
     }
@@ -115,7 +121,12 @@ impl Drop for TerminalGuard {
     }
 }
 
-fn render(stdout: &mut Stdout, snapshot: &AnsiSnapshot, controls: &RuntimeControls) -> Result<()> {
+fn render(
+    stdout: &mut Stdout,
+    snapshot: &AnsiSnapshot,
+    transcript: &crate::TranscriptSnapshot,
+    controls: &RuntimeControls,
+) -> Result<()> {
     let (cols, rows) = terminal::size()?;
     queue!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
 
@@ -139,6 +150,30 @@ fn render(stdout: &mut Stdout, snapshot: &AnsiSnapshot, controls: &RuntimeContro
     queue!(stdout, MoveTo(panel_x + 2, panel_y), Print(title))?;
 
     let control_snapshot = controls.snapshot();
+    let transcript_y = panel_y + panel_height.saturating_sub(5);
+    queue!(
+        stdout,
+        MoveTo(panel_x + 2, transcript_y),
+        Print(truncate(
+            &format!("heard: {}", transcript.committed),
+            panel_width.saturating_sub(4) as usize
+        ))
+    )?;
+    queue!(
+        stdout,
+        MoveTo(panel_x + 2, transcript_y + 1),
+        SetForegroundColor(Color::Rgb {
+            r: 212,
+            g: 190,
+            b: 152,
+        }),
+        Print(truncate(
+            &format!("live: {}", transcript.partial),
+            panel_width.saturating_sub(4) as usize
+        )),
+        ResetColor
+    )?;
+
     let status_y = panel_y + panel_height.saturating_sub(2);
     let status_text = if control_snapshot.panel_open {
         format!(
@@ -161,9 +196,9 @@ fn render(stdout: &mut Stdout, snapshot: &AnsiSnapshot, controls: &RuntimeContro
     let viz_y = panel_y + 2;
     let viz_width = panel_width.saturating_sub(4);
     let viz_height = if control_snapshot.panel_open {
-        panel_height.saturating_sub(13)
+        panel_height.saturating_sub(15)
     } else {
-        panel_height.saturating_sub(5)
+        panel_height.saturating_sub(8)
     };
     if viz_width > 0 && viz_height > 0 {
         draw_bars(

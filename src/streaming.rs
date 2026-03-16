@@ -7,8 +7,8 @@ use std::collections::VecDeque;
 
 use anyhow::Result;
 
-use crate::audio::SileroVad;
-use crate::backend::MoonshineStreamer;
+use crate::moonshine::MoonshineStreamer;
+use crate::vad::SileroVad;
 
 /// Events emitted by streaming transcription
 /// NOTE: This is the CANONICAL StreamEvent. The one in backend/moonshine.rs is unused and will be removed.

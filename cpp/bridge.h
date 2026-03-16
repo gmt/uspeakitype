@@ -23,6 +23,7 @@ struct UsitQtControlSnapshot {
 extern "C" {
 int usit_qt_run();
 void usit_qt_set_status(const char* text);
+void usit_qt_set_transcript(const char* committed, const char* partial);
 void usit_qt_publish_frame(const UsitQtFrameSnapshot* frame);
 void usit_qt_request_quit();
 void usit_qt_toggle_controls();
