@@ -3,8 +3,9 @@ use std::ffi::CString;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+mod ansi;
 mod logging;
 #[path = "audio/capture.rs"]
 mod capture;
@@ -18,11 +19,23 @@ const BIN_COUNT: usize = 96;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct FrameSnapshot {
+pub(crate) struct FrameSnapshot {
     level: f32,
     peak: f32,
     bins: [f32; BIN_COUNT],
 }
+
+impl Default for FrameSnapshot {
+    fn default() -> Self {
+        Self {
+            level: 0.0,
+            peak: 0.0,
+            bins: [0.0; BIN_COUNT],
+        }
+    }
+}
+
+type FrameSink = Arc<dyn Fn(FrameSnapshot, &str) + Send + Sync + 'static>;
 
 unsafe extern "C" {
     fn usit_qt_run() -> i32;
@@ -56,7 +69,7 @@ fn fill_bins(frame_number: u64, bins: &mut [f32; BIN_COUNT]) {
     }
 }
 
-fn spawn_demo_producer(running: Arc<AtomicBool>) -> thread::JoinHandle<()> {
+fn spawn_demo_producer(running: Arc<AtomicBool>, sink: FrameSink) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut frame_number = 0u64;
         let mut snapshot = FrameSnapshot {
@@ -77,12 +90,12 @@ fn spawn_demo_producer(running: Arc<AtomicBool>) -> thread::JoinHandle<()> {
             } else {
                 "warm glass bars"
             };
-            set_status(&format!(
+            let status = format!(
                 "{mode} · {:.0}% level · {} bins",
                 level * 100.0,
                 BIN_COUNT
-            ));
-            publish_frame(&snapshot);
+            );
+            sink(snapshot, &status);
 
             frame_number += 1;
             thread::sleep(Duration::from_millis(33));
@@ -100,12 +113,12 @@ fn rms(samples: &[f32]) -> f32 {
     mean_square.sqrt()
 }
 
-fn start_live_capture(source: Option<String>) -> Result<AudioCapture> {
+fn start_live_capture(source: Option<String>, sink: FrameSink) -> Result<AudioCapture> {
     let status_label = source
         .as_deref()
         .map(|name| format!("live capture · requested source {name}"))
         .unwrap_or_else(|| "live capture · default source".to_string());
-    set_status(&format!("{status_label} · waiting for audio"));
+    sink(FrameSnapshot::default(), &format!("{status_label} · waiting for audio"));
 
     let analyzer = Arc::new(std::sync::Mutex::new(SpectrumAnalyzer::new(SpectrumConfig {
         num_bands: BIN_COUNT,
@@ -132,12 +145,12 @@ fn start_live_capture(source: Option<String>) -> Result<AudioCapture> {
             };
             let copy_len = data.bands.len().min(BIN_COUNT);
             snapshot.bins[..copy_len].copy_from_slice(&data.bands[..copy_len]);
-            set_status(&format!(
+            let status = format!(
                 "{live_label} · {:.0}% level · {:.0}% peak",
                 snapshot.level * 100.0,
                 snapshot.peak * 100.0
-            ));
-            publish_frame(&snapshot);
+            );
+            sink(snapshot, &status);
         }),
         CaptureConfig {
             auto_gain_enabled: false,
@@ -147,11 +160,16 @@ fn start_live_capture(source: Option<String>) -> Result<AudioCapture> {
     )
 }
 
-fn spawn_autostop(limit_ms: u64) -> thread::JoinHandle<()> {
+fn spawn_autostop(
+    limit_ms: u64,
+    running: Arc<AtomicBool>,
+    on_timeout: Option<Arc<dyn Fn() + Send + Sync + 'static>>,
+) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(limit_ms));
-        unsafe {
-            usit_qt_request_quit();
+        running.store(false, Ordering::Relaxed);
+        if let Some(on_timeout) = on_timeout {
+            on_timeout();
         }
     })
 }
@@ -161,8 +179,33 @@ fn parse_source(args: &[String]) -> Option<String> {
         .find_map(|window| (window[0] == "--source").then(|| window[1].clone()))
 }
 
+fn qt_sink() -> FrameSink {
+    Arc::new(|frame, status| {
+        set_status(status);
+        publish_frame(&frame);
+    })
+}
+
+fn emit_startup_probe(enabled: bool, started_at: Instant, label: &str) {
+    if !enabled {
+        return;
+    }
+
+    let elapsed_ms = started_at.elapsed().as_millis();
+    eprintln!("usit startup probe: +{elapsed_ms}ms {label}");
+}
+
 fn main() -> Result<()> {
+    let startup_probe_enabled = std::env::var_os("USIT_STARTUP_PROBE").is_some();
+    let startup_started_at = Instant::now();
+    emit_startup_probe(startup_probe_enabled, startup_started_at, "entered main");
+
     logging::init(false)?;
+    emit_startup_probe(
+        startup_probe_enabled,
+        startup_started_at,
+        "logging initialized",
+    );
 
     let running = Arc::new(AtomicBool::new(true));
     let autostop_ms = std::env::var("USIT_AUTOSTOP_MS")
@@ -175,13 +218,43 @@ fn main() -> Result<()> {
         });
     let args: Vec<String> = std::env::args().skip(1).collect();
     let demo_mode = args.iter().any(|arg| arg == "--demo");
+    let ansi_mode = args.iter().any(|arg| arg == "--ansi");
     let source = parse_source(&args);
+    emit_startup_probe(startup_probe_enabled, startup_started_at, "arguments parsed");
 
-    let autostop = autostop_ms.map(spawn_autostop);
+    let (sink, frontend) = if ansi_mode {
+        let state = Arc::new(ansi::AnsiState::default());
+        (
+            {
+                let state = state.clone();
+                Arc::new(move |frame, status: &str| state.publish(frame, status)) as FrameSink
+            },
+            Frontend::Ansi(state),
+        )
+    } else {
+        (qt_sink(), Frontend::Qt)
+    };
+
+    let autostop = autostop_ms.map(|limit_ms| {
+        let on_timeout = match frontend {
+            Frontend::Qt => Some(Arc::new(|| unsafe {
+                usit_qt_request_quit();
+            }) as Arc<dyn Fn() + Send + Sync + 'static>),
+            Frontend::Ansi(_) => None,
+        };
+        spawn_autostop(limit_ms, running.clone(), on_timeout)
+    });
 
     let mut producer = if demo_mode {
-        set_status("demo mode · synthesizing bars");
-        Some(spawn_demo_producer(running.clone()))
+        sink(
+            FrameSnapshot::default(),
+            if ansi_mode {
+                "demo mode · ansi visualizer"
+            } else {
+                "demo mode · synthesizing bars"
+            },
+        );
+        Some(spawn_demo_producer(running.clone(), sink.clone()))
     } else {
         None
     };
@@ -189,27 +262,62 @@ fn main() -> Result<()> {
     let mut capture = if demo_mode {
         None
     } else {
-        match start_live_capture(source.clone()) {
+        emit_startup_probe(
+            startup_probe_enabled,
+            startup_started_at,
+            "starting live capture bootstrap",
+        );
+        match start_live_capture(source.clone(), sink.clone()) {
             Ok(capture) => Some(capture),
             Err(error) => {
                 log::warn!("live capture unavailable ({error}); falling back to demo");
-                set_status("live capture failed · falling back to demo");
-                producer = Some(spawn_demo_producer(running.clone()));
+                sink(
+                    FrameSnapshot::default(),
+                    "live capture failed · falling back to demo",
+                );
+                producer = Some(spawn_demo_producer(running.clone(), sink));
                 None
             }
         }
     };
+    emit_startup_probe(
+        startup_probe_enabled,
+        startup_started_at,
+        if ansi_mode {
+            "entering ansi event loop"
+        } else {
+            "entering Qt event loop"
+        },
+    );
 
-    run_ui_loop(running, producer, autostop, capture.take())
+    run_frontend(frontend, running, producer, autostop, capture.take())
 }
 
-fn run_ui_loop(
+#[derive(Clone)]
+enum Frontend {
+    Qt,
+    Ansi(Arc<ansi::AnsiState>),
+}
+
+fn run_frontend(
+    frontend: Frontend,
     running: Arc<AtomicBool>,
     producer: Option<thread::JoinHandle<()>>,
     autostop: Option<thread::JoinHandle<()>>,
     mut capture: Option<AudioCapture>,
 ) -> Result<()> {
-    let exit_code = unsafe { usit_qt_run() };
+    let result = match frontend {
+        Frontend::Qt => {
+            let exit_code = unsafe { usit_qt_run() };
+            if exit_code == 0 {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("Qt app exited with status {exit_code}"))
+            }
+        }
+        Frontend::Ansi(state) => ansi::run(state, running.clone()),
+    };
+
     running.store(false, Ordering::Relaxed);
     if let Some(mut capture) = capture.take() {
         capture.stop();
@@ -221,9 +329,5 @@ fn run_ui_loop(
         let _ = autostop.join();
     }
 
-    if exit_code == 0 {
-        Ok(())
-    } else {
-        Err(anyhow::anyhow!("Qt app exited with status {exit_code}"))
-    }
+    result
 }

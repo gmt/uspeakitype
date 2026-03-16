@@ -13,6 +13,7 @@
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QVBoxLayout>
 #include <QtWidgets/QWidget>
+#include <QShortcut>
 
 #include <algorithm>
 #include <atomic>
@@ -163,6 +164,16 @@ public:
         layout->setContentsMargins(14, 14, 14, 14);
         layout->setSpacing(0);
         layout->addWidget(&meter_);
+
+        auto* quit_shortcut = new QShortcut(QKeySequence(Qt::Key_Q), this);
+        QObject::connect(quit_shortcut, &QShortcut::activated, this, []() {
+            QCoreApplication::quit();
+        });
+
+        auto* esc_shortcut = new QShortcut(QKeySequence(Qt::Key_Escape), this);
+        QObject::connect(esc_shortcut, &QShortcut::activated, this, []() {
+            QCoreApplication::quit();
+        });
 
         timer_.setInterval(33);
         QObject::connect(&timer_, &QTimer::timeout, this, [this]() {
