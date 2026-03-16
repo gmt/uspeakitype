@@ -1,6 +1,6 @@
 [package]
 name = "uspeakitype"
-version = "0.2.24"
+version = "0.2.25"
 edition = "2021"
 description = "Streaming ASR with live revision"
 license = "MIT"
@@ -31,6 +31,7 @@ sha2 = "0.10"
 tokenizers = "=0.22.2"
 tokio = { version = "1.49.0", features = ["rt-multi-thread"] }
 toml = "0.9.8"
+zbus = "5.13.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 systemd-journal-logger = "2"

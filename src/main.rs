@@ -12,6 +12,7 @@ mod capture;
 mod config;
 mod cpl;
 mod download;
+mod inject;
 mod logging;
 mod model_cache;
 #[path = "backend/moonshine.rs"]
@@ -25,6 +26,7 @@ mod vad;
 use capture::{AudioCapture, CaptureConfig};
 use config::{AsrModelId, Config};
 use cpl::{install_qt_controls, RuntimeControls};
+use inject::{Fcitx5BridgeInjector, TextInjector};
 use moonshine::MoonshineStreamer;
 use spectrum::{SpectrumAnalyzer, SpectrumConfig};
 use streaming::{DefaultStreamingTranscriber, StreamEvent, StreamingConfig};
@@ -435,7 +437,9 @@ fn spawn_transcription_worker(
     running: Arc<AtomicBool>,
     model: MoonshineStreamer,
     vad: SileroVad,
+    controls: Arc<RuntimeControls>,
     transcript: Arc<TranscriptState>,
+    injection_tx: Option<mpsc::Sender<String>>,
 ) -> (mpsc::Sender<Vec<f32>>, thread::JoinHandle<()>) {
     let (audio_tx, audio_rx) = mpsc::channel::<Vec<f32>>();
 
@@ -458,9 +462,14 @@ fn spawn_transcription_worker(
                                 set_transcript(&snapshot.committed, &snapshot.partial);
                             }
                             StreamEvent::Commit(text) => {
-                                transcript.commit(text);
+                                transcript.commit(text.clone());
                                 let snapshot = transcript.snapshot();
                                 set_transcript(&snapshot.committed, &snapshot.partial);
+                                if !controls.capture().is_paused() {
+                                    if let Some(injection_tx) = injection_tx.as_ref() {
+                                        let _ = injection_tx.send(text);
+                                    }
+                                }
                             }
                         }
                     }
@@ -476,6 +485,35 @@ fn spawn_transcription_worker(
     });
 
     (audio_tx, handle)
+}
+
+fn spawn_fcitx5_injector(
+    startup_probe_enabled: bool,
+    startup_started_at: Instant,
+) -> Result<(mpsc::Sender<String>, thread::JoinHandle<()>)> {
+    emit_startup_probe(
+        startup_probe_enabled,
+        startup_started_at,
+        "starting fcitx5 bridge probe",
+    );
+    let injector = Fcitx5BridgeInjector::new_passive()?;
+    emit_startup_probe(
+        startup_probe_enabled,
+        startup_started_at,
+        "fcitx5 bridge ready",
+    );
+
+    let (injection_tx, injection_rx) = mpsc::channel::<String>();
+    let handle = thread::spawn(move || {
+        let mut injector: Box<dyn TextInjector> = Box::new(injector);
+        while let Ok(text) = injection_rx.recv() {
+            if let Err(error) = injector.inject(&text) {
+                log::error!("fcitx5 injection error: {}", error);
+            }
+        }
+    });
+
+    Ok((injection_tx, handle))
 }
 
 fn main() -> Result<()> {
@@ -586,6 +624,7 @@ fn main() -> Result<()> {
     let mut loaded_model = None;
     let mut loaded_vad = None;
     let mut transcription_worker = None;
+    let mut injector_handle = None;
     let mut audio_tx = None;
     let mut capture = if demo_mode {
         None
@@ -641,14 +680,37 @@ fn main() -> Result<()> {
             }
 
             if let (Some(model), Some(vad)) = (loaded_model.take(), loaded_vad.take()) {
-                let (tx, handle) =
-                    spawn_transcription_worker(running.clone(), model, vad, transcript.clone());
+                let injection_tx =
+                    match spawn_fcitx5_injector(startup_probe_enabled, startup_started_at) {
+                        Ok((tx, handle)) => {
+                            injector_handle = Some(handle);
+                            sink(
+                                FrameSnapshot::default(),
+                                "transcription ready · fcitx5 bridge active",
+                            );
+                            Some(tx)
+                        }
+                        Err(error) => {
+                            log::warn!(
+                                "fcitx5 bridge unavailable ({error}); continuing without injection"
+                            );
+                            sink(
+                                FrameSnapshot::default(),
+                                "transcription ready · display-only mode",
+                            );
+                            None
+                        }
+                    };
+                let (tx, handle) = spawn_transcription_worker(
+                    running.clone(),
+                    model,
+                    vad,
+                    controls.clone(),
+                    transcript.clone(),
+                    injection_tx,
+                );
                 audio_tx = Some(tx);
                 transcription_worker = Some(handle);
-                sink(
-                    FrameSnapshot::default(),
-                    "transcription ready · listening live",
-                );
             }
         }
 
@@ -694,6 +756,7 @@ fn main() -> Result<()> {
         loaded_model,
         loaded_vad,
         transcription_worker,
+        injector_handle,
     )
 }
 
@@ -716,6 +779,7 @@ fn run_frontend(
     _loaded_model: Option<MoonshineStreamer>,
     _loaded_vad: Option<SileroVad>,
     transcription_worker: Option<thread::JoinHandle<()>>,
+    injector_handle: Option<thread::JoinHandle<()>>,
 ) -> Result<()> {
     let result = match frontend {
         Frontend::Qt => {
@@ -743,6 +807,9 @@ fn run_frontend(
     }
     if let Some(worker) = transcription_worker {
         let _ = worker.join();
+    }
+    if let Some(handle) = injector_handle {
+        let _ = handle.join();
     }
 
     result

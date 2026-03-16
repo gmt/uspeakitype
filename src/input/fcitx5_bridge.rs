@@ -25,6 +25,28 @@ pub struct Fcitx5BridgeInjector {
 }
 
 impl Fcitx5BridgeInjector {
+    fn connect_passive() -> Result<Self> {
+        let connection =
+            Connection::session().map_err(|e| anyhow!("D-Bus session connection failed: {}", e))?;
+
+        if Self::addon_is_loaded(&connection) {
+            log::debug!("fcitx5_bridge: addon already loaded");
+            return Ok(Self { connection });
+        }
+
+        if !Self::fcitx5_is_running(&connection) {
+            return Err(anyhow!("fcitx5 not running"));
+        }
+
+        if Self::addon_files_exist().is_none() {
+            return Err(anyhow!(
+                "addon not loaded; install to ~/.local/lib/fcitx5/ and ~/.local/share/fcitx5/addon/"
+            ));
+        }
+
+        Err(anyhow!("addon installed but not loaded"))
+    }
+
     /// Check if our addon files are installed in ~/.local
     fn addon_files_exist() -> Option<(PathBuf, PathBuf)> {
         let home = dirs::home_dir()?;
@@ -96,25 +118,8 @@ impl Fcitx5BridgeInjector {
     }
 
     pub fn new() -> Result<Self> {
-        let connection =
-            Connection::session().map_err(|e| anyhow!("D-Bus session connection failed: {}", e))?;
-
-        // First try: maybe addon is already loaded
-        if Self::addon_is_loaded(&connection) {
-            log::debug!("fcitx5_bridge: addon already loaded");
-            return Ok(Self { connection });
-        }
-
-        // Addon not loaded - check if fcitx5 is running
-        if !Self::fcitx5_is_running(&connection) {
-            return Err(anyhow!("fcitx5 not running"));
-        }
-
-        // Fcitx5 running but addon not loaded - can we fix it?
-        if Self::addon_files_exist().is_none() {
-            return Err(anyhow!(
-                "addon not loaded; install to ~/.local/lib/fcitx5/ and ~/.local/share/fcitx5/addon/"
-            ));
+        if let Ok(injector) = Self::connect_passive() {
+            return Ok(injector);
         }
 
         // Addon files exist! Restart fcitx5 with the right paths
@@ -132,6 +137,10 @@ impl Fcitx5BridgeInjector {
         } else {
             Err(anyhow!("addon still not loaded after fcitx5 restart"))
         }
+    }
+
+    pub fn new_passive() -> Result<Self> {
+        Self::connect_passive()
     }
 }
 
