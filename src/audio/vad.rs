@@ -5,12 +5,22 @@
 
 use std::collections::VecDeque;
 use std::path::Path;
+use std::time::Instant;
 
 use anyhow::{anyhow, ensure, Context, Result};
 use ndarray::{Array2, ArrayD, IxDyn};
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 use ort::value::Tensor;
+
+fn emit_load_probe(started_at: Instant, label: &str) {
+    if std::env::var_os("USIT_STARTUP_PROBE").is_none() {
+        return;
+    }
+
+    let elapsed_ms = started_at.elapsed().as_millis();
+    eprintln!("usit silero probe: +{elapsed_ms}ms {label}");
+}
 
 const SAMPLE_RATE_HZ: i64 = 16000;
 const FRAME_SIZE: usize = 512;
@@ -62,19 +72,24 @@ pub struct SileroVad {
 
 impl SileroVad {
     pub fn new(model_path: &Path, config: VadConfig) -> Result<Self> {
+        let load_started_at = Instant::now();
+        emit_load_probe(load_started_at, "silero new begin");
         let session = Session::builder()?
             .with_optimization_level(GraphOptimizationLevel::Level3)?
             .with_intra_threads(1)?
             .with_inter_threads(1)?
             .commit_from_file(model_path)
             .with_context(|| format!("loading silero vad model: {}", model_path.display()))?;
+        emit_load_probe(load_started_at, "silero session ready");
 
         let state_array = ArrayD::<f32>::zeros(IxDyn(&[2, 1, 128]));
         let state_tensor = Tensor::from_array(state_array).context("creating initial VAD state")?;
+        emit_load_probe(load_started_at, "silero state tensor ready");
 
         let sample_rate_array = ndarray::arr0(SAMPLE_RATE_HZ);
         let sample_rate_tensor =
             Tensor::from_array(sample_rate_array).context("creating sample rate tensor")?;
+        emit_load_probe(load_started_at, "silero sample-rate tensor ready");
 
         Ok(Self {
             session,

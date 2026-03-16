@@ -2,6 +2,7 @@
 
 use std::path::Path;
 use std::sync::OnceLock;
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use ndarray::{Array1, Array2, ArrayD, Axis, IxDyn};
@@ -14,6 +15,15 @@ use serde::Deserialize;
 use tokenizers::Tokenizer;
 
 static ORT_INITIALIZED: OnceLock<()> = OnceLock::new();
+
+fn emit_load_probe(started_at: Instant, label: &str) {
+    if std::env::var_os("USIT_STARTUP_PROBE").is_none() {
+        return;
+    }
+
+    let elapsed_ms = started_at.elapsed().as_millis();
+    eprintln!("usit moonshine probe: +{elapsed_ms}ms {label}");
+}
 
 /// Initialize ORT runtime globally. Safe to call multiple times (no-op after first).
 pub fn init_ort() {
@@ -123,7 +133,10 @@ impl MoonshineTokenizer {
 
 impl MoonshineStreamer {
     pub fn new(model_dir: impl AsRef<Path>) -> Result<Self> {
+        let load_started_at = Instant::now();
+        emit_load_probe(load_started_at, "moonshine new begin");
         init_ort();
+        emit_load_probe(load_started_at, "moonshine ort initialized");
 
         let model_dir = model_dir.as_ref();
 
@@ -159,14 +172,17 @@ impl MoonshineStreamer {
             .with_intra_threads(4)?
             .commit_from_file(&encoder_path)
             .context("loading encoder")?;
+        emit_load_probe(load_started_at, "moonshine encoder ready");
 
         let decoder = Session::builder()?
             .with_optimization_level(GraphOptimizationLevel::Level3)?
             .with_intra_threads(4)?
             .commit_from_file(&decoder_path)
             .context("loading decoder")?;
+        emit_load_probe(load_started_at, "moonshine decoder ready");
 
         let tokenizer = MoonshineTokenizer::from_dir(model_dir)?;
+        emit_load_probe(load_started_at, "moonshine tokenizer ready");
 
         let config = if config_path.exists() {
             let contents = std::fs::read_to_string(&config_path)?;
@@ -178,6 +194,7 @@ impl MoonshineStreamer {
         } else {
             MoonshineConfig::default()
         };
+        emit_load_probe(load_started_at, "moonshine config ready");
 
         Ok(Self {
             encoder: Mutex::new(encoder),

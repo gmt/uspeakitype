@@ -8,16 +8,24 @@ use std::time::{Duration, Instant};
 mod ansi;
 #[path = "audio/capture.rs"]
 mod capture;
+#[path = "audio/vad.rs"]
+mod vad;
+#[path = "backend/moonshine.rs"]
+mod moonshine;
 mod config;
 mod cpl;
+mod download;
 mod logging;
+mod model_cache;
 #[path = "spectrum.rs"]
 mod spectrum;
 
 use capture::{AudioCapture, CaptureConfig};
-use config::Config;
+use config::{AsrModelId, Config};
 use cpl::{install_qt_controls, RuntimeControls};
+use moonshine::MoonshineStreamer;
 use spectrum::{SpectrumAnalyzer, SpectrumConfig};
+use vad::{SileroVad, VadConfig};
 
 const BIN_COUNT: usize = 96;
 
@@ -214,6 +222,16 @@ fn parse_gain(args: &[String]) -> Option<f32> {
         .flatten()
 }
 
+fn parse_model(args: &[String]) -> Option<AsrModelId> {
+    let raw = args
+        .windows(2)
+        .find_map(|window| (window[0] == "--model").then(|| window[1].clone()))?;
+    AsrModelId::all()
+        .iter()
+        .copied()
+        .find(|model| model.dir_name() == raw)
+}
+
 fn parse_flag(args: &[String], name: &str) -> bool {
     args.iter().any(|arg| arg == name)
 }
@@ -221,6 +239,12 @@ fn parse_flag(args: &[String], name: &str) -> bool {
 fn parse_config_path(args: &[String]) -> Option<std::path::PathBuf> {
     args.windows(2)
         .find_map(|window| (window[0] == "--config").then(|| window[1].clone()))
+        .map(Into::into)
+}
+
+fn parse_model_dir(args: &[String]) -> Option<std::path::PathBuf> {
+    args.windows(2)
+        .find_map(|window| (window[0] == "--model-dir").then(|| window[1].clone()))
         .map(Into::into)
 }
 
@@ -238,6 +262,116 @@ fn emit_startup_probe(enabled: bool, started_at: Instant, label: &str) {
 
     let elapsed_ms = started_at.elapsed().as_millis();
     eprintln!("usit startup probe: +{elapsed_ms}ms {label}");
+}
+
+fn prepare_requested_model(
+    model_dir: &std::path::Path,
+    model: AsrModelId,
+    sink: &FrameSink,
+    startup_probe_enabled: bool,
+    startup_started_at: Instant,
+) -> Result<()> {
+    let asr_dir = model_dir.join(model.dir_name());
+    sink(
+        FrameSnapshot::default(),
+        &format!("model prep · checking cache for {}", model),
+    );
+    emit_startup_probe(
+        startup_probe_enabled,
+        startup_started_at,
+        "checking model cache",
+    );
+
+    match model_cache::prepare_for_activation(&asr_dir, model) {
+        model_cache::ActivationResult::Success => {
+            emit_startup_probe(startup_probe_enabled, startup_started_at, "model cache ready");
+            Ok(())
+        }
+        model_cache::ActivationResult::NeedsDownload
+        | model_cache::ActivationResult::Quarantined => {
+            sink(
+                FrameSnapshot::default(),
+                &format!("model prep · downloading {}", model),
+            );
+            emit_startup_probe(
+                startup_probe_enabled,
+                startup_started_at,
+                "starting model download",
+            );
+            download::ensure_models_exist(model_dir, model)?;
+            model_cache::seal_model(&asr_dir, model)?;
+            emit_startup_probe(
+                startup_probe_enabled,
+                startup_started_at,
+                "model download complete",
+            );
+            Ok(())
+        }
+    }
+}
+
+fn load_requested_model(
+    model_dir: &std::path::Path,
+    model: AsrModelId,
+    sink: &FrameSink,
+    startup_probe_enabled: bool,
+    startup_started_at: Instant,
+) -> Result<MoonshineStreamer> {
+    let asr_dir = model_dir.join(model.dir_name());
+    sink(
+        FrameSnapshot::default(),
+        &format!("model load · initializing {}", model),
+    );
+    emit_startup_probe(
+        startup_probe_enabled,
+        startup_started_at,
+        "starting moonshine runtime init",
+    );
+    moonshine::init_ort();
+    emit_startup_probe(
+        startup_probe_enabled,
+        startup_started_at,
+        "moonshine runtime ready",
+    );
+
+    sink(
+        FrameSnapshot::default(),
+        &format!("model load · opening {}", model),
+    );
+    emit_startup_probe(
+        startup_probe_enabled,
+        startup_started_at,
+        "starting moonshine model load",
+    );
+    let model = MoonshineStreamer::new(&asr_dir)?;
+    emit_startup_probe(
+        startup_probe_enabled,
+        startup_started_at,
+        "moonshine model ready",
+    );
+    Ok(model)
+}
+
+fn load_requested_vad(
+    model_dir: &std::path::Path,
+    sink: &FrameSink,
+    startup_probe_enabled: bool,
+    startup_started_at: Instant,
+) -> Result<SileroVad> {
+    let vad_path = model_dir.join("silero_vad.onnx");
+    sink(FrameSnapshot::default(), "vad load · opening silero");
+    emit_startup_probe(
+        startup_probe_enabled,
+        startup_started_at,
+        "starting silero load",
+    );
+    let vad = SileroVad::new(&vad_path, VadConfig::default())?;
+    emit_startup_probe(
+        startup_probe_enabled,
+        startup_started_at,
+        "silero ready",
+    );
+    Ok(vad)
 }
 
 fn main() -> Result<()> {
@@ -279,6 +413,19 @@ fn main() -> Result<()> {
     let gain = parse_gain(&args)
         .unwrap_or(file_config.gain)
         .clamp(0.1, 10.0);
+    let requested_model = parse_model(&args).unwrap_or(file_config.model);
+    let requested_model = if requested_model.is_moonshine() {
+        requested_model
+    } else {
+        log::warn!(
+            "Parakeet reintroduction is not wired in this tranche yet; falling back to {}",
+            AsrModelId::MoonshineBase
+        );
+        AsrModelId::MoonshineBase
+    };
+    let model_dir = parse_model_dir(&args)
+        .or(file_config.model_dir.clone())
+        .unwrap_or_else(Config::default_model_dir);
     emit_startup_probe(
         startup_probe_enabled,
         startup_started_at,
@@ -330,9 +477,67 @@ fn main() -> Result<()> {
         None
     };
 
+    let mut loaded_model = None;
+    let mut loaded_vad = None;
     let mut capture = if demo_mode {
         None
     } else {
+        if let Err(error) = prepare_requested_model(
+            &model_dir,
+            requested_model,
+            &sink,
+            startup_probe_enabled,
+            startup_started_at,
+        ) {
+            log::warn!("model prep unavailable ({error}); continuing as visualizer");
+            sink(
+                FrameSnapshot::default(),
+                "model prep failed · continuing as visualizer",
+            );
+        } else {
+            match load_requested_model(
+                &model_dir,
+                requested_model,
+                &sink,
+                startup_probe_enabled,
+                startup_started_at,
+            ) {
+                Ok(model) => {
+                    sink(
+                        FrameSnapshot::default(),
+                        &format!("model ready · {}", requested_model),
+                    );
+                    loaded_model = Some(model);
+                }
+                Err(error) => {
+                    log::warn!("model load unavailable ({error}); continuing as visualizer");
+                    sink(
+                        FrameSnapshot::default(),
+                        "model load failed · continuing as visualizer",
+                    );
+                }
+            }
+
+            match load_requested_vad(
+                &model_dir,
+                &sink,
+                startup_probe_enabled,
+                startup_started_at,
+            ) {
+                Ok(vad) => {
+                    sink(FrameSnapshot::default(), "vad ready · silero");
+                    loaded_vad = Some(vad);
+                }
+                Err(error) => {
+                    log::warn!("vad load unavailable ({error}); continuing without VAD");
+                    sink(
+                        FrameSnapshot::default(),
+                        "vad load failed · continuing without VAD",
+                    );
+                }
+            }
+        }
+
         emit_startup_probe(
             startup_probe_enabled,
             startup_started_at,
@@ -361,7 +566,15 @@ fn main() -> Result<()> {
         },
     );
 
-    run_frontend(frontend, running, producer, autostop, capture.take())
+    run_frontend(
+        frontend,
+        running,
+        producer,
+        autostop,
+        capture.take(),
+        loaded_model,
+        loaded_vad,
+    )
 }
 
 #[derive(Clone)]
@@ -376,6 +589,8 @@ fn run_frontend(
     producer: Option<thread::JoinHandle<()>>,
     autostop: Option<thread::JoinHandle<()>>,
     mut capture: Option<AudioCapture>,
+    _loaded_model: Option<MoonshineStreamer>,
+    _loaded_vad: Option<SileroVad>,
 ) -> Result<()> {
     let result = match frontend {
         Frontend::Qt => {
