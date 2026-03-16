@@ -36,6 +36,12 @@ pub struct ManifestEntry {
     pub sha256: String,
     /// File size in bytes
     pub size: u64,
+    /// Last-modified time as Unix epoch seconds.
+    ///
+    /// Older manifests may not include this field; in that case we fall back
+    /// to a full hash verification.
+    #[serde(default)]
+    pub modified_at: Option<u64>,
 }
 
 /// Model manifest for integrity verification
@@ -80,6 +86,7 @@ impl ModelManifest {
 
                     let metadata = fs::metadata(&path)?;
                     let size = metadata.len();
+                    let modified_at = file_modified_at_secs(&metadata);
 
                     let sha256 = compute_sha256(&path)?;
 
@@ -87,6 +94,7 @@ impl ModelManifest {
                         path: relative_path,
                         sha256,
                         size,
+                        modified_at,
                     });
                 }
             }
@@ -239,6 +247,14 @@ pub fn compute_sha256(path: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+fn file_modified_at_secs(metadata: &fs::Metadata) -> Option<u64> {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(SystemTime::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs())
+}
+
 /// Check integrity of a model directory
 pub fn check_integrity(model_dir: &Path, model_id: AsrModelId) -> IntegrityStatus {
     if !model_dir.exists() {
@@ -288,14 +304,25 @@ pub fn check_integrity(model_dir: &Path, model_id: AsrModelId) -> IntegrityStatu
                     }
                 }
 
-                // Check hash
-                if let Ok(actual_hash) = compute_sha256(&file_path) {
-                    if actual_hash != entry.sha256 {
-                        errors.push(IntegrityError::HashMismatch {
-                            path: entry.path.clone(),
-                            expected: entry.sha256.clone(),
-                            actual: actual_hash,
-                        });
+                let metadata = match fs::metadata(&file_path) {
+                    Ok(metadata) => metadata,
+                    Err(_) => continue,
+                };
+
+                let actual_modified_at = file_modified_at_secs(&metadata);
+                let metadata_matches = entry.modified_at.is_some()
+                    && entry.modified_at == actual_modified_at
+                    && metadata.len() == entry.size;
+
+                if !metadata_matches {
+                    if let Ok(actual_hash) = compute_sha256(&file_path) {
+                        if actual_hash != entry.sha256 {
+                            errors.push(IntegrityError::HashMismatch {
+                                path: entry.path.clone(),
+                                expected: entry.sha256.clone(),
+                                actual: actual_hash,
+                            });
+                        }
                     }
                 }
             }
@@ -330,6 +357,14 @@ pub fn check_integrity(model_dir: &Path, model_id: AsrModelId) -> IntegrityStatu
             }
         }
     }
+}
+
+fn manifest_needs_refresh(model_dir: &Path) -> bool {
+    let Ok(Some(manifest)) = ModelManifest::load(model_dir) else {
+        return false;
+    };
+
+    manifest.files.iter().any(|entry| entry.modified_at.is_none())
 }
 
 fn extra_required_file_checks(model_dir: &Path, model_id: AsrModelId) -> Vec<IntegrityError> {
@@ -618,8 +653,10 @@ pub fn prepare_for_activation(model_dir: &Path, model_id: AsrModelId) -> Activat
 
     match status {
         IntegrityStatus::Verified | IntegrityStatus::Unverified => {
-            // Unverified is okay for legacy caches - seal them for future use
-            if matches!(status, IntegrityStatus::Unverified) {
+            // Unverified is okay for legacy caches - seal them for future use.
+            // Verified caches may also need refresh if the manifest predates
+            // metadata shortcuts like modified_at.
+            if matches!(status, IntegrityStatus::Unverified) || manifest_needs_refresh(model_dir) {
                 if let Err(e) = seal_model(model_dir, model_id) {
                     log::warn!("Failed to seal unverified model: {}", e);
                 }
@@ -712,6 +749,7 @@ mod tests {
         let loaded = ModelManifest::load(model_dir).unwrap().unwrap();
         assert_eq!(loaded.files.len(), 2);
         assert_eq!(loaded.model_id, "test-model");
+        assert!(loaded.files.iter().all(|entry| entry.modified_at.is_some()));
     }
 
     #[test]
@@ -730,6 +768,25 @@ mod tests {
 
         // Create partial model (missing required files)
         fs::write(model_dir.join("encoder_model.onnx"), vec![0u8; 2048]).unwrap();
+
+        let status = check_integrity(model_dir, AsrModelId::MoonshineBase);
+        assert!(matches!(status, IntegrityStatus::Corrupt(_)));
+    }
+
+    #[test]
+    fn test_check_integrity_rehashes_when_mtime_changes() {
+        let temp_dir = TempDir::new().unwrap();
+        let model_dir = temp_dir.path();
+        let file_path = model_dir.join("encoder_model.onnx");
+
+        fs::write(&file_path, b"abcdefgh").unwrap();
+        fs::write(model_dir.join("decoder_model_merged.onnx"), b"decoder").unwrap();
+        fs::write(model_dir.join("tokenizer.json"), b"{}").unwrap();
+        let manifest = ModelManifest::generate(model_dir, "test-model").unwrap();
+        manifest.save(model_dir).unwrap();
+
+        std::thread::sleep(Duration::from_secs(1));
+        fs::write(&file_path, b"ijklmnop").unwrap();
 
         let status = check_integrity(model_dir, AsrModelId::MoonshineBase);
         assert!(matches!(status, IntegrityStatus::Corrupt(_)));
