@@ -44,13 +44,24 @@ ENV XDG_RUNTIME_DIR=/run/user/0 \
 WORKDIR /app
 COPY . .
 
-# Build fcitx5-usit-bridge addon
+# Build fcitx5-usit-bridge addon and register it through a user-local conf
 RUN cd fcitx5-usit-bridge && \
     mkdir -p build && cd build && \
     cmake .. && make && \
-    mkdir -p /root/.local/lib/fcitx5 /root/.local/share/fcitx5/addon && \
-    cp src/libusitbridge.so /root/.local/lib/fcitx5/ && \
-    cp src/usitbridge.conf /root/.local/share/fcitx5/addon/
+    mkdir -p /root/.local/share/fcitx5/addon && \
+    printf '%s\n' \
+        '[Addon]' \
+        'Name=Usit Bridge' \
+        'Name[en]=Usit Bridge' \
+        'Category=Module' \
+        'Library=/app/fcitx5-usit-bridge/build/src/libusitbridge' \
+        'Type=SharedLibrary' \
+        'OnDemand=False' \
+        'Configurable=False' \
+        '' \
+        '[Addon/Dependencies]' \
+        '0=dbus' \
+        > /root/.local/share/fcitx5/addon/usitbridge.conf
 
 # Build usit
 RUN cargo build --release

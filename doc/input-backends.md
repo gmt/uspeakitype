@@ -51,6 +51,17 @@ The practical distinction is important:
 
 `fcitx5_bridge` is the preferred fallback when fcitx5 is the active input-method framework. It speaks to the local addon over D-Bus and is a better KDE/fcitx5 story than dropping straight to keystroke synthesis.
 
+Development posture:
+
+- build the addon with `script/install-fcitx5-bridge-dev.sh`
+- keep Plasma/KWin on the stock `Fcitx 5 Wayland Launcher`
+- register the addon by writing a user-local `usitbridge.conf` whose `Library=` points at the absolute build artifact
+
+Production posture:
+
+- install the addon into fcitx5's normal system addon directories
+- avoid custom launcher wrappers or `FCITX_ADDON_DIRS` overrides
+
 ## `wrtype`
 
 `wrtype` is the lightweight wlroots-oriented fallback. It is fast and simple, but only available on compositors that support the expected wlroots behavior.

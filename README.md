@@ -67,21 +67,27 @@ No setup required - works out of the box on compositors that support the `zwp_in
 #### fcitx5_bridge (KDE / fcitx5 users)
 For KDE Plasma users (or anyone using fcitx5 as their input method), the `fcitx5_bridge` backend injects text through fcitx5 via D-Bus using a small addon.
 
-**Build and install the addon:**
+**Development build without root:**
 ```bash
-cd fcitx5-usit-bridge
-mkdir -p build && cd build
-cmake ..
-make
-
-# Install to ~/.local (no root required)
-mkdir -p ~/.local/lib/fcitx5 ~/.local/share/fcitx5/addon
-cp src/libusitbridge.so ~/.local/lib/fcitx5/
-cp src/usitbridge.conf ~/.local/share/fcitx5/addon/
+./script/install-fcitx5-bridge-dev.sh
 ```
 
-**Restart fcitx5** to load the addon (usit will do this automatically if needed):
+That script:
+
+- builds `fcitx5-usit-bridge`
+- writes `~/.local/share/fcitx5/addon/usitbridge.conf`
+- points `Library=` at the absolute build artifact path
+- reloads `fcitx5` if it is already running
+
+This keeps development on the stock KDE/Plasma launcher path. No custom
+`FCITX_ADDON_DIRS`, `.desktop`, or `kwinrc` hacks are required.
+
+**Packaged/system install:**
 ```bash
+cd fcitx5-usit-bridge
+cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr
+cmake --build build
+sudo cmake --install build
 fcitx5 -r
 ```
 
@@ -95,7 +101,7 @@ sudo pacman -S fcitx5 fcitx5-qt fcitx5-gtk cmake
 sudo apt install fcitx5 fcitx5-modules fcitx5-modules-dev libfcitx5core-dev cmake
 ```
 
-**How it works**: The addon exposes a D-Bus interface that usit calls to inject text. When usit detects fcitx5 is running but the addon isn't loaded, it will automatically restart fcitx5 with the correct `FCITX_ADDON_DIRS` to load the addon from `~/.local`.
+**How it works**: The addon exposes a D-Bus interface that usit calls to inject text. For development, `usit` and the helper script keep a user-local addon `.conf` pointed at the built bridge library. For packaged installs, fcitx5 finds the addon through its normal system addon directories.
 
 **Recommended: Disable fcitx5's clipboard addon**
 

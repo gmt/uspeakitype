@@ -22,9 +22,9 @@ fi
 export WAYLAND_DISPLAY="$WAYLAND_SOCKET"
 echo "  WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
 
-# Start fcitx5 with our addon
-echo "Starting fcitx5 with usit-bridge addon..."
-FCITX_ADDON_DIRS="$HOME/.local/lib/fcitx5:/usr/lib/x86_64-linux-gnu/fcitx5" fcitx5 -d
+# Start stock fcitx5; the user-local addon conf points at the built bridge
+echo "Starting fcitx5..."
+fcitx5 -d
 sleep 2
 
 # Test 1: Check if fcitx5 is running
