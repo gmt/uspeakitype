@@ -40,7 +40,7 @@ fi
 # Test 2: Check if our addon is loaded
 echo ""
 echo "=== Test 2: usit-bridge addon loaded ==="
-if busctl --user call org.fcitx.Fcitx5 /usitbridge org.fcitx.Fcitx5.UsitBridge1 IsActive 2>/dev/null; then
+if busctl --user call org.fcitx.Fcitx5 /rocks/gmt/usit/FcitxBridge1 rocks.gmt.UsitFcitxBridge1 IsActive 2>/dev/null; then
     echo "✓ usit-bridge addon is responding"
 else
     echo "✗ usit-bridge addon not responding"
@@ -52,7 +52,7 @@ fi
 # Test 3: Test CommitString (won't inject anywhere but shouldn't error)
 echo ""
 echo "=== Test 3: CommitString method call ==="
-if busctl --user call org.fcitx.Fcitx5 /usitbridge org.fcitx.Fcitx5.UsitBridge1 CommitString s "test" 2>/dev/null; then
+if busctl --user call org.fcitx.Fcitx5 /rocks/gmt/usit/FcitxBridge1 rocks.gmt.UsitFcitxBridge1 CommitString s "test" 2>/dev/null; then
     echo "✓ CommitString method works (no input context, but no error)"
 else
     echo "✗ CommitString method failed"

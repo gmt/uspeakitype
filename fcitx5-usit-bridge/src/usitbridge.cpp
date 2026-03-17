@@ -18,8 +18,8 @@ FCITX_DEFINE_LOG_CATEGORY(usitbridge, "usitbridge");
 #define USITBRIDGE_INFO() FCITX_LOGC(usitbridge, Info)
 #define USITBRIDGE_ERROR() FCITX_LOGC(usitbridge, Error)
 
-constexpr char USIT_BRIDGE_PATH[] = "/usitbridge";
-constexpr char USIT_BRIDGE_INTERFACE[] = "org.fcitx.Fcitx5.UsitBridge1";
+constexpr char USIT_BRIDGE_PATH[] = "/rocks/gmt/usit/FcitxBridge1";
+constexpr char USIT_BRIDGE_INTERFACE[] = "rocks.gmt.UsitFcitxBridge1";
 
 class UsitBridge;
 

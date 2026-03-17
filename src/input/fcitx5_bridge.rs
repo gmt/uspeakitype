@@ -17,8 +17,8 @@ use zbus::blocking::Connection;
 use super::TextInjector;
 
 const FCITX5_BUS_NAME: &str = "org.fcitx.Fcitx5";
-const USIT_BRIDGE_PATH: &str = "/usitbridge";
-const USIT_BRIDGE_INTERFACE: &str = "org.fcitx.Fcitx5.UsitBridge1";
+const USIT_BRIDGE_PATH: &str = "/rocks/gmt/usit/FcitxBridge1";
+const USIT_BRIDGE_INTERFACE: &str = "rocks.gmt.UsitFcitxBridge1";
 
 pub struct Fcitx5BridgeInjector {
     connection: Connection,
