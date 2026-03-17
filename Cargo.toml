@@ -1,7 +1,7 @@
 [package]
 name = "uspeakitype"
 version = "0.2.25"
-edition = "2021"
+edition = "2024"
 description = "Streaming ASR with live revision"
 license = "MIT"
 authors = ["Greg Turner <gmt@be-evil.net>"]

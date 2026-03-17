@@ -141,7 +141,11 @@ async fn download_file(
     let mut stream = response.bytes_stream();
     let mut downloaded: u64 = 0;
 
-    while let Some(item) = stream.next().await {
+    loop {
+        let Some(item) = stream.next().await else {
+            break;
+        };
+
         if cancel_token
             .map(|t| t.load(std::sync::atomic::Ordering::Relaxed))
             .unwrap_or(false)
@@ -240,7 +244,11 @@ async fn download_file_optional(
     let mut stream = response.bytes_stream();
     let mut downloaded: u64 = 0;
 
-    while let Some(item) = stream.next().await {
+    loop {
+        let Some(item) = stream.next().await else {
+            break;
+        };
+
         if cancel_token
             .map(|t| t.load(std::sync::atomic::Ordering::Relaxed))
             .unwrap_or(false)

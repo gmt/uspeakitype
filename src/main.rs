@@ -507,7 +507,8 @@ fn spawn_fcitx5_injector(
     let handle = thread::spawn(move || {
         let mut injector: Box<dyn TextInjector> = Box::new(injector);
         while let Ok(text) = injection_rx.recv() {
-            if let Err(error) = injector.inject(&text) {
+            let result = injector.inject(&text);
+            if let Err(error) = result {
                 log::error!("fcitx5 injection error: {}", error);
             }
         }
