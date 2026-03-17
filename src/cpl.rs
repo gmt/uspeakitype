@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::OnceLock;
 
@@ -6,19 +6,43 @@ use parking_lot::Mutex;
 
 use crate::capture::CaptureControl;
 
-pub(crate) const CONTROL_COUNT: usize = 3;
+pub(crate) const CONTROL_COUNT: usize = 4;
 pub(crate) const SOURCE_LABEL_MAX: usize = 128;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum VizMode {
+    Bars = 0,
+    Waterfall = 1,
+}
+
+impl VizMode {
+    pub(crate) fn toggle(self) -> Self {
+        match self {
+            Self::Bars => Self::Waterfall,
+            Self::Waterfall => Self::Bars,
+        }
+    }
+
+    pub(crate) fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::Waterfall,
+            _ => Self::Bars,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ControlId {
     Pause,
     AutoGain,
     Gain,
+    VizMode,
 }
 
 impl ControlId {
     pub(crate) fn all() -> [Self; CONTROL_COUNT] {
-        [Self::Pause, Self::AutoGain, Self::Gain]
+        [Self::Pause, Self::AutoGain, Self::Gain, Self::VizMode]
     }
 
     pub(crate) fn from_index(index: usize) -> Self {
@@ -30,6 +54,7 @@ impl ControlId {
             Self::Pause => "Capture pause",
             Self::AutoGain => "Auto gain",
             Self::Gain => "Manual gain",
+            Self::VizMode => "Viz mode",
         }
     }
 
@@ -38,6 +63,7 @@ impl ControlId {
             Self::Pause => "Pause audio ingestion without tearing down the stream.",
             Self::AutoGain => "Let the capture path chase speech loudness automatically.",
             Self::Gain => "Set manual software gain when auto gain is disabled.",
+            Self::VizMode => "Switch between the faster bar meter and the richer waterfall view.",
         }
     }
 }
@@ -49,6 +75,7 @@ pub(crate) struct QtControlSnapshot {
     pub selected_index: u32,
     pub paused: u8,
     pub auto_gain_enabled: u8,
+    pub viz_mode: u8,
     pub manual_gain: f32,
     pub current_gain: f32,
     pub source_label: [u8; SOURCE_LABEL_MAX],
@@ -61,6 +88,7 @@ impl Default for QtControlSnapshot {
             selected_index: 0,
             paused: 0,
             auto_gain_enabled: 0,
+            viz_mode: VizMode::Bars as u8,
             manual_gain: 1.0,
             current_gain: 1.0,
             source_label: [0; SOURCE_LABEL_MAX],
@@ -72,6 +100,7 @@ pub(crate) struct RuntimeControls {
     capture: Arc<CaptureControl>,
     panel_open: AtomicBool,
     selected_index: AtomicUsize,
+    viz_mode: AtomicU8,
     source_label: Mutex<String>,
 }
 
@@ -85,6 +114,7 @@ impl RuntimeControls {
             capture,
             panel_open: AtomicBool::new(false),
             selected_index: AtomicUsize::new(0),
+            viz_mode: AtomicU8::new(VizMode::Bars as u8),
             source_label: Mutex::new(source_label),
         })
     }
@@ -148,6 +178,9 @@ impl RuntimeControls {
                 }
             }
             ControlId::Gain => {}
+            ControlId::VizMode => {
+                self.toggle_viz_mode();
+            }
         }
     }
 
@@ -168,12 +201,22 @@ impl RuntimeControls {
         self.source_label.lock().clone()
     }
 
+    pub(crate) fn viz_mode(&self) -> VizMode {
+        VizMode::from_u8(self.viz_mode.load(Ordering::Relaxed))
+    }
+
+    pub(crate) fn toggle_viz_mode(&self) {
+        let next = self.viz_mode().toggle();
+        self.viz_mode.store(next as u8, Ordering::Relaxed);
+    }
+
     pub(crate) fn snapshot(&self) -> RuntimeControlSnapshot {
         RuntimeControlSnapshot {
             panel_open: self.is_open(),
             selected_control: self.selected_control(),
             paused: self.capture.is_paused(),
             auto_gain_enabled: self.capture.is_auto_gain_enabled(),
+            viz_mode: self.viz_mode(),
             manual_gain: self.capture.get_manual_gain(),
             current_gain: self.capture.get_current_gain(),
             source_label: self.source_label(),
@@ -187,6 +230,7 @@ impl RuntimeControls {
             selected_index: self.selected_index() as u32,
             paused: snapshot.paused as u8,
             auto_gain_enabled: snapshot.auto_gain_enabled as u8,
+            viz_mode: snapshot.viz_mode as u8,
             manual_gain: snapshot.manual_gain,
             current_gain: snapshot.current_gain,
             source_label: [0; SOURCE_LABEL_MAX],
@@ -203,6 +247,7 @@ pub(crate) struct RuntimeControlSnapshot {
     pub selected_control: ControlId,
     pub paused: bool,
     pub auto_gain_enabled: bool,
+    pub viz_mode: VizMode,
     pub manual_gain: f32,
     pub current_gain: f32,
     pub source_label: String,
@@ -277,7 +322,7 @@ pub extern "C" fn usit_qt_get_control_snapshot(out: *mut QtControlSnapshot) {
 
 #[cfg(test)]
 mod tests {
-    use super::RuntimeControls;
+    use super::{RuntimeControls, VizMode};
 
     #[test]
     fn gain_adjustment_updates_manual_gain() {
@@ -297,5 +342,17 @@ mod tests {
         controls.focus_next();
         controls.activate_selected();
         assert!(controls.capture().is_auto_gain_enabled());
+    }
+
+    #[test]
+    fn activating_viz_mode_toggles_waterfall() {
+        let controls = RuntimeControls::new("requested source: default".to_string(), false, 1.0);
+        controls.focus_next();
+        controls.focus_next();
+        controls.focus_next();
+        controls.activate_selected();
+        assert_eq!(controls.viz_mode(), VizMode::Waterfall);
+        controls.activate_selected();
+        assert_eq!(controls.viz_mode(), VizMode::Bars);
     }
 }

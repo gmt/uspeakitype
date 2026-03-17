@@ -15,6 +15,7 @@ struct UsitQtControlSnapshot {
     unsigned int selected_index;
     unsigned char paused;
     unsigned char auto_gain_enabled;
+    unsigned char viz_mode;
     float manual_gain;
     float current_gain;
     char source_label[128];

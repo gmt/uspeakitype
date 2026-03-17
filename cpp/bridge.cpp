@@ -17,9 +17,11 @@
 #include <QShortcut>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <mutex>
 #include <string>
 
@@ -89,6 +91,7 @@ protected:
             canvas.top(),
             std::max<qreal>(0.0, canvas.right() - chart.right() - 16.0),
             canvas.height());
+        const bool waterfall_mode = controls.viz_mode != 0;
         painter.setPen(QPen(QColor("#6d5341"), 1.0));
         painter.setBrush(QColor("#120d09"));
         painter.drawRoundedRect(chart, 16.0, 16.0);
@@ -98,28 +101,13 @@ protected:
             painter.drawRoundedRect(controls_panel, 16.0, 16.0);
         }
 
-        const qreal baseline = chart.bottom() - 18.0;
-        const qreal usable_height = chart.height() - 36.0;
-        const qreal bar_gap = 2.0;
-        const qreal bar_width = std::max<qreal>(
-            2.0,
-            (chart.width() - (USIT_QT_BIN_COUNT - 1) * bar_gap - 20.0) / USIT_QT_BIN_COUNT);
-        for (size_t index = 0; index < USIT_QT_BIN_COUNT; ++index) {
-            const qreal magnitude = std::clamp<qreal>(frame.bins[index], 0.0, 1.0);
-            const qreal bar_height = std::max<qreal>(8.0, usable_height * magnitude);
-            const qreal x = chart.left() + 10.0 + index * (bar_width + bar_gap);
-            const QRectF bar(
-                x,
-                baseline - bar_height,
-                std::max<qreal>(1.0, bar_width),
-                bar_height);
-            QLinearGradient fill(bar.topLeft(), bar.bottomLeft());
-            fill.setColorAt(0.0, QColor("#f2d77a"));
-            fill.setColorAt(0.45, QColor("#cb9342"));
-            fill.setColorAt(1.0, QColor("#56332a"));
-            painter.setPen(Qt::NoPen);
-            painter.setBrush(fill);
-            painter.drawRoundedRect(bar, 2.5, 2.5);
+        if (waterfall_mode) {
+            updateWaterfallHistory(frame, chart);
+            drawWaterfall(painter, chart);
+        } else {
+            history_.clear();
+            have_last_history_frame_ = false;
+            drawBars(painter, chart, frame);
         }
 
         const QRectF meter(
@@ -216,6 +204,7 @@ protected:
             {"Capture pause", controls.paused ? "paused" : "listening"},
             {"Auto gain", controls.auto_gain_enabled ? "on" : "off"},
             {"Manual gain", QString::asprintf("%.1fx", controls.manual_gain)},
+            {"Viz mode", controls.viz_mode ? "waterfall" : "bars"},
         };
 
         qreal row_y = panel.top() + 48.0;
@@ -254,6 +243,93 @@ protected:
             Qt::AlignLeft | Qt::AlignVCenter,
             QString("active gain %1%").arg(current_gain_percent));
     }
+
+    static QColor sampleColor(float value) {
+        const float clamped = std::clamp(value, 0.0f, 1.0f);
+        const int red = static_cast<int>(86 + clamped * 170);
+        const int green = static_cast<int>(56 + clamped * 150);
+        const int blue = static_cast<int>(24 + clamped * 48);
+        return QColor(red, green, blue);
+    }
+
+    void drawBars(QPainter& painter, const QRectF& chart, const UsitQtFrameSnapshot& frame) {
+        const qreal baseline = chart.bottom() - 18.0;
+        const qreal usable_height = chart.height() - 36.0;
+        const qreal bar_gap = 2.0;
+        const qreal bar_width = std::max<qreal>(
+            2.0,
+            (chart.width() - (USIT_QT_BIN_COUNT - 1) * bar_gap - 20.0) / USIT_QT_BIN_COUNT);
+        for (size_t index = 0; index < USIT_QT_BIN_COUNT; ++index) {
+            const qreal magnitude = std::clamp<qreal>(frame.bins[index], 0.0, 1.0);
+            const qreal bar_height = std::max<qreal>(8.0, usable_height * magnitude);
+            const qreal x = chart.left() + 10.0 + index * (bar_width + bar_gap);
+            const QRectF bar(
+                x,
+                baseline - bar_height,
+                std::max<qreal>(1.0, bar_width),
+                bar_height);
+            QLinearGradient fill(bar.topLeft(), bar.bottomLeft());
+            fill.setColorAt(0.0, QColor("#f2d77a"));
+            fill.setColorAt(0.45, QColor("#cb9342"));
+            fill.setColorAt(1.0, QColor("#56332a"));
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(fill);
+            painter.drawRoundedRect(bar, 2.5, 2.5);
+        }
+    }
+
+    void updateWaterfallHistory(
+        const UsitQtFrameSnapshot& frame,
+        const QRectF& chart) {
+        std::array<float, USIT_QT_BIN_COUNT> line = {};
+        std::copy(std::begin(frame.bins), std::end(frame.bins), line.begin());
+
+        if (have_last_history_frame_
+            && std::memcmp(line.data(), last_history_frame_.data(), sizeof(line)) == 0) {
+            trimWaterfallHistory(chart);
+            return;
+        }
+
+        last_history_frame_ = line;
+        have_last_history_frame_ = true;
+        history_.push_front(line);
+        trimWaterfallHistory(chart);
+    }
+
+    void trimWaterfallHistory(const QRectF& chart) {
+        const int max_rows = std::max(1, static_cast<int>(std::floor(chart.height() / 3.0)));
+        while (static_cast<int>(history_.size()) > max_rows) {
+            history_.pop_back();
+        }
+    }
+
+    void drawWaterfall(QPainter& painter, const QRectF& chart) {
+        if (history_.empty()) {
+            return;
+        }
+
+        const QRectF content = chart.adjusted(10.0, 10.0, -10.0, -10.0);
+        const int rows = std::max(1, static_cast<int>(history_.size()));
+        const qreal cell_width = content.width() / USIT_QT_BIN_COUNT;
+        const qreal cell_height = content.height() / rows;
+
+        painter.setPen(Qt::NoPen);
+        for (int row = 0; row < rows; ++row) {
+            const auto& line = history_[row];
+            for (size_t col = 0; col < USIT_QT_BIN_COUNT; ++col) {
+                painter.setBrush(sampleColor(line[col]));
+                painter.drawRect(QRectF(
+                    content.left() + static_cast<qreal>(col) * cell_width,
+                    content.top() + static_cast<qreal>(row) * cell_height,
+                    std::ceil(cell_width),
+                    std::ceil(cell_height)));
+            }
+        }
+    }
+
+    std::deque<std::array<float, USIT_QT_BIN_COUNT>> history_;
+    std::array<float, USIT_QT_BIN_COUNT> last_history_frame_ = {};
+    bool have_last_history_frame_ = false;
 };
 
 class ShellWidget : public QWidget {
