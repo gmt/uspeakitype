@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
   <title id="title">Relaxed Tux at a dictation workstation</title>
-  <desc id="desc">A KDE-style icon showing a penguin in an office chair with feet up on a desk, flippers behind his head, wearing a headset, with transcription software on one monitor and a candidate menu over a spreadsheet on the other.</desc>
+  <desc id="desc">A KDE-style icon showing a penguin reclining in an office chair with flippers behind his head, wearing a headset, feet resting on a small stool, and working across two level monitors: one with a live audio meter and one with a spreadsheet-like dictation popover.</desc>
   <defs>
     <linearGradient id="tileBg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#18120E"/>
@@ -69,7 +69,7 @@
   <rect x="13" y="13" width="230" height="230" rx="40" fill="url(#tileBg)" stroke="#745844" stroke-width="2.3"/>
   <rect x="21" y="21" width="214" height="214" rx="33" fill="none" stroke="#2D231C" stroke-width="1.3" opacity="0.9"/>
   <path d="M28 42 C55 22, 122 18, 223 28" fill="none" stroke="#4D392D" stroke-width="1.4" opacity="0.55"/>
-  <ellipse cx="128" cy="210" rx="86" ry="19" fill="#000000" opacity="0.18"/>
+  <ellipse cx="122" cy="210" rx="82" ry="19" fill="#000000" opacity="0.18"/>
 
   <!-- leveled desk -->
   <g filter="url(#shadow)">
@@ -91,7 +91,39 @@
   </g>
 
   <!-- monitors -->
-  <g transform="translate(68 50)" filter="url(#shadow)">
+  <g transform="translate(75 50)" filter="url(#shadow)">
+    <rect x="0" y="0" width="72" height="64" rx="11" fill="url(#bezelGrad)" stroke="#745844" stroke-width="1.8"/>
+    <rect x="6" y="6" width="60" height="52" rx="8" fill="url(#screenGrad)"/>
+    <g clip-path="url(#rightScreenClip)" transform="translate(6 6)">
+      <rect x="0" y="0" width="60" height="52" fill="#090604"/>
+      <rect x="4" y="4" width="52" height="44" rx="12" fill="url(#pillGrad)" stroke="#4D392D" stroke-width="0.8"/>
+      <rect x="8" y="8" width="20" height="7" rx="3.5" fill="#2C4937"/>
+      <circle cx="24" cy="11.5" r="2.8" fill="#9EB26B"/>
+      <rect x="33" y="8" width="19" height="7" rx="3.5" fill="#3B2A28"/>
+      <circle cx="48" cy="11.5" r="2.8" fill="#C8B08D"/>
+      <g transform="translate(8 18)">
+        <rect x="0" y="0" width="44" height="16" rx="2" fill="#120D09" stroke="#2D231C" stroke-width="0.6"/>
+        <g>
+          <rect x="1" y="10" width="2" height="5" rx="1" fill="url(#barGrad)"/>
+          <rect x="5" y="9" width="2" height="6" rx="1" fill="url(#barGrad)"/>
+          <rect x="9" y="8" width="2" height="7" rx="1" fill="url(#barGrad)"/>
+          <rect x="13" y="5" width="2" height="10" rx="1" fill="url(#barGrad)"/>
+          <rect x="17" y="4" width="2" height="11" rx="1" fill="url(#barGrad)"/>
+          <rect x="21" y="6" width="2" height="9" rx="1" fill="url(#barGrad)"/>
+          <rect x="25" y="8" width="2" height="7" rx="1" fill="url(#barGrad)"/>
+          <rect x="29" y="9" width="2" height="6" rx="1" fill="url(#barGrad)"/>
+          <rect x="33" y="7" width="2" height="8" rx="1" fill="url(#barGrad)"/>
+          <rect x="37" y="5" width="2" height="10" rx="1" fill="url(#barGrad)"/>
+          <rect x="41" y="8" width="2" height="7" rx="1" fill="url(#barGrad)"/>
+        </g>
+      </g>
+      <rect x="8" y="37" width="39" height="3.8" rx="1.9" fill="#F4EFE5" opacity="0.9"/>
+      <rect x="8" y="43" width="31" height="3.8" rx="1.9" fill="#A89B8E" opacity="0.85"/>
+    </g>
+    <rect x="31" y="64" width="10" height="16" rx="3" fill="#2D231C"/>
+    <rect x="18" y="78" width="36" height="6" rx="3" fill="#201813"/>
+  </g>
+<g transform="translate(150 48)" filter="url(#shadow)">
     <rect x="0" y="0" width="82" height="60" rx="10" fill="url(#bezelGrad)" stroke="#745844" stroke-width="1.8"/>
     <rect x="6" y="6" width="70" height="48" rx="7" fill="url(#screenGrad)"/>
     <g clip-path="url(#leftScreenClip)" transform="translate(6 6)">
@@ -166,88 +198,65 @@
     <rect x="24" y="72" width="34" height="6" rx="3" fill="#201813"/>
   </g>
 
-  <g transform="translate(154 48)" filter="url(#shadow)">
-    <rect x="0" y="0" width="72" height="64" rx="11" fill="url(#bezelGrad)" stroke="#745844" stroke-width="1.8"/>
-    <rect x="6" y="6" width="60" height="52" rx="8" fill="url(#screenGrad)"/>
-    <g clip-path="url(#rightScreenClip)" transform="translate(6 6)">
-      <rect x="0" y="0" width="60" height="52" fill="#090604"/>
-      <rect x="4" y="4" width="52" height="44" rx="12" fill="url(#pillGrad)" stroke="#4D392D" stroke-width="0.8"/>
-      <rect x="8" y="8" width="20" height="7" rx="3.5" fill="#2C4937"/>
-      <circle cx="24" cy="11.5" r="2.8" fill="#9EB26B"/>
-      <rect x="33" y="8" width="19" height="7" rx="3.5" fill="#3B2A28"/>
-      <circle cx="48" cy="11.5" r="2.8" fill="#C8B08D"/>
-      <g transform="translate(8 18)">
-        <rect x="0" y="0" width="44" height="16" rx="2" fill="#120D09" stroke="#2D231C" stroke-width="0.6"/>
-        <g>
-          <rect x="1" y="10" width="2" height="5" rx="1" fill="url(#barGrad)"/>
-          <rect x="5" y="9" width="2" height="6" rx="1" fill="url(#barGrad)"/>
-          <rect x="9" y="8" width="2" height="7" rx="1" fill="url(#barGrad)"/>
-          <rect x="13" y="5" width="2" height="10" rx="1" fill="url(#barGrad)"/>
-          <rect x="17" y="4" width="2" height="11" rx="1" fill="url(#barGrad)"/>
-          <rect x="21" y="6" width="2" height="9" rx="1" fill="url(#barGrad)"/>
-          <rect x="25" y="8" width="2" height="7" rx="1" fill="url(#barGrad)"/>
-          <rect x="29" y="9" width="2" height="6" rx="1" fill="url(#barGrad)"/>
-          <rect x="33" y="7" width="2" height="8" rx="1" fill="url(#barGrad)"/>
-          <rect x="37" y="5" width="2" height="10" rx="1" fill="url(#barGrad)"/>
-          <rect x="41" y="8" width="2" height="7" rx="1" fill="url(#barGrad)"/>
-        </g>
-      </g>
-      <rect x="8" y="37" width="39" height="3.8" rx="1.9" fill="#F4EFE5" opacity="0.9"/>
-      <rect x="8" y="43" width="31" height="3.8" rx="1.9" fill="#A89B8E" opacity="0.85"/>
-    </g>
-    <rect x="31" y="64" width="10" height="16" rx="3" fill="#2D231C"/>
-    <rect x="18" y="78" width="36" height="6" rx="3" fill="#201813"/>
-  </g>
-
   <!-- chair -->
-  <g transform="translate(60 142) rotate(-5)" filter="url(#soft)">
-    <ellipse cx="32" cy="58" rx="27" ry="8" fill="#000" opacity="0.18"/>
-    <rect x="17" y="0" width="34" height="50" rx="15" fill="url(#chairGrad)" stroke="#4D392D" stroke-width="1.3"/>
-    <rect x="10" y="36" width="44" height="16" rx="8" fill="url(#chairGrad)" stroke="#4D392D" stroke-width="1.1"/>
-    <rect x="30" y="50" width="8" height="22" rx="4" fill="#2A3037"/>
-    <path d="M34 70 L18 84 M34 70 L51 84 M34 70 L34 87" stroke="#2A3037" stroke-width="4.5" stroke-linecap="round"/>
-    <circle cx="18" cy="84" r="3.5" fill="#1B1E24"/><circle cx="51" cy="84" r="3.5" fill="#1B1E24"/><circle cx="34" cy="87" r="3.5" fill="#1B1E24"/>
+  <g transform="translate(85 142) rotate(-5)" filter="url(#soft)">
+    <ellipse cx="15" cy="58" rx="27" ry="8" fill="#000" opacity="0.18"/>
+    <!-- Spine connector -->
+    <path d="M15 55 L2 20" stroke="#1B1E24" stroke-width="8" stroke-linecap="round"/>
+    <!-- Backrest -->
+    <rect x="-8" y="0" width="26" height="46" rx="9" fill="url(#chairGrad)" stroke="#4D392D" stroke-width="1.3"/>
+    <!-- Seat -->
+    <rect x="-6" y="36" width="36" height="16" rx="8" fill="url(#chairGrad)" stroke="#4D392D" stroke-width="1.1"/>
+    <!-- Base column -->
+    <rect x="11" y="48" width="8" height="24" rx="4" fill="#2A3037"/>
+    <!-- Legs (side profile) -->
+    <path d="M15 70 L-5 84 M15 70 L25 84 M15 70 L15 87" stroke="#2A3037" stroke-width="4.5" stroke-linecap="round"/>
+    <!-- Wheels -->
+    <circle cx="-5" cy="84" r="3.5" fill="#1B1E24"/><circle cx="25" cy="84" r="3.5" fill="#1B1E24"/><circle cx="15" cy="87" r="3.5" fill="#1B1E24"/>
   </g>
 
   <!-- footstool -->
-  <g transform="translate(125 168)" filter="url(#shadow)">
-    <rect x="0" y="0" width="46" height="8" rx="3" fill="url(#stoolGrad)"/>
-    <path d="M8 8 L4 28 M38 8 L42 28" stroke="#1B1E24" stroke-width="3" stroke-linecap="round"/>
-    <ellipse cx="23" cy="4" rx="14" ry="4" fill="#000" opacity="0.3"/>
+  <g transform="translate(113 168)" filter="url(#shadow)">
+    <rect x="0" y="0" width="38" height="8" rx="3" fill="url(#stoolGrad)"/>
+    <path d="M8 8 L4 28 M30 8 L34 28" stroke="#1B1E24" stroke-width="3" stroke-linecap="round"/>
+    <ellipse cx="19" cy="4" rx="11" ry="4" fill="#000" opacity="0.3"/>
   </g>
 
   <!-- penguin -->
   <g transform="translate(100 135) rotate(-5)" filter="url(#shadow)">
     <!-- legs to stool -->
-    <path d="M18 22 C25 28 35 30 45 35" stroke="#121419" stroke-width="10" stroke-linecap="round" fill="none"/>
-    <path d="M12 28 C20 35 28 38 35 42" stroke="#181C22" stroke-width="9" stroke-linecap="round" fill="none"/>
+    <path d="M6 22 C13 28 23 30 33 35" stroke="#121419" stroke-width="10" stroke-linecap="round" fill="none"/>
+    <path d="M0 28 C8 35 16 38 23 42" stroke="#181C22" stroke-width="9" stroke-linecap="round" fill="none"/>
 
     <!-- flippers behind head -->
-    <path d="M-17 -18 C-36 -30 -37 -47 -28 -56 C-16 -49 -8 -35 -5 -22 Z" fill="#121419" stroke="#3A404A" stroke-width="1.5"/>
-    <path d="M5 -17 C20 -31 29 -44 38 -44 C39 -31 33 -21 17 -8 Z" fill="#121419" stroke="#3A404A" stroke-width="1.5"/>
+    <path d="M-23 -18 C-42 -30 -43 -47 -34 -56 C-22 -49 -14 -35 -11 -22 Z" fill="#121419" stroke="#3A404A" stroke-width="1.5"/>
+    <path d="M-7 -17 C8 -31 17 -44 26 -44 C27 -31 21 -21 5 -8 Z" fill="#121419" stroke="#3A404A" stroke-width="1.5"/>
 
     <!-- body and head -->
     <ellipse cx="0" cy="12" rx="31" ry="37" fill="url(#penguinBody)"/>
-    <ellipse cx="10" cy="6" rx="16" ry="22" fill="url(#penguinBelly)" opacity="0.96"/>
+    <ellipse cx="5" cy="6" rx="13" ry="22" fill="url(#penguinBelly)" opacity="0.96"/>
     <circle cx="-2" cy="-31" r="22" fill="url(#penguinBody)"/>
-    <path d="M5 -43 C15 -41 21 -32 19 -21 C9 -20 2 -25 0 -35 Z" fill="#F1ECE4"/>
-    <path d="M16 -34 L30 -31 L17 -24 Z" fill="#D39A4C" stroke="#8C553D" stroke-width="1"/>
+    <path d="M1 -43 C11 -41 16 -32 14 -21 C6 -20 -2 -25 -4 -35 Z" fill="#F1ECE4"/>
+    <!-- right eye -->
+    <ellipse cx="7.5" cy="-36.5" rx="1.8" ry="2.8" fill="#0B0806"/>
+    <circle cx="8" cy="-37.5" r="0.6" fill="#FFFFFF"/>
+    <!-- beak -->
+    <path d="M12 -34 L22 -31 L13 -24 Z" fill="#D39A4C" stroke="#8C553D" stroke-width="1"/>
 
     <!-- headset -->
-    <path d="M-20 -28 C-25 -45 -15 -58 0 -58 C15 -58 25 -45 20 -28" stroke="url(#headsetGrad)" stroke-width="4.5" fill="none" stroke-linecap="round"/>
-    <ellipse cx="-18" cy="-28" rx="4" ry="9" fill="#1A1F26" stroke="url(#headsetGrad)" stroke-width="1.5"/>
-    <ellipse cx="18" cy="-28" rx="4" ry="9" fill="#1A1F26" stroke="url(#headsetGrad)" stroke-width="1.5"/>
-    <path d="M18 -26 C25 -22 32 -18 35 -14" stroke="url(#headsetGrad)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-    <circle cx="35" cy="-14" r="3" fill="#53E2CD"/>
+    <path d="M-8 -56 C-14 -56 -20 -48 -20 -38 C-20 -28 -14 -20 -8 -20" stroke="url(#headsetGrad)" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <rect x="-14" y="-36" width="16" height="24" rx="6" fill="#1A1F26" stroke="url(#headsetGrad)" stroke-width="1.5"/>
+    <path d="M-8 -24 C0 -20 10 -16 16 -16" stroke="url(#headsetGrad)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <circle cx="16" cy="-16" r="3" fill="#53E2CD"/>
 
     <!-- feet on stool -->
-    <g transform="translate(48 33)">
-      <ellipse cx="0" cy="0" rx="13" ry="8.5" fill="#D39A4C" stroke="#8C553D" stroke-width="1.1"/>
-      <path d="M-8 2 L-8 6 M0 2 L0 7 M8 2 L8 6" stroke="#8C553D" stroke-width="1.1" stroke-linecap="round"/>
+    <g transform="translate(36 33)">
+      <ellipse cx="0" cy="0" rx="11" ry="6" fill="#D39A4C" stroke="#8C553D" stroke-width="1.1"/>
+      <path d="M-6 1.5 L-6 4.5 M0 1.5 L0 5 M6 1.5 L6 4.5" stroke="#8C553D" stroke-width="1.1" stroke-linecap="round"/>
     </g>
-    <g transform="translate(38 41)">
-      <ellipse cx="0" cy="0" rx="12" ry="8" fill="#D39A4C" stroke="#8C553D" stroke-width="1.1"/>
-      <path d="M-7 1.8 L-7 5.8 M0 2 L0 6.5 M7 1.8 L7 5.8" stroke="#8C553D" stroke-width="1.1" stroke-linecap="round"/>
+    <g transform="translate(26 41)">
+      <ellipse cx="0" cy="0" rx="10" ry="5.5" fill="#D39A4C" stroke="#8C553D" stroke-width="1.1"/>
+      <path d="M-5.5 1.5 L-5.5 4 M0 1.5 L0 4.5 M5.5 1.5 L5.5 4" stroke="#8C553D" stroke-width="1.1" stroke-linecap="round"/>
     </g>
   </g>
 
