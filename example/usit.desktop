@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=usit
+GenericName=Streaming Speech Input
+Comment=Streaming ASR with live revision for Linux
+Exec=usit
+Icon=usit
+Terminal=false
+Categories=Utility;AudioVideo;Accessibility;
+Keywords=speech;dictation;transcription;input;voice;
+StartupNotify=false
