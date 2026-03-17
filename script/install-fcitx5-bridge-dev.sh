@@ -8,6 +8,9 @@ lib_path="$build_dir/src/libusitbridge.so"
 conf_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fcitx5/addon"
 conf_path="$conf_dir/usitbridge.conf"
 library_field="${lib_path%.so}"
+app_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+launcher_template="$repo_dir/script/fcitx5-wayland-launcher.desktop.in"
+launcher_path="$app_dir/fcitx5-wayland-launcher.desktop"
 
 cmake -S "$bridge_dir" -B "$build_dir"
 cmake --build "$build_dir"
@@ -28,6 +31,16 @@ Configurable=False
 EOF
 
 echo "Wrote $conf_path"
+
+mkdir -p "$app_dir"
+cp "$launcher_template" "$launcher_path"
+echo "Installed $launcher_path"
+
+if command -v kbuildsycoca6 >/dev/null 2>&1; then
+    kbuildsycoca6 >/dev/null 2>&1 || true
+elif command -v kbuildsycoca5 >/dev/null 2>&1; then
+    kbuildsycoca5 >/dev/null 2>&1 || true
+fi
 
 if pgrep -x fcitx5 >/dev/null 2>&1; then
     fcitx5 -r >/dev/null 2>&1 &

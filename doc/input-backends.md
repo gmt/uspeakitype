@@ -56,6 +56,7 @@ Development posture:
 - build the addon with `script/install-fcitx5-bridge-dev.sh`
 - keep Plasma/KWin on the stock `Fcitx 5 Wayland Launcher`
 - register the addon by writing a user-local `usitbridge.conf` whose `Library=` points at the absolute build artifact
+- install a user-local `fcitx5-wayland-launcher.desktop` override so KDE's Virtual Keyboard list shows the `usit` icon without changing the launcher semantics
 
 Production posture:
 

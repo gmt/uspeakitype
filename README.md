@@ -77,6 +77,8 @@ That script:
 - builds `fcitx5-usit-bridge`
 - writes `~/.local/share/fcitx5/addon/usitbridge.conf`
 - points `Library=` at the absolute build artifact path
+- installs a local `fcitx5-wayland-launcher.desktop` override that keeps the `usit` icon visible in KDE's Virtual Keyboard list
+- refreshes KDE's desktop cache when `kbuildsycoca` is available
 - reloads `fcitx5` if it is already running
 
 This keeps development on the stock KDE/Plasma launcher path. No custom
