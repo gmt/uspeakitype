@@ -7,10 +7,10 @@ use std::collections::VecDeque;
 use std::path::Path;
 use std::time::Instant;
 
-use anyhow::{anyhow, ensure, Context, Result};
+use anyhow::{Context, Result, anyhow, ensure};
 use ndarray::{Array2, ArrayD, IxDyn};
-use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
+use ort::session::builder::GraphOptimizationLevel;
 use ort::value::Tensor;
 
 fn emit_load_probe(started_at: Instant, label: &str) {
@@ -179,17 +179,6 @@ impl SileroVad {
 
     pub fn is_speaking(&self) -> bool {
         is_speaking_state(self.current_state)
-    }
-
-    pub fn reset(&mut self) {
-        self.current_state = VadState::Silence;
-        self.frame_counter = 0;
-        self.sample_buffer.clear();
-
-        let state_array = ArrayD::<f32>::zeros(IxDyn(&[2, 1, 128]));
-        if let Ok(tensor) = Tensor::from_array(state_array) {
-            self.state_tensor = tensor;
-        }
     }
 
     fn step_state(&mut self, prob: f32) {

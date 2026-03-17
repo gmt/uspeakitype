@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use ndarray::{Array1, Array2, ArrayD, Axis, IxDyn};
-use ort::session::{builder::GraphOptimizationLevel, Session, SessionInputValue, SessionInputs};
+use ort::session::{Session, SessionInputValue, SessionInputs, builder::GraphOptimizationLevel};
 use ort::tensor::TensorElementType;
 use ort::value::Tensor;
 use ort::value::ValueType;
@@ -207,15 +207,6 @@ impl MoonshineStreamer {
         })
     }
 
-    /// Transcribe audio samples to text (one-shot, non-streaming).
-    ///
-    /// This resets internal state and uses the incremental decoder path,
-    /// which handles varying ONNX input naming conventions across exporters.
-    pub fn transcribe(&mut self, samples: &[f32]) -> Result<String> {
-        self.reset();
-        self.transcribe_incremental(samples)
-    }
-
     pub fn transcribe_incremental(&mut self, samples: &[f32]) -> Result<String> {
         if samples.is_empty() {
             return Ok(String::new());
@@ -284,7 +275,7 @@ impl MoonshineStreamer {
                 return Err(anyhow::anyhow!(
                     "unsupported encoder input rank: {} (expected 2 or 3)",
                     other
-                ))
+                ));
             }
         };
 
@@ -553,7 +544,7 @@ fn init_cache_tensors(
                 return Err(anyhow::anyhow!(
                     "decoder cache input is not a tensor: {}",
                     name
-                ))
+                ));
             }
         };
 
@@ -562,11 +553,7 @@ fn init_cache_tensors(
             .enumerate()
             .map(|(idx, d)| {
                 if *d < 0 {
-                    if idx == 0 {
-                        1
-                    } else {
-                        0
-                    }
+                    if idx == 0 { 1 } else { 0 }
                 } else {
                     *d as usize
                 }
@@ -688,7 +675,7 @@ mod tests {
     }
 
     fn build_toy_decoder() -> Session {
-        use ort::editor::{Graph, Model, Node, Opset, ONNX_DOMAIN};
+        use ort::editor::{Graph, Model, Node, ONNX_DOMAIN, Opset};
         use ort::tensor::{Shape, SymbolicDimensions, TensorElementType};
         use ort::value::{Outlet, ValueType};
 
@@ -771,10 +758,9 @@ mod tests {
                 eos_token_id: 2,
             },
             config: MoonshineConfig::default(),
-            past_cache: Some(vec![Tensor::from_array(ArrayD::<f32>::zeros(IxDyn(&[
-                1, 0,
-            ])))
-            .unwrap()]),
+            past_cache: Some(vec![
+                Tensor::from_array(ArrayD::<f32>::zeros(IxDyn(&[1, 0]))).unwrap(),
+            ]),
             cache_seq_len: 42,
             last_tokens: vec![1, 2, 3],
         };

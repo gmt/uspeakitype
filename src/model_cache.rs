@@ -174,8 +174,6 @@ pub enum IntegrityError {
     },
     /// File is suspiciously small (likely truncated)
     FileTooSmall { path: String, size: u64 },
-    /// ONNX file failed to load (structural corruption)
-    OnnxLoadFailed { path: String, error: String },
     /// Manifest version is unsupported
     UnsupportedManifestVersion(u32),
     /// Partial download file exists
@@ -214,9 +212,6 @@ impl std::fmt::Display for IntegrityError {
                     "file {} is too small ({} bytes), likely truncated",
                     path, size
                 )
-            }
-            Self::OnnxLoadFailed { path, error } => {
-                write!(f, "ONNX load failed for {}: {}", path, error)
             }
             Self::UnsupportedManifestVersion(v) => {
                 write!(f, "unsupported manifest version: {}", v)
@@ -688,32 +683,6 @@ pub fn prepare_for_activation(model_dir: &Path, model_id: AsrModelId) -> Activat
 }
 
 /// Get the priority order for model fallback
-pub fn fallback_order() -> Vec<AsrModelId> {
-    vec![
-        AsrModelId::MoonshineBase,
-        AsrModelId::MoonshineTiny,
-        AsrModelId::ParakeetTdt06bV3,
-    ]
-}
-
-/// Find cached models that are ready for activation (verified or unverified)
-pub fn find_cached_models(model_base_dir: &Path) -> Vec<AsrModelId> {
-    let mut available = Vec::new();
-
-    for &model_id in AsrModelId::all() {
-        let model_dir = model_base_dir.join(model_id.dir_name());
-        let status = check_integrity(&model_dir, model_id);
-        match status {
-            IntegrityStatus::Verified | IntegrityStatus::Unverified => {
-                available.push(model_id);
-            }
-            _ => {}
-        }
-    }
-
-    available
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -843,14 +812,6 @@ mod tests {
     }
 
     #[test]
-    fn test_fallback_order() {
-        let order = fallback_order();
-        assert_eq!(order[0], AsrModelId::MoonshineBase);
-        assert_eq!(order[1], AsrModelId::MoonshineTiny);
-        assert_eq!(order[2], AsrModelId::ParakeetTdt06bV3);
-    }
-
-    #[test]
     fn test_prepare_for_activation_cleans_stale_partial_downloads() {
         let temp_dir = TempDir::new().unwrap();
         let model_dir = temp_dir.path();
@@ -867,22 +828,6 @@ mod tests {
             ActivationResult::Success | ActivationResult::NeedsDownload
         ));
         assert!(!model_dir.join("stale.downloading").exists());
-    }
-
-    #[test]
-    fn test_find_cached_models_includes_newer_moonshine_variants() {
-        let temp_dir = TempDir::new().unwrap();
-        let model_dir = temp_dir.path();
-        let variant = AsrModelId::MoonshineTinyJapanese;
-        let asr_dir = model_dir.join(variant.dir_name());
-        fs::create_dir_all(&asr_dir).unwrap();
-        fs::write(asr_dir.join("encoder_model.onnx"), vec![0u8; 2048]).unwrap();
-        fs::write(asr_dir.join("decoder_model_merged.onnx"), vec![0u8; 2048]).unwrap();
-        fs::write(asr_dir.join("tokenizer.json"), b"{}").unwrap();
-
-        let cached = find_cached_models(model_dir);
-
-        assert!(cached.contains(&variant));
     }
 
     #[test]

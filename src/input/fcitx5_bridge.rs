@@ -212,10 +212,6 @@ impl Fcitx5BridgeInjector {
 }
 
 impl TextInjector for Fcitx5BridgeInjector {
-    fn name(&self) -> &'static str {
-        "fcitx5_bridge"
-    }
-
     fn inject(&mut self, text: &str) -> Result<()> {
         if text.is_empty() {
             return Ok(());

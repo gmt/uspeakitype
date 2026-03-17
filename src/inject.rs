@@ -4,7 +4,6 @@ use anyhow::Result;
 
 /// Trait for text injection backends.
 pub trait TextInjector {
-    fn name(&self) -> &'static str;
     fn inject(&mut self, text: &str) -> Result<()>;
 }
 

@@ -42,34 +42,6 @@ Interpretation:
 - these smell like hot-swap / state-reporting affordances we may want once
   model lifecycle and interposition get richer
 
-## 2. Legacy Utility Surface Worth Auditing
-
-These may be useful helpers, but they are not currently exercised by the rebuilt
-app and should be kept only if we can name the consumer.
-
-### `src/download.rs`
-
-- `ModelPaths::{silero_vad, asr_dir}`
-- `is_model_downloaded`
-- `available_models`
-
-### `src/model_cache.rs`
-
-- `IntegrityError::OnnxLoadFailed`
-- `fallback_order`
-- `find_cached_models`
-
-### `src/backend/moonshine.rs`
-
-- `transcribe`
-
-Interpretation:
-
-- these look like leftovers from broader model-management and batch-ish utility
-  APIs
-- they may still be useful for tooling or fallback work, but the rebuilt app is
-  currently using a narrower runtime path
-
 ## 3. Spectrum/Waterfall Parking Lot
 
 This is the single biggest warning cluster.
@@ -97,26 +69,13 @@ Recommendation:
 
 ## 4. Small Cleanup Candidates
 
-These are the easiest warnings to decide on and likely the best first cleanup
-targets.
+Completed:
 
-### `src/inject.rs`
+- removed the unused `inject::TextInjector::name` surface
+- removed the parked `SileroVad::reset`
+- removed the unused model/cache helper cluster from the old section 2
 
-- trait method `name`
-
-Likely choice:
-
-- remove if we no longer display/log backend names through the trait object
-- otherwise wire it into status text so it earns its keep
-
-### `src/audio/vad.rs`
-
-- `reset`
-
-Likely choice:
-
-- keep if model/session hot-reset is planned soon
-- otherwise remove for now and re-add when needed
+Still relevant here:
 
 ### `src/spectrum.rs`
 
@@ -128,15 +87,9 @@ Likely choice:
 
 ## 5. Suggested Cleanup Order
 
-1. Cheap certainty pass
-   - remove or wire tiny stragglers like `inject::TextInjector::name`
-   - remove obviously orphaned constants/helpers
-2. Model/cache audit
-   - decide which utility APIs are still part of the intended public/internal
-     shape
-3. Spectrum split
+1. Spectrum split
    - decide whether waterfall is next-tranche work or quarantine material
-4. Capture/control audit
+2. Capture/control audit
    - keep the richer audio control surface, but document which pieces are
      intentionally parked versus accidentally unused
 
