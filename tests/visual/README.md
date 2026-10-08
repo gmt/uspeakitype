@@ -44,14 +44,14 @@ sudo pacman -S mesa vulkan-tools
 
 ### On wlroots Compositor (Sway, Hyprland, River)
 
-Visual tests are marked with `#[ignore]` and require explicit `--ignored` flag to run:
+Visual tests are enabled; screenshot cases require a supported compositor. Run them serially:
 
 ```bash
 # Run all visual tests (single-threaded, required for screenshot capture)
-cargo test --release --test visual_tests -- --ignored --nocapture --test-threads=1
+cargo test --release --test visual_tests -- --nocapture --test-threads=1
 
 # Run specific test
-cargo test --release --test visual_tests -- test_demo_committed_hello --ignored --nocapture --test-threads=1
+cargo test --release --test visual_tests -- test_demo_committed_hello --nocapture --test-threads=1
 
 # Compile-only check (no execution)
 cargo test --test visual_tests --no-run
@@ -120,7 +120,7 @@ export XDG_CONFIG_HOME=$(mktemp -d)
 export USIT_CANONICAL_TEST_ENV=1
 
 # 8. Run tests
-cargo test --release --test visual_tests -- --ignored --nocapture --test-threads=1
+cargo test --release --test visual_tests -- --nocapture --test-threads=1
 
 # 9. Cleanup
 kill $SWAY_PID 2>/dev/null || true
@@ -152,7 +152,7 @@ export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
 vulkaninfo --summary 2>/dev/null | grep -q "lavapipe" || echo "WARNING: lavapipe not detected"
 
 # Run tests
-cargo test --release --test visual_tests -- --ignored --nocapture --test-threads=1
+cargo test --release --test visual_tests -- --nocapture --test-threads=1
 ```
 
 ### Example GitHub Actions Workflow
@@ -209,7 +209,7 @@ jobs:
           swaymsg output HEADLESS-1 resolution 1920x1080 scale 1 background "#000000" solid_color
           
           # Run tests
-          cargo test --release --test visual_tests -- --ignored --nocapture --test-threads=1
+          cargo test --release --test visual_tests -- --nocapture --test-threads=1
           
           # Cleanup
            kill $SWAY_PID 2>/dev/null || true
@@ -230,7 +230,7 @@ docker compose run visual-tests
 docker compose run shell
 
 # Run specific test
-docker compose run visual-tests cargo test --release --test visual_tests test_demo_partial_listening -- --ignored --nocapture
+docker compose run visual-tests cargo test --release --test visual_tests test_demo_partial_listening -- --nocapture
 ```
 
 ### Environment
@@ -345,7 +345,7 @@ grim --version
 **Debugging**:
 ```bash
 # Run with verbose output
-cargo test --release --test visual_tests -- --ignored --nocapture --test-threads=1 2>&1 | grep -A5 "distance"
+cargo test --release --test visual_tests -- --nocapture --test-threads=1 2>&1 | grep -A5 "distance"
 
 # Manually compare
 grim /tmp/current.png

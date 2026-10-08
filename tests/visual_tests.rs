@@ -81,6 +81,10 @@ fn test_hash_different() {
 #[serial]
 fn test_harness_spawn_and_capture() {
     if !visual::screenshot::screenshot_available() {
+        assert!(
+            !is_canonical(),
+            "Canonical compositor cannot capture screenshots"
+        );
         eprintln!("Skipping: {}", visual::screenshot::skip_reason());
         return;
     }
@@ -94,7 +98,7 @@ fn test_harness_spawn_and_capture() {
 
 /// Check if running in canonical test environment
 fn is_canonical() -> bool {
-    std::env::var("USIT_CANONICAL_TEST_ENV").is_ok()
+    std::env::var("USIT_CANONICAL_TEST_ENV").as_deref() == Ok("1")
 }
 
 /// Handle errors: fail in canonical, skip in non-canonical
@@ -157,38 +161,46 @@ fn overlay_region() -> (u32, u32, u32, u32) {
 }
 
 fn helper_status_region() -> (u32, u32, u32, u32) {
-    let (x, y, w, h) = overlay_region();
-    (x + 10, y + h.saturating_sub(58), w.saturating_sub(20), 22)
+    // Bottom-anchored 480px overlay with 24px output margin and 60px text panel.
+    (
+        740,
+        1080 - 24 - usit::ui::TEXT_PANEL_HEIGHT as u32 + 6,
+        440,
+        24,
+    )
 }
 
 fn text_panel_region() -> (u32, u32, u32, u32) {
-    let (x, y, w, h) = overlay_region();
-    (x + 10, y + h.saturating_sub(58), w.saturating_sub(20), 48)
+    (740, 1080 - 24 - usit::ui::TEXT_PANEL_HEIGHT as u32, 440, 58)
+}
+
+fn global_panel_rect() -> usit::ui::PanelRect {
+    use usit::ui::control_panel::{helper_panel_content_height, PANEL_MARGIN, PANEL_MAX_WIDTH};
+    let window_width = PANEL_MAX_WIDTH + 2.0 * PANEL_MARGIN;
+    let window_height = helper_panel_content_height(true) + 2.0 * PANEL_MARGIN;
+    let mut rect = usit::ui::PanelRect::for_window(window_width, window_height);
+    rect.x += (1920.0 - window_width) / 2.0;
+    rect.y += 1080.0 - 24.0 - window_height;
+    rect
 }
 
 fn control_panel_region() -> (u32, u32, u32, u32) {
-    let output_width = 1920u32;
-    let output_height = 1080u32;
-    let panel_width = 460u32;
-    let panel_height = 430u32;
-    let x = (output_width.saturating_sub(panel_width)) / 2;
-    let y = (output_height.saturating_sub(panel_height)) / 2;
+    let rect = global_panel_rect();
     (
-        x + 12,
-        y + 12,
-        panel_width.saturating_sub(24),
-        panel_height.saturating_sub(24),
+        rect.x as u32 + 12,
+        rect.y as u32 + 12,
+        rect.width as u32 - 24,
+        rect.height as u32 - 24,
     )
 }
 
 fn control_help_region() -> (u32, u32, u32, u32) {
-    let (x, y, w, h) = control_panel_region();
-    let help_height = 96u32.min(h / 3);
+    let rect = global_panel_rect().help_rect();
     (
-        x + 8,
-        y + h.saturating_sub(help_height + 8),
-        w.saturating_sub(16),
-        help_height,
+        rect.x as u32,
+        rect.y as u32,
+        rect.width as u32,
+        rect.height as u32,
     )
 }
 
@@ -213,14 +225,19 @@ fn region_hash_distance(path_a: &Path, path_b: &Path, region: (u32, u32, u32, u3
     hash_region(path_a, region).dist(&hash_region(path_b, region))
 }
 
-fn spawn_demo_overlay_state(
-    demo_overlay_state: &'static str,
+/// Only one overlay may be visible during a global compositor screenshot.
+fn capture_isolated_overlay(
+    args: &[&str],
     tag: &str,
-) -> anyhow::Result<visual::wgpu_harness::WgpuTestHarness> {
-    visual::wgpu_harness::WgpuTestHarness::spawn(
-        &["--demo", "--demo-overlay-state", demo_overlay_state],
-        tag,
-    )
+) -> anyhow::Result<(tempfile::TempDir, PathBuf)> {
+    let harness = visual::wgpu_harness::WgpuTestHarness::spawn(args, tag)?;
+    harness.wait_demo_milestone(3.0);
+    let captured = harness.capture(tag)?;
+    let directory = tempfile::tempdir()?;
+    let saved = directory.path().join("capture.png");
+    std::fs::copy(captured, &saved)?;
+    drop(harness);
+    Ok((directory, saved))
 }
 
 /// Test that opacity CLI flag actually affects rendering
@@ -242,27 +259,18 @@ fn test_opacity_directional() {
         .args(["output", "*", "background", "#FF1493", "solid_color"])
         .status();
 
-    // Capture at three opacity levels
-    let harness_75 = try_or_skip!(
-        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo", "--opacity", "0.75"], "opac_75"),
-        "spawn 0.75"
+    let (_dir_75, capture_75) = try_or_skip!(
+        capture_isolated_overlay(&["--demo", "--opacity", "0.75"], "opac_75"),
+        "capture 0.75"
     );
-    harness_75.wait_demo_milestone(3.0);
-    let capture_75 = try_or_skip!(harness_75.capture("opac_75"), "capture 0.75");
-
-    let harness_85 = try_or_skip!(
-        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo", "--opacity", "0.85"], "opac_85"),
-        "spawn 0.85"
+    let (_dir_85, capture_85) = try_or_skip!(
+        capture_isolated_overlay(&["--demo", "--opacity", "0.85"], "opac_85"),
+        "capture 0.85"
     );
-    harness_85.wait_demo_milestone(3.0);
-    let capture_85 = try_or_skip!(harness_85.capture("opac_85"), "capture 0.85");
-
-    let harness_95 = try_or_skip!(
-        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo", "--opacity", "0.95"], "opac_95"),
-        "spawn 0.95"
+    let (_dir_95, capture_95) = try_or_skip!(
+        capture_isolated_overlay(&["--demo", "--opacity", "0.95"], "opac_95"),
+        "capture 0.95"
     );
-    harness_95.wait_demo_milestone(3.0);
-    let capture_95 = try_or_skip!(harness_95.capture("opac_95"), "capture 0.95");
 
     // Load images for alpha measurement
     let image_75 = try_or_skip!(
@@ -328,29 +336,27 @@ fn test_wgpu_helper_modes_render_distinct_status_strip() {
         }
     }
 
-    let display = try_or_skip!(
-        spawn_demo_overlay_state("display", "helper_display"),
-        "spawn display"
+    let (_display_dir, display_capture) = try_or_skip!(
+        capture_isolated_overlay(
+            &["--demo", "--demo-overlay-state", "display"],
+            "helper_display"
+        ),
+        "capture display"
     );
-    let transcribe = try_or_skip!(
-        spawn_demo_overlay_state("transcribe", "helper_transcribe"),
-        "spawn transcribe"
-    );
-    let trusted = try_or_skip!(
-        spawn_demo_overlay_state("trusted", "helper_trusted"),
-        "spawn trusted"
-    );
-
-    display.wait_demo_milestone(3.0);
-    transcribe.wait_demo_milestone(3.0);
-    trusted.wait_demo_milestone(3.0);
-
-    let display_capture = try_or_skip!(display.capture("helper_display"), "capture display");
-    let transcribe_capture = try_or_skip!(
-        transcribe.capture("helper_transcribe"),
+    let (_transcribe_dir, transcribe_capture) = try_or_skip!(
+        capture_isolated_overlay(
+            &["--demo", "--demo-overlay-state", "transcribe"],
+            "helper_transcribe"
+        ),
         "capture transcribe"
     );
-    let trusted_capture = try_or_skip!(trusted.capture("helper_trusted"), "capture trusted");
+    let (_trusted_dir, trusted_capture) = try_or_skip!(
+        capture_isolated_overlay(
+            &["--demo", "--demo-overlay-state", "trusted"],
+            "helper_trusted"
+        ),
+        "capture trusted"
+    );
 
     let region = helper_status_region();
     let display_vs_transcribe = region_hash_distance(&display_capture, &transcribe_capture, region);
@@ -388,32 +394,24 @@ fn test_wgpu_download_and_error_states_render_distinct_text_panel() {
         }
     }
 
-    let trusted = try_or_skip!(
-        spawn_demo_overlay_state("trusted", "helper_trusted_baseline"),
-        "spawn trusted baseline"
+    let (_trusted_dir, trusted_capture) = try_or_skip!(
+        capture_isolated_overlay(
+            &["--demo", "--demo-overlay-state", "trusted"],
+            "helper_trusted_baseline"
+        ),
+        "capture trusted"
     );
-    let downloading = try_or_skip!(
-        spawn_demo_overlay_state("downloading", "helper_downloading"),
-        "spawn downloading"
-    );
-    let error = try_or_skip!(
-        spawn_demo_overlay_state("error", "helper_error"),
-        "spawn error"
-    );
-
-    trusted.wait_demo_milestone(3.0);
-    downloading.wait_demo_milestone(3.0);
-    error.wait_demo_milestone(3.0);
-
-    let trusted_capture = try_or_skip!(
-        trusted.capture("helper_trusted_baseline"),
-        "capture trusted baseline"
-    );
-    let downloading_capture = try_or_skip!(
-        downloading.capture("helper_downloading"),
+    let (_downloading_dir, downloading_capture) = try_or_skip!(
+        capture_isolated_overlay(
+            &["--demo", "--demo-overlay-state", "downloading"],
+            "helper_downloading"
+        ),
         "capture downloading"
     );
-    let error_capture = try_or_skip!(error.capture("helper_error"), "capture error");
+    let (_error_dir, error_capture) = try_or_skip!(
+        capture_isolated_overlay(&["--demo", "--demo-overlay-state", "error"], "helper_error"),
+        "capture error"
+    );
 
     let region = text_panel_region();
     let trusted_vs_downloading =
@@ -452,23 +450,14 @@ fn test_wgpu_open_panel_renders_distinct_shell_regions() {
         }
     }
 
-    let closed = try_or_skip!(
-        visual::wgpu_harness::WgpuTestHarness::spawn(&["--demo"], "helper_panel_closed"),
-        "spawn closed"
+    let (_closed_dir, closed_capture) = try_or_skip!(
+        capture_isolated_overlay(&["--demo"], "helper_panel_closed"),
+        "capture closed"
     );
-    let open = try_or_skip!(
-        visual::wgpu_harness::WgpuTestHarness::spawn(
-            &["--demo", "--demo-open-panel"],
-            "helper_panel_open"
-        ),
-        "spawn open"
+    let (_open_dir, open_capture) = try_or_skip!(
+        capture_isolated_overlay(&["--demo", "--demo-open-panel"], "helper_panel_open"),
+        "capture open"
     );
-
-    closed.wait_demo_milestone(3.0);
-    open.wait_demo_milestone(3.0);
-
-    let closed_capture = try_or_skip!(closed.capture("helper_panel_closed"), "capture closed");
-    let open_capture = try_or_skip!(open.capture("helper_panel_open"), "capture open");
 
     let panel_distance =
         region_hash_distance(&closed_capture, &open_capture, control_panel_region());
@@ -774,6 +763,11 @@ fn test_wgpu_control_panel_full() {
             return;
         }
     }
+
+    // Keep this golden independent of preceding opacity tests' pink background.
+    let _ = std::process::Command::new("swaymsg")
+        .args(["output", "*", "background", "#000000", "solid_color"])
+        .status();
 
     let harness = try_or_skip!(
         visual::wgpu_harness::WgpuTestHarness::spawn(

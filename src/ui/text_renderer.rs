@@ -18,6 +18,7 @@ pub struct PanelTextLine {
     pub y: f32,
     pub color: Color,
     pub font_size: f32,
+    pub width: Option<f32>,
 }
 
 pub struct TextRenderer {
@@ -319,7 +320,9 @@ impl TextRenderer {
                 &mut self.font_system,
                 Metrics::new(line.font_size, line_height),
             );
-            self.panel_buffers[i].set_size(&mut self.font_system, Some(panel_width), None);
+            let available_width = (bounds.right as f32 - line.x).max(1.0);
+            let width = line.width.unwrap_or(panel_width).min(available_width);
+            self.panel_buffers[i].set_size(&mut self.font_system, Some(width), None);
             self.panel_buffers[i].set_text(
                 &mut self.font_system,
                 &line.text,
@@ -403,6 +406,7 @@ impl TextRenderer {
         area_width: u32,
         padding: f32,
         transcript_bounds: TextBounds,
+        status_bounds: TextBounds,
         is_error: bool,
     ) {
         let theme_wgpu = self.theme.to_wgpu();
@@ -416,7 +420,7 @@ impl TextRenderer {
             );
             self.panel_buffers[i].set_size(
                 &mut self.font_system,
-                Some(self.size.width as f32),
+                Some((status_bounds.right as f32 - line.x).max(1.0)),
                 None,
             );
             self.panel_buffers[i].set_text(
@@ -467,7 +471,7 @@ impl TextRenderer {
                     left: line.x,
                     top: line.y,
                     scale: 1.0,
-                    bounds: transcript_bounds,
+                    bounds: status_bounds,
                     default_color: line.color,
                     custom_glyphs: &[],
                 }

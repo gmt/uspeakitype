@@ -18,8 +18,9 @@ echo "  WLR_RENDERER=$WLR_RENDERER"
 
 # Start headless Sway
 echo "Starting headless Sway..."
-sway -d 2>/dev/null &
+sway -d > /tmp/usit-sway.log 2>&1 &
 SWAY_PID=$!
+trap 'kill "$SWAY_PID" 2>/dev/null || true' EXIT
 
 # Wait for Sway to initialize
 sleep 2
@@ -28,6 +29,7 @@ sleep 2
 WAYLAND_SOCKET=$(ls "$XDG_RUNTIME_DIR"/wayland-* 2>/dev/null | head -1 | xargs basename)
 if [ -z "$WAYLAND_SOCKET" ]; then
     echo "ERROR: Wayland socket not found in $XDG_RUNTIME_DIR"
+    cat /tmp/usit-sway.log
     exit 1
 fi
 export WAYLAND_DISPLAY="$WAYLAND_SOCKET"

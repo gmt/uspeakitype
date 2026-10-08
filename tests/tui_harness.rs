@@ -15,6 +15,7 @@ pub struct TuiTestHarness {
     slave: Box<dyn portable_pty::SlavePty>,
     child: Option<Box<dyn portable_pty::Child>>,
     parser: Parser,
+    config_dir: tempfile::TempDir,
 }
 
 impl TuiTestHarness {
@@ -39,6 +40,7 @@ impl TuiTestHarness {
             slave: pty_pair.slave,
             child: None,
             parser,
+            config_dir: tempfile::tempdir()?,
         })
     }
 
@@ -46,6 +48,7 @@ impl TuiTestHarness {
     pub fn spawn(&mut self, args: &[&str]) -> anyhow::Result<()> {
         let exe_path = env!("CARGO_BIN_EXE_usit");
         let mut cmd = CommandBuilder::new(exe_path);
+        cmd.env("XDG_CONFIG_HOME", self.config_dir.path());
 
         for arg in args {
             cmd.arg(arg);

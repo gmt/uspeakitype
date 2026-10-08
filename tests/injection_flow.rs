@@ -120,45 +120,18 @@ fn test_injection_with_cloned_sender() {
     assert_eq!(texts[0], "From worker");
 }
 
-/// Test verifying the actual InputMethodInjector can be used in the channel flow
-/// This test will fail in environments without Wayland, which is expected.
-/// The key thing is to verify the channel mechanics work.
+/// Disabled injection must select no backend without accessing the desktop.
 #[test]
 fn test_injection_channel_with_real_backend_selection() {
     use usit::input::select_backend;
 
-    let (injection_tx, injection_rx) = mpsc::channel::<String>();
-
-    // Try to get a real backend (will likely fail without proper environment)
-    // We disable all backends to force None, simulating display-only mode
     let disabled = vec![
         "input_method".to_string(),
+        "fcitx5_bridge".to_string(),
         "wrtype".to_string(),
         "ydotool".to_string(),
     ];
-
-    let injector_handle = std::thread::spawn(move || {
-        let injector = select_backend(&disabled, false);
-
-        if injector.is_none() {
-            // Display-only mode - thread exits immediately (as in main.rs)
-            eprintln!("No backend available (expected in test environment)");
-            return;
-        }
-
-        let mut injector = injector.unwrap();
-        while let Ok(text) = injection_rx.recv() {
-            let _ = injector.inject(&text);
-        }
-    });
-
-    // Send text - should not panic even if backend unavailable
-    let _ = injection_tx.send("Test text".to_string());
-
-    std::thread::sleep(Duration::from_millis(50));
-    drop(injection_tx);
-
-    injector_handle.join().expect("Injector thread panicked");
+    assert!(select_backend(&disabled, false).is_none());
 }
 
 /// Test that simulates the exact streaming worker flow from main.rs
@@ -284,10 +257,13 @@ fn test_ctrlc_handler_with_injection_flow() {
     assert_eq!(texts[0], "Test while running");
 }
 
-/// Test the InputMethodInjector can be created (if Wayland is available)
-/// This test will skip gracefully if not in a Wayland environment
+/// Create an input method only on the isolated canonical compositor.
 #[test]
 fn test_input_method_injector_creation() {
+    if std::env::var("USIT_CANONICAL_TEST_ENV").as_deref() != Ok("1") {
+        eprintln!("Skipping: requires isolated Docker compositor");
+        return;
+    }
     use usit::input::InputMethodInjector;
 
     match InputMethodInjector::new() {
@@ -301,8 +277,7 @@ fn test_input_method_injector_creation() {
             assert_eq!(boxed.name(), "input_method");
         }
         Err(e) => {
-            // Expected in non-Wayland environments
-            eprintln!("Skipping (no Wayland): {}", e);
+            panic!("Isolated compositor must support input method: {}", e);
         }
     }
 }

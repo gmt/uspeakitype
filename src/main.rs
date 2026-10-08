@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use clap::{Parser, ValueEnum};
+use clap::{CommandFactory, FromArgMatches, Parser, ValueEnum};
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton,
     MouseEventKind,
@@ -282,7 +282,9 @@ enum AnsiCharset {
 #[command(name = "usit")]
 #[command(about = "Streaming speech-to-text with live revision")]
 #[command(next_line_help = false, term_width = 0)]
-#[command(after_help = "Keybindings: Space=pause, w=viz toggle, c=control panel, q/Esc=quit")]
+#[command(
+    after_help = "Keybindings: Space=pause, w=viz toggle, c=control panel, s=save settings, q/Esc=quit"
+)]
 struct Args {
     #[arg(long, help = "Text-only output, no visualization")]
     headless: bool,
@@ -316,6 +318,25 @@ struct Args {
 
     #[arg(long, help = "Terminal UI mode (instead of graphical overlay)")]
     ansi: bool,
+
+    #[arg(long, conflicts_with_all = ["ansi", "headless", "ansi_sweep"], help = "Use the Qt Quick graphical interface")]
+    qt: bool,
+
+    #[arg(
+        long,
+        help = "Start with text injection disabled (can be enabled in the UI)"
+    )]
+    no_inject: bool,
+
+    #[arg(long, help = "Manual software gain, used when automatic gain is off")]
+    gain: Option<f32>,
+
+    #[arg(
+        long,
+        hide = true,
+        help = "Exit after a bounded number of seconds for smoke testing"
+    )]
+    run_for_seconds: Option<u64>,
 
     #[arg(long, help = "Spectrogram width in characters")]
     ansi_width: Option<usize>,
@@ -728,10 +749,41 @@ fn run_fireworks_test() -> anyhow::Result<()> {
 }
 
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+    let matches = Args::command().get_matches();
+    let mut args = Args::from_arg_matches(&matches)?;
     let is_tui = args.headless || args.ansi || args.ansi_sweep;
     usit::logging::init(is_tui)?;
-    let config = Config::load_or_default();
+    let mut config = Config::load_or_default();
+    // Clap knows whether a default-looking value was explicitly supplied.
+    if matches.value_source("model") != Some(clap::parser::ValueSource::CommandLine) {
+        args.model = config.model;
+    }
+    if matches.value_source("style") != Some(clap::parser::ValueSource::CommandLine) {
+        args.style =
+            SpectrogramStyle::from_str(&config.style, true).unwrap_or(SpectrogramStyle::Bars);
+    }
+    if matches.value_source("color") != Some(clap::parser::ValueSource::CommandLine) {
+        args.color =
+            ColorSchemeName::from_str(&config.color, true).unwrap_or(ColorSchemeName::Flame);
+    }
+    if matches.value_source("opacity") != Some(clap::parser::ValueSource::CommandLine) {
+        args.opacity = config.opacity;
+    }
+    config.model = args.model;
+
+    if let Some(gain) = args.gain {
+        anyhow::ensure!(
+            gain.is_finite() && (0.0..=2.0).contains(&gain),
+            "gain must be between 0.0 and 2.0"
+        );
+        config.gain = gain;
+    }
+    if args.auto_gain {
+        config.auto_gain = true;
+    }
+    if args.no_inject {
+        config.injection_enabled = false;
+    }
 
     if args.test_fireworks {
         return run_fireworks_test();
@@ -876,7 +928,7 @@ fn main() -> anyhow::Result<()> {
 
     // Model activation with fallback - non-fatal on failure
     // Phase 2: Non-blocking startup with designated driver
-    let (streaming_transcriber, transcription_available): (
+    let (streaming_transcriber, _transcription_available): (
         Option<streaming::DefaultStreamingTranscriber>,
         bool,
     ) = if args.demo || args.ansi_sweep {
@@ -884,11 +936,7 @@ fn main() -> anyhow::Result<()> {
         (None, false)
     } else {
         log::info!("Loading models from {:?}...", model_dir);
-        let resolved_model = if args.model != AsrModelId::default() {
-            args.model
-        } else {
-            config.model
-        };
+        let resolved_model = args.model;
 
         // Set as requested model
         audio_state.write().requested_model = Some(resolved_model);
@@ -1006,72 +1054,74 @@ fn main() -> anyhow::Result<()> {
     let _download_cancel_for_worker = download_cancel.clone();
     let download_cancel_for_overlay = download_cancel.clone();
 
-    // Extract before spawn (args used after spawn, can't move)
-    let backend_disable = args.backend_disable.clone();
+    // Register an input backend only when a real model has produced a commit.
+    // This also permits activation after an asynchronous model download.
+    let backend_disable = normalize_backend_names(&args.backend_disable);
     let autostart_ydotoold = args.autostart_ydotoold;
-    let is_tui = args.headless || args.ansi || args.ansi_sweep;
-
-    // Spawn injector thread - handle stored so we can join on shutdown
-    // to ensure proper Wayland IME cleanup (Drop runs before process exit)
-    //
-    // IMPORTANT: If transcription is not available, we do NOT register as an input device.
-    // This ensures we never break the user's input system when models fail to load.
+    let skip_input_method = args.headless || args.ansi || args.ansi_sweep || args.qt;
+    let injection_state = audio_state.clone();
+    let injection_running = running.clone();
+    let is_demo = args.demo || args.ansi_sweep;
     let injector_handle = std::thread::spawn(move || {
         use usit::input::{find_ydotool_socket, select_backend, TextInjector};
-
-        // If no transcription is available, skip input injection entirely.
-        // This ensures we don't register as an input device when we can't transcribe.
-        if !transcription_available {
-            log::info!("Input injection: disabled (no transcription model available)");
-            // Still consume the channel to prevent sender blocking
-            while injection_rx.recv().is_ok() {}
-            return;
-        }
-
-        // 1. Normalize backend-disable list
-        let disabled = normalize_backend_names(&backend_disable);
-
-        // 2. Handle --autostart-ydotoold BEFORE selection
-        if autostart_ydotoold && find_ydotool_socket().is_none() {
-            log::info!("Starting ydotoold daemon...");
-            let _ = std::process::Command::new("ydotoold").spawn();
-            std::thread::sleep(std::time::Duration::from_millis(500));
-
-            // Re-check socket existence once after wait
-            if find_ydotool_socket().is_none() {
-                log::warn!("ydotoold started but socket still not found");
-                log::warn!("ydotool backend may fail during probe");
+        let mut injector: Option<Box<dyn TextInjector>> = None;
+        let mut last_probe: Option<Instant> = None;
+        while injection_running.load(Ordering::Relaxed) {
+            let text = match injection_rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(text) => text,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            };
+            let state = injection_state.read();
+            let permitted = !is_demo
+                && state.transcription_available
+                && state.injection_enabled
+                && !state.is_paused;
+            drop(state);
+            if !permitted {
+                continue;
+            }
+            if injector.is_none() {
+                if last_probe.is_some_and(|last| last.elapsed() < Duration::from_secs(5)) {
+                    continue;
+                }
+                last_probe = Some(Instant::now());
+                if autostart_ydotoold && find_ydotool_socket().is_none() {
+                    let _ = std::process::Command::new("systemctl")
+                        .args(["--user", "start", "ydotool.service"])
+                        .status();
+                }
+                injector = select_backend(&backend_disable, skip_input_method);
+                if let Some(ref selected) = injector {
+                    log::info!("Input injection: {}", selected.name());
+                } else {
+                    log::warn!("Input injection unavailable; transcript remains visible");
+                }
+            }
+            // A backend probe can take time; honor pause/disable changes made meanwhile.
+            let state = injection_state.read();
+            let still_permitted = state.transcription_available
+                && state.injection_enabled
+                && !state.is_paused
+                && injection_running.load(Ordering::Relaxed);
+            drop(state);
+            if !still_permitted {
+                continue;
+            }
+            if let Some(ref mut selected) = injector {
+                if let Err(error) = selected.inject(&text) {
+                    log::error!("Injection error: {error}");
+                }
             }
         }
-
-        // 3. Select backend with normalized disabled list
-        let mut injector: Box<dyn TextInjector> = match select_backend(&disabled, is_tui) {
-            Some(inj) => {
-                log::info!("Input injection: {}", inj.name());
-                inj
-            }
-            None => {
-                log::info!("Input injection: unavailable (display-only mode)");
-                return;
-            }
-        };
-
-        // 4. Run injection loop - exits when channel closes (sender dropped)
-        while let Ok(text) = injection_rx.recv() {
-            if let Err(e) = injector.inject(&text) {
-                log::error!("Injection error: {}", e);
-            }
-        }
-        // injector drops here, triggering IME cleanup
-        log::debug!("Injector thread exiting");
     });
 
     let (capture_control, _capture_handle): (Option<Arc<CaptureControl>>, Option<AudioCapture>) =
         if args.demo || args.ansi_sweep {
             if args.ansi_sweep {
-                run_sweep_audio(audio_state.clone());
+                run_sweep_audio(audio_state.clone(), running.clone());
             } else {
-                run_demo_audio(audio_state.clone(), injection_tx.clone());
+                run_demo_audio(audio_state.clone(), injection_tx.clone(), running.clone());
             }
             (None, None)
         } else {
@@ -1093,6 +1143,7 @@ fn main() -> anyhow::Result<()> {
             )?;
 
             let control = capture.control().clone();
+            control.set_manual_gain(config.gain);
 
             if auto_gain {
                 audio_state.write().auto_gain_enabled = true;
@@ -1110,7 +1161,7 @@ fn main() -> anyhow::Result<()> {
 
     // Spawn streaming worker - handles audio processing and model swaps
     // Runs even without initial transcriber to handle download events and late activation
-    {
+    let worker_handle = {
         use streaming::StreamEvent;
         let audio_state_for_worker = audio_state.clone();
         let injection_tx_for_worker = injection_tx.clone();
@@ -1335,20 +1386,28 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
+        })
+    };
+
+    if let Some(seconds) = args.run_for_seconds {
+        let running = running.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(seconds));
+            running.store(false, Ordering::Relaxed);
         });
     }
 
-    if args.headless || args.ansi {
+    let frontend_result = if args.headless || args.ansi || args.ansi_sweep {
         run_terminal_loop(
-            audio_state,
-            running,
+            audio_state.clone(),
+            running.clone(),
             &args,
             &config,
             capture_control.as_ref(),
             model_swap_tx,
             download_cancel,
             download_cmd_tx_for_tui,
-        )?;
+        )
     } else {
         let style = args.style;
         let mode = match style {
@@ -1391,13 +1450,28 @@ fn main() -> anyhow::Result<()> {
             }),
         };
 
-        ui::run(
-            audio_state,
-            running,
-            capture_control,
-            overlay_options,
-            args.tag.clone(),
-        );
+        if args.qt {
+            ui::qt_external::run(
+                audio_state.clone(),
+                running.clone(),
+                capture_control.clone(),
+                overlay_options,
+                args.tag.clone(),
+            )
+        } else {
+            ui::run(
+                audio_state.clone(),
+                running.clone(),
+                capture_control.clone(),
+                overlay_options,
+                args.tag.clone(),
+            );
+            Ok(())
+        }
+    };
+    running.store(false, Ordering::Relaxed);
+    if let Some(control) = capture_control {
+        control.stop();
     }
 
     // Graceful shutdown cascade:
@@ -1414,23 +1488,27 @@ fn main() -> anyhow::Result<()> {
 
     drop(_capture_handle);
     drop(audio_tx);
+    if worker_handle.join().is_err() {
+        log::warn!("Streaming worker thread panicked");
+    }
     drop(injection_tx);
     log::debug!("Waiting for injector thread...");
     if injector_handle.join().is_err() {
         log::warn!("Injector thread panicked");
     }
 
-    Ok(())
+    frontend_result
 }
 
 fn run_demo_audio(
     audio_state: ui::SharedAudioState,
     injection_tx: std::sync::mpsc::Sender<String>,
+    running: Arc<AtomicBool>,
 ) {
     std::thread::spawn(move || {
         let mut t = 0.0f32;
 
-        loop {
+        while running.load(Ordering::Relaxed) {
             std::thread::sleep(Duration::from_millis(16));
 
             let mut samples = vec![0.0f32; 512];
@@ -1479,13 +1557,13 @@ fn run_demo_audio(
     });
 }
 
-fn run_sweep_audio(audio_state: ui::SharedAudioState) {
+fn run_sweep_audio(audio_state: ui::SharedAudioState, running: Arc<AtomicBool>) {
     std::thread::spawn(move || {
         let sample_rate = 16000.0f32;
         let mut t = 0.0f32;
         let mut phase = 0.0f32;
 
-        loop {
+        while running.load(Ordering::Relaxed) {
             std::thread::sleep(Duration::from_millis(16));
 
             let mut samples = vec![0.0f32; 512];
@@ -1710,7 +1788,7 @@ fn run_terminal_loop(
     download_cancel: Arc<std::sync::atomic::AtomicBool>,
     download_cmd_tx: std::sync::mpsc::Sender<DownloadCommand>,
 ) -> anyhow::Result<()> {
-    if !args.ansi {
+    if !args.ansi && !args.ansi_sweep {
         return run_headless_text(audio_state, running);
     }
 
@@ -1789,6 +1867,18 @@ fn run_terminal_loop(
                 match event::read()? {
                     Event::Key(key) => {
                         if key.kind == KeyEventKind::Press {
+                            if key.code == KeyCode::Char('s') {
+                                let snapshot = build_config_from_state(
+                                    &control_panel,
+                                    &audio_state,
+                                    persisted_source.clone(),
+                                    persisted_model_dir.clone(),
+                                );
+                                if let Err(error) = snapshot.save(&config_path) {
+                                    log::error!("Save settings failed: {error}");
+                                }
+                                continue;
+                            }
                             if control_panel.is_open {
                                 match key.code {
                                     KeyCode::Char('q') => {
@@ -1826,6 +1916,9 @@ fn run_terminal_loop(
                                             control_panel.toggle_agc();
                                             let mut state = audio_state.write();
                                             control_panel.apply_agc(&mut state);
+                                            if let Some(ctrl) = capture_control {
+                                                control_panel.apply_capture_settings(ctrl);
+                                            }
                                         }
                                         Some(ui::control_panel::Control::InjectionToggle) => {
                                             let mut state = audio_state.write();
@@ -1861,6 +1954,9 @@ fn run_terminal_loop(
                                             control_panel.set_gain(new_gain);
                                             let mut state = audio_state.write();
                                             control_panel.apply_gain(&mut state);
+                                            if let Some(ctrl) = capture_control {
+                                                control_panel.apply_capture_settings(ctrl);
+                                            }
                                         }
                                         Some(ui::control_panel::Control::ModelSelector) => {
                                             let is_downloading =
@@ -1931,13 +2027,12 @@ fn run_terminal_loop(
                                         visualizer.toggle_mode();
                                         control_panel.toggle_viz_mode();
                                     }
-                                    KeyCode::Char('c') | KeyCode::Char('C') => {
+                                    KeyCode::Char('c') | KeyCode::Char('C')
                                         if visualizer.layout_mode()
-                                            != ui::terminal::LayoutMode::Degenerate
-                                        {
-                                            control_panel.toggle_open_for_surface(false);
-                                            visualizer.set_panel_open(control_panel.is_open);
-                                        }
+                                            != ui::terminal::LayoutMode::Degenerate =>
+                                    {
+                                        control_panel.toggle_open_for_surface(false);
+                                        visualizer.set_panel_open(control_panel.is_open);
                                     }
                                     _ => {}
                                 }
@@ -1998,6 +2093,9 @@ fn run_terminal_loop(
                                         control_panel.toggle_agc();
                                         let mut state = audio_state.write();
                                         control_panel.apply_agc(&mut state);
+                                        if let Some(ctrl) = capture_control {
+                                            control_panel.apply_capture_settings(ctrl);
+                                        }
                                     }
                                     ui::control_panel::Control::InjectionToggle => {
                                         let mut state = audio_state.write();
@@ -2031,6 +2129,9 @@ fn run_terminal_loop(
                                         control_panel.set_gain(new_gain);
                                         let mut state = audio_state.write();
                                         control_panel.apply_gain(&mut state);
+                                        if let Some(ctrl) = capture_control {
+                                            control_panel.apply_capture_settings(ctrl);
+                                        }
                                     }
                                     ui::control_panel::Control::ModelSelector => {
                                         let is_downloading =
@@ -2227,6 +2328,10 @@ mod tests {
             auto_gain: false,
             list_sources: false,
             ansi: false,
+            qt: false,
+            no_inject: false,
+            gain: None,
+            run_for_seconds: None,
             ansi_width: None,
             ansi_height: None,
             ansi_charset: AnsiCharset::Auto,

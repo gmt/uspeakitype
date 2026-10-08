@@ -80,9 +80,9 @@ void UsitBridgeController::commitString(const std::string &text) {
     }
 
     auto *ic = bridge_->instance()->mostRecentInputContext();
-    if (!ic) {
-        USITBRIDGE_ERROR() << "No input context available";
-        return;
+    if (!ic || !ic->hasFocus()) {
+        throw dbus::MethodCallError("org.fcitx.Fcitx5.UsitBridge1.NoFocus",
+                                    "No focused input context available");
     }
 
     USITBRIDGE_INFO() << "Committing string: " << text.size() << " bytes";
@@ -91,7 +91,7 @@ void UsitBridgeController::commitString(const std::string &text) {
 
 bool UsitBridgeController::isActive() {
     auto *ic = bridge_->instance()->mostRecentInputContext();
-    return ic != nullptr;
+    return ic && ic->hasFocus();
 }
 
 class UsitBridgeFactory : public AddonFactory {

@@ -65,6 +65,7 @@ pub struct CaptureControl {
     pub paused: AtomicBool,
     pub auto_gain_enabled: AtomicBool,
     pub current_gain: std::sync::atomic::AtomicU32,
+    manual_gain: AtomicU32,
     running: AtomicBool,
     sample_rate: AtomicU32,
     channels: AtomicU32,
@@ -76,6 +77,7 @@ impl CaptureControl {
             paused: AtomicBool::new(false),
             auto_gain_enabled: AtomicBool::new(false),
             current_gain: AtomicU32::new(f32::to_bits(1.0)),
+            manual_gain: AtomicU32::new(f32::to_bits(1.0)),
             running: AtomicBool::new(true),
             sample_rate: AtomicU32::new(0),
             channels: AtomicU32::new(0),
@@ -109,6 +111,18 @@ impl CaptureControl {
 
     pub fn get_current_gain(&self) -> f32 {
         f32::from_bits(self.current_gain.load(Ordering::Relaxed))
+    }
+
+    /// Set the user gain retained while AGC temporarily owns the effective gain.
+    pub fn set_manual_gain(&self, gain: f32) {
+        if gain.is_finite() {
+            self.manual_gain
+                .store(gain.clamp(0.0, 2.0).to_bits(), Ordering::Relaxed);
+        }
+    }
+
+    pub fn get_manual_gain(&self) -> f32 {
+        f32::from_bits(self.manual_gain.load(Ordering::Relaxed))
     }
 
     fn set_current_gain(&self, gain: f32) {
@@ -501,6 +515,11 @@ fn apply_auto_gain(
     limiter: &mut SoftLimiter,
 ) {
     if !control.is_auto_gain_enabled() {
+        let gain = control.get_manual_gain();
+        for sample in samples {
+            *sample *= gain;
+        }
+        control.set_current_gain(gain);
         return;
     }
 
@@ -902,6 +921,30 @@ pub fn list_audio_sources() -> Result<Vec<AudioSource>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manual_gain_applies_to_samples_and_survives_agc() {
+        let control = CaptureControl::new();
+        control.set_manual_gain(1.5);
+        control.set_auto_gain(true);
+        control.set_current_gain(20.0);
+        control.set_auto_gain(false);
+        let mut samples = [0.1, -0.2, 0.0];
+        apply_auto_gain(
+            &mut samples,
+            &control,
+            &mut SpeechAgc::new(AgcConfig::default()),
+            &mut HighPassFilter::new(100.0, 16000.0),
+            &mut BandpassFilter::new(16000.0),
+            &mut SoftLimiter::default(),
+        );
+        assert!((samples[0] - 0.15).abs() < 1e-6);
+        assert!((samples[1] + 0.3).abs() < 1e-6);
+        assert_eq!(control.get_current_gain(), 1.5);
+        assert_eq!(control.get_manual_gain(), 1.5);
+        control.set_manual_gain(f32::NAN);
+        assert_eq!(control.get_manual_gain(), 1.5);
+    }
 
     #[test]
     fn capture_control_default_state() {

@@ -4,3 +4,5 @@
 /.sisyphus/
 /.vscode
 .mcp.json
+
+/test-output/

@@ -41,26 +41,17 @@ fn default_model_dir() -> PathBuf {
 /// The audio says "Hey it's me, I'm saying words" so we verify
 /// the transcription contains at least some of those words.
 #[test]
-#[ignore] // requires downloaded models - run with: cargo test --test transcription -- --ignored
+#[ignore = "requires cached moonshine-base ONNX model; run explicitly with --ignored"]
 fn test_moonshine_transcribes_speech_sample() {
     use usit::backend::MoonshineStreamer;
 
     let model_dir = default_model_dir().join("moonshine-base");
-    if !model_dir.exists() {
-        eprintln!("Skipping: model not found at {}", model_dir.display());
-        return;
-    }
+    assert!(model_dir.is_dir(), "model missing: {}", model_dir.display());
 
     let wav_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/audio/speech_sample.wav");
     let samples = read_wav(&wav_path).expect("failed to read WAV");
 
-    let mut streamer = match MoonshineStreamer::new(&model_dir) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Skipping: failed to load model: {}", e);
-            return;
-        }
-    };
+    let mut streamer = MoonshineStreamer::new(&model_dir).expect("load Moonshine model");
 
     // Process in 1-second chunks (like wav_stream does)
     let chunk_size = 16000; // 1 second at 16kHz
@@ -108,26 +99,17 @@ fn test_moonshine_transcribes_speech_sample() {
 
 /// Same test but with moonshine-tiny (faster, less accurate)
 #[test]
-#[ignore]
+#[ignore = "requires cached moonshine-tiny ONNX model; run explicitly with --ignored"]
 fn test_moonshine_tiny_transcribes_speech_sample() {
     use usit::backend::MoonshineStreamer;
 
     let model_dir = default_model_dir().join("moonshine-tiny");
-    if !model_dir.exists() {
-        eprintln!("Skipping: model not found at {}", model_dir.display());
-        return;
-    }
+    assert!(model_dir.is_dir(), "model missing: {}", model_dir.display());
 
     let wav_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/audio/speech_sample.wav");
     let samples = read_wav(&wav_path).expect("failed to read WAV");
 
-    let mut streamer = match MoonshineStreamer::new(&model_dir) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Skipping: failed to load model: {}", e);
-            return;
-        }
-    };
+    let mut streamer = MoonshineStreamer::new(&model_dir).expect("load Moonshine model");
 
     // Process in 1-second chunks
     let chunk_size = 16000;

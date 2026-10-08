@@ -134,6 +134,9 @@ impl WgpuTestHarness {
     pub fn capture(&self, name: &str) -> Result<PathBuf> {
         let output = self.temp_dir.path().join(format!("{}.png", name));
         capture_screenshot(&output)?;
+        let artifacts = Path::new(env!("CARGO_MANIFEST_DIR")).join("test-output");
+        std::fs::create_dir_all(&artifacts)?;
+        std::fs::copy(&output, artifacts.join(format!("{name}.png")))?;
         Ok(output)
     }
 

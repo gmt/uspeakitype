@@ -69,8 +69,7 @@ pub struct Renderer {
     mode: SpectrogramMode,
     // Panel background rendering
     panel_bg_pipeline: wgpu::RenderPipeline,
-    panel_bg_uniform_buffer: wgpu::Buffer,
-    panel_bg_bind_group: wgpu::BindGroup,
+    panel_bg_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl Renderer {
@@ -262,13 +261,6 @@ impl Renderer {
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/panel_bg.wgsl").into()),
         });
 
-        let panel_bg_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Panel Background Uniforms"),
-            size: 32, // 2 * vec4<f32> = 32 bytes
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         let panel_bg_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Panel Background Bind Group Layout"),
@@ -283,15 +275,6 @@ impl Renderer {
                     count: None,
                 }],
             });
-
-        let panel_bg_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Panel Background Bind Group"),
-            layout: &panel_bg_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: panel_bg_uniform_buffer.as_entire_binding(),
-            }],
-        });
 
         let panel_bg_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -347,8 +330,7 @@ impl Renderer {
             audio_state,
             mode,
             panel_bg_pipeline,
-            panel_bg_uniform_buffer,
-            panel_bg_bind_group,
+            panel_bg_bind_group_layout,
         }
     }
 
@@ -504,11 +486,12 @@ impl Renderer {
             compute_layout_heights(self.config.height);
         let text_panel_y = (self.config.height - actual_text_panel_height) as f32;
 
-        self.spectrogram.update(&samples);
-        self.spectrogram
-            .render(&mut encoder, &view, self.config.height);
-
         let helper_panel_open = control_panel.as_ref().is_some_and(|panel| panel.is_open);
+        self.spectrogram.update(&samples);
+        if !helper_panel_open {
+            self.spectrogram
+                .render(&mut encoder, &view, self.config.height);
+        }
 
         if actual_text_panel_height > 0 && !helper_panel_open {
             let text_rect = PanelRect {
@@ -580,6 +563,7 @@ impl Renderer {
                             255,
                         ),
                         font_size: 10.0,
+                        width: None,
                     },
                     PanelTextLine {
                         text: helper_status_short_summary(&helper_state),
@@ -592,6 +576,7 @@ impl Renderer {
                             255,
                         ),
                         font_size: 11.0,
+                        width: None,
                     },
                 ]
             } else {
@@ -627,12 +612,35 @@ impl Renderer {
                 transcript_rect.width.max(1.0) as u32,
                 0.0,
                 transcript_bounds,
+                TextBounds {
+                    left: (text_rect.x + TEXT_PANEL_INSET) as i32,
+                    top: (text_rect.y + 6.0) as i32,
+                    right: (text_rect.x + text_rect.width - TEXT_PANEL_INSET) as i32,
+                    bottom: transcript_top as i32,
+                },
                 is_error,
             );
         }
 
         if let Some(panel) = control_panel {
             self.render_control_panel(&view, &mut encoder, panel);
+        }
+
+        if control_panel.is_some() {
+            // Render gear icon using SVG renderer (avoids glyphon vertex buffer conflict)
+            let gear_size = 32.0;
+            let gear_x = self.config.width as f32 - gear_size - 10.0;
+            let gear_y = 10.0;
+
+            self.icon_renderer.render_gear(
+                &mut encoder,
+                &view,
+                gear_x,
+                gear_y,
+                gear_size,
+                self.config.width as f32,
+                self.config.height as f32,
+            );
         }
 
         self.window.pre_present_notify();
@@ -647,21 +655,6 @@ impl Renderer {
         encoder: &mut wgpu::CommandEncoder,
         panel: &super::control_panel::ControlPanelState,
     ) {
-        // Render gear icon using SVG renderer (avoids glyphon vertex buffer conflict)
-        let gear_size = 32.0;
-        let gear_x = self.config.width as f32 - gear_size - 10.0;
-        let gear_y = 10.0;
-
-        self.icon_renderer.render_gear(
-            encoder,
-            view,
-            gear_x,
-            gear_y,
-            gear_size,
-            self.config.width as f32,
-            self.config.height as f32,
-        );
-
         if !panel.is_open {
             return;
         }
@@ -736,6 +729,7 @@ impl Renderer {
             y: rect.title_y(),
             color: heading,
             font_size: 16.0,
+            width: None,
         });
         lines.push(PanelTextLine {
             text: helper_summary,
@@ -743,6 +737,7 @@ impl Renderer {
             y: rect.title_y() + 16.0,
             color: muted,
             font_size: 11.0,
+            width: None,
         });
         lines.push(PanelTextLine {
             text: "Capture, recognition, trust, and session controls".to_string(),
@@ -750,6 +745,7 @@ impl Renderer {
             y: rect.title_y() + 30.0,
             color: accent,
             font_size: 10.0,
+            width: None,
         });
         for layout in rect.entry_layouts(true) {
             match layout.entry {
@@ -759,6 +755,7 @@ impl Renderer {
                     y: layout.y,
                     color: accent,
                     font_size: 12.0,
+                    width: None,
                 }),
                 PanelEntry::Control(control) => {
                     let value = panel.control_value(control, &panel_state);
@@ -778,6 +775,7 @@ impl Renderer {
                         y: layout.y,
                         color: label_color,
                         font_size: 14.0,
+                        width: None,
                     });
                 }
             }
@@ -792,6 +790,7 @@ impl Renderer {
             y: help_title_y,
             color: heading,
             font_size: 13.0,
+            width: Some(help_rect.width - 2.0 * PANEL_PADDING),
         });
         lines.push(PanelTextLine {
             text: help_body.to_string(),
@@ -799,6 +798,7 @@ impl Renderer {
             y: help_body_y,
             color: muted,
             font_size: 12.0,
+            width: Some(help_rect.width - 2.0 * PANEL_PADDING),
         });
 
         let bounds = panel_text_bounds(&rect);
@@ -817,11 +817,23 @@ impl Renderer {
     ) {
         let ndc = rect.to_ndc(self.config.width as f32, self.config.height as f32);
 
-        self.queue.write_buffer(
-            &self.panel_bg_uniform_buffer,
-            0,
-            bytemuck::cast_slice(&[ndc, color]),
-        );
+        // Each draw needs immutable uniforms: queue writes to one shared buffer
+        // would all become visible before this command buffer executes.
+        let uniforms = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Panel Background Uniforms"),
+                contents: bytemuck::cast_slice(&[ndc, color]),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Panel Background Bind Group"),
+            layout: &self.panel_bg_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniforms.as_entire_binding(),
+            }],
+        });
 
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Panel Background"),
@@ -841,7 +853,7 @@ impl Renderer {
         });
 
         pass.set_pipeline(&self.panel_bg_pipeline);
-        pass.set_bind_group(0, &self.panel_bg_bind_group, &[]);
+        pass.set_bind_group(0, &bind_group, &[]);
         pass.draw(0..4, 0..1);
     }
 }

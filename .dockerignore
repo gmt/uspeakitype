@@ -16,3 +16,8 @@ test-output/
 .sisyphus/notepads/
 .sisyphus/drafts/
 .sisyphus/boulder.json
+
+# Local experiment builds are not inputs to this image
+experiment/
+oldcrap/
+qt_quick_overlay/

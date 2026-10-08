@@ -28,7 +28,7 @@ pub const SECTION_HEIGHT: f32 = 22.0; // Height per section heading
 pub const SECTION_GAP: f32 = 8.0; // Gap between section blocks
 pub const TITLE_HEIGHT: f32 = 54.0; // Height for title + helper summary
 pub const PANEL_PADDING: f32 = 12.0; // Internal padding (top/bottom/left/right)
-pub const HELP_PANEL_HEIGHT: f32 = 84.0; // Height of the contextual help card
+pub const HELP_PANEL_HEIGHT: f32 = 120.0; // Height of the contextual help card
 pub const HELP_PANEL_GAP: f32 = 12.0; // Gap between controls and help card
 pub const TEXT_PANEL_HEIGHT: f32 = 60.0; // Height for text panel at bottom
 
@@ -369,13 +369,13 @@ impl Default for ControlPanelState {
     }
 }
 
-/// Generate text bounds for transcript text panel
+/// Clip to the transcript content rectangle, whose padding is already applied.
 pub fn transcript_text_bounds(text_rect: &PanelRect) -> glyphon::TextBounds {
     glyphon::TextBounds {
-        left: (text_rect.x + PANEL_PADDING) as i32,
-        top: (text_rect.y + PANEL_PADDING) as i32,
-        right: (text_rect.x + text_rect.width - PANEL_PADDING) as i32,
-        bottom: (text_rect.y + text_rect.height - PANEL_PADDING) as i32,
+        left: text_rect.x as i32,
+        top: text_rect.y as i32,
+        right: (text_rect.x + text_rect.width) as i32,
+        bottom: (text_rect.y + text_rect.height) as i32,
     }
 }
 
@@ -451,7 +451,9 @@ impl ControlPanelState {
     }
 
     pub fn set_gain(&mut self, gain: f32) {
-        self.gain_value = gain.clamp(0.0, 2.0);
+        if !self.agc_enabled && gain.is_finite() {
+            self.gain_value = gain.clamp(0.0, 2.0);
+        }
     }
 
     pub fn toggle_agc(&mut self) {
@@ -503,7 +505,7 @@ impl ControlPanelState {
             Control::DeviceSelector => self.device_value(audio_state),
             Control::GainSlider => {
                 if self.agc_enabled {
-                    format!("{:.2}x (auto)", self.gain_value)
+                    format!("{:.2}x (auto)", audio_state.current_gain)
                 } else {
                     format!("{:.2}x", self.gain_value)
                 }
@@ -584,9 +586,18 @@ impl ControlPanelState {
 
     // ===== Apply methods to push state to app components =====
 
+    /// Apply explicit settings to the capture engine without persisting AGC estimates.
+    pub fn apply_capture_settings(&self, control: &CaptureControl) {
+        control.set_manual_gain(self.gain_value);
+        control.set_auto_gain(self.agc_enabled);
+        self.apply_pause(control);
+    }
+
     /// Apply gain change to AudioState
     pub fn apply_gain(&self, audio_state: &mut AudioState) {
-        audio_state.current_gain = self.gain_value;
+        if !self.agc_enabled {
+            audio_state.current_gain = self.gain_value;
+        }
     }
 
     /// Apply AGC toggle to AudioState
@@ -658,6 +669,23 @@ impl ControlPanelState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transcript_content_bounds_preserve_a_full_line() {
+        let content = PanelRect {
+            x: 10.0,
+            y: 180.0,
+            width: 380.0,
+            height: 30.0,
+        };
+        let bounds = transcript_text_bounds(&content);
+        assert_eq!((bounds.left, bounds.top), (10, 180));
+        assert_eq!((bounds.right, bounds.bottom), (390, 210));
+        assert!(
+            bounds.bottom - bounds.top >= 19,
+            "14px text needs a full line height"
+        );
+    }
 
     #[test]
     fn control_panel_default_state() {

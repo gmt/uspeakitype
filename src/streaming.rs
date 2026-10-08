@@ -106,24 +106,25 @@ impl<V: VadProcessor, T: Transcriber> StreamingTranscriber<V, T> {
     pub fn process(&mut self, samples: &[f32]) -> Result<Vec<StreamEvent>> {
         let mut events = Vec::new();
 
-        // 1. Maintain pre-roll buffer (always active, even during silence)
-        self.pre_roll.extend(samples.iter().copied());
-        while self.pre_roll.len() > self.config.pre_roll_samples {
-            self.pre_roll.pop_front();
-        }
-
-        // 2. Run VAD to update internal state
+        // 1. Run VAD to update internal state
         self.vad.process(samples)?;
 
-        // 3. Detect state transitions
+        // 2. Detect state transitions
         let is_speaking = self.vad.is_speaking();
         let started_speaking = is_speaking && !self.was_speaking;
         let stopped_speaking = !is_speaking && self.was_speaking;
 
-        // 4. Handle speech start (copy pre-roll to transcription buffer)
+        // 3. Copy only preceding audio on speech start. The current samples are
+        // appended below, once, even when this frame exceeds the pre-roll capacity.
         if started_speaking {
             self.transcription_buffer.clear();
             self.transcription_buffer.extend(self.pre_roll.iter());
+        }
+
+        // 4. Maintain pre-roll for the next call (including during silence).
+        self.pre_roll.extend(samples.iter().copied());
+        while self.pre_roll.len() > self.config.pre_roll_samples {
+            self.pre_roll.pop_front();
         }
 
         // 5. Handle active speech (accumulate + periodic updates)
@@ -212,6 +213,67 @@ mod tests {
         }
         fn reset(&mut self) {
             self.call_count = 0;
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingTranscriber {
+        inputs: Vec<Vec<f32>>,
+    }
+
+    impl Transcriber for RecordingTranscriber {
+        fn transcribe_incremental(&mut self, samples: &[f32]) -> Result<String> {
+            self.inputs.push(samples.to_vec());
+            Ok(format!("{} samples", samples.len()))
+        }
+
+        fn reset(&mut self) {}
+    }
+
+    #[test]
+    fn speech_onset_keeps_preceding_audio_and_each_current_sample_once() {
+        // Include frames shorter and longer than pre-roll: onset must not be
+        // duplicated or truncated to the pre-roll capacity.
+        for onset in [vec![4.0, 5.0], vec![4.0, 5.0, 6.0, 7.0, 8.0]] {
+            let mut streamer = StreamingTranscriber::new(
+                MockVad { speaking: false },
+                RecordingTranscriber::default(),
+                StreamingConfig {
+                    pre_roll_samples: 3,
+                    update_interval_samples: 1,
+                },
+            );
+            assert!(streamer.process(&[0.0, 1.0, 2.0, 3.0]).unwrap().is_empty());
+            streamer.vad.speaking = true;
+            streamer.process(&onset).unwrap();
+
+            let mut expected = vec![1.0, 2.0, 3.0];
+            expected.extend_from_slice(&onset);
+            assert_eq!(streamer.transcriber.inputs, vec![expected.clone()]);
+
+            // The tail before VAD declares silence belongs to the utterance,
+            // including a final frame too short to trigger a partial update.
+            streamer.config.update_interval_samples = 100;
+            assert!(streamer.process(&[9.0, 10.0]).unwrap().is_empty());
+            expected.extend_from_slice(&[9.0, 10.0]);
+            streamer.vad.speaking = false;
+            let events = streamer.process(&[11.0, 12.0]).unwrap();
+            assert_eq!(
+                events,
+                vec![StreamEvent::Commit(format!("{} samples", expected.len()))]
+            );
+            assert_eq!(streamer.transcriber.inputs.last(), Some(&expected));
+            assert!(streamer.transcription_buffer.is_empty());
+
+            // The next phrase sees the latest preceding audio, not the old
+            // utterance buffer, and its onset is also present exactly once.
+            streamer.vad.speaking = true;
+            streamer.config.update_interval_samples = 1;
+            streamer.process(&[13.0, 14.0]).unwrap();
+            assert_eq!(
+                streamer.transcriber.inputs.last().unwrap(),
+                &[10.0, 11.0, 12.0, 13.0, 14.0]
+            );
         }
     }
 

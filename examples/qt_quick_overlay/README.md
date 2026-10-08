@@ -1,47 +1,77 @@
-# Qt Quick Overlay Concept
+# Qt Quick dictation window
 
-This is a standalone Qt Quick mockup for a possible `usit` overlay shell.
+The Qt Quick frontend displays live speech recognition from the Rust engine.
+It provides committed and provisional transcript text, a frequency spectrum or
+scrolling waterfall, and microphone, model, gain and appearance controls. Its
+warm dark window stays above ordinary windows and can be resized.
 
-It is intentionally **not** wired into the Rust build. The goal is to explore
-what happens if we let Qt Quick own the container chrome while keeping the
-actual spectrogram/transcript semantics recognizable.
+## Build and run
 
-## What It Tries To Test
+Requirements: CMake, a C++17 compiler, and Qt 6 Core, Gui, Qml, Quick and Test
+libraries with their development files. The speech engine's dependencies and
+model requirements are described in the repository README.
 
-- a clearer separation between spectrogram surface and transcript panel
-- a compact status/header strip instead of bespoke text painting
-- a control drawer that feels like UI rather than debug geometry
-- whether a Qt-hosted shell could reduce the amount of hand-rolled overlay code
+From the repository root:
 
-## What It Is Not
-
-- not a framework migration
-- not a real Wayland/KWin integration path
-- not proof that Qt Quick should replace the current renderer
-- not connected to live audio or live transcript state
-
-## Spectrogram Bridge Idea
-
-The key seam is the `SpectrogramViewport` item.
-
-In a real experiment, that one item could be backed by one of three things:
-
-1. a native child surface owned by the existing Rust/WGPU renderer
-2. a texture provider fed by a Rust-side renderer
-3. a fresh Qt Quick / ShaderEffect reimplementation
-
-This mockup keeps that seam visible on purpose.
-
-## Running
-
-If you have Qt Quick tooling installed:
-
-```bash
-qml examples/qt_quick_overlay/Main.qml
+```sh
+./scripts/build-qt-overlay.sh
+cargo run --release -- --qt
 ```
 
-Or:
+The helper is built at `target/qt-quick/usit-qt-overlay`. QML resources are
+embedded in that executable, so rebuild it after changing these files. Launch
+through `usit --qt`: the helper alone expects a live engine on standard input.
 
-```bash
-qmlscene examples/qt_quick_overlay/Main.qml
+For a microphone-free demonstration, use `cargo run -- --qt --demo`. Demo audio
+and transcript come from the engine's explicit demo mode; the Qt frontend does
+not synthesize speech, spectrum values, or transcript text.
+
+## Controls
+
+- **Listening / Paused** pauses or resumes recognition; shortcut **P**.
+- **Injecting** enables typing committed phrases into the focused application;
+  shortcut **I**. A working speech model and input backend are required.
+- **Waterfall / Bars** changes the audio visualization; shortcut **V**.
+- **Controls** opens or closes settings; shortcut **C**.
+- **Automatic gain** lets capture manage microphone level. Manual software gain
+  is disabled while automatic gain is active.
+- **Input** cycles microphones. Selection takes effect on the next launch.
+- **Model** opens a list for direct selection. Browse with arrow keys and select
+  with Return, or click a model. Browsing does not download intermediate models.
+  A missing selected model downloads before activation; **Cancel model download**
+  cancels that download while retaining the active model.
+- **Colors** and **Window opacity** change appearance.
+- **Auto-save** persists explicit setting changes. **Save settings** or
+  **Ctrl+S** saves when auto-save is disabled. Algorithmic gain changes do not
+  change the saved manual gain.
+- **Ctrl+Q** or the window close button ends the dictation session.
+
+Click controls or use **Tab / Shift+Tab**, then **Space / Return** to activate.
+Sliders use **Left / Right** and **Home / End**. Focused and hovered controls
+show help at the bottom of the settings panel. When the window is short, scroll
+settings with the mouse; keyboard focus scrolls the active control into view.
+
+The window has no editable text field. After adjusting settings, focus the
+application where you want dictation inserted. Desktop focus behavior is owned
+by the compositor; this is a Qt tool window, not a Wayland layer-shell surface.
+
+## Frontend checks
+
+```sh
+python3 qt_quick_overlay/tests/smoke.py
 ```
+
+The bounded test uses Qt's offscreen platform with software rendering. It checks
+live snapshot bindings, real mouse and keyboard activation, outgoing command
+values, malformed and fragmented input, rendering, and automatic exit when the
+engine pipe closes. To keep the rendered screenshot, set
+`USIT_QT_TEST_SCREENSHOT=/tmp/usit-qt.png`.
+
+## Engine boundary
+
+`qt_quick_overlay/main.cpp` exposes `usitBridge.state` to QML. Each newline JSON
+object on stdin replaces that state. User controls call
+`usitBridge.send(type, value)`; compact JSON command objects are emitted on
+stdout. Diagnostics go to stderr. stdin is nonblocking, and EOF exits the
+helper. Rust owns model activation, audio capture, gain, settings persistence,
+and text injection; the window only displays their state and sends user intent.

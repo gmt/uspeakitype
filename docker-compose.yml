@@ -36,12 +36,11 @@ services:
   audio-tests:
     build:
       context: .
-      dockerfile: docker/kde/Dockerfile
+      dockerfile: Dockerfile
     volumes:
       - ./test-output:/app/test-output
-      # Mount local models cache for transcription testing
       - ~/.cache/usit/models:/root/.cache/usit/models:ro
-    entrypoint: /app/docker/kde/test-audio.sh
+    entrypoint: /app/scripts/docker-audio-test.sh
 
   # Optional: Interactive shell for debugging
   shell:

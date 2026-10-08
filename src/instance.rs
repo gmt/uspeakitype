@@ -35,7 +35,8 @@ pub struct InstanceInfo {
 /// Returns empty vec if `/proc` is unavailable or unreadable.
 ///
 /// # Examples
-/// ```ignore
+/// ```
+/// use usit::instance::find_instances;
 /// // Find all usit instances
 /// let all = find_instances(None);
 ///
@@ -128,7 +129,8 @@ pub fn find_instances(tag_filter: Option<&str>) -> Vec<InstanceInfo> {
 /// PID of a usit instance with this tag, or `None` if not found.
 ///
 /// # Examples
-/// ```ignore
+/// ```
+/// use usit::instance::find_duplicate_tag;
 /// if let Some(pid) = find_duplicate_tag("my session") {
 ///     eprintln!("usit already running with tag 'my session' (PID {})", pid);
 /// }
@@ -151,7 +153,8 @@ pub fn find_duplicate_tag(tag: &str) -> Option<u32> {
 /// - `Some("value")` if `--tag value` or `--tag=value`
 ///
 /// # Examples
-/// ```ignore
+/// ```
+/// use usit::instance::parse_tag_from_argv;
 /// assert_eq!(parse_tag_from_argv(&["usit", "--demo"]), None);
 /// assert_eq!(parse_tag_from_argv(&["usit", "--tag", "foo"]), Some("foo".to_string()));
 /// assert_eq!(parse_tag_from_argv(&["usit", "--tag=foo"]), Some("foo".to_string()));

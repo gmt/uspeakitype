@@ -154,11 +154,11 @@ impl OverlayApp {
         if let Some(ref control) = self.capture_control {
             self.control_panel.is_paused = control.is_paused();
             self.control_panel.agc_enabled = control.is_auto_gain_enabled();
-            self.control_panel.gain_value = control.get_current_gain();
+            self.control_panel.gain_value = control.get_manual_gain();
             let mut state = self.audio_state.write();
             state.is_paused = self.control_panel.is_paused;
             state.auto_gain_enabled = self.control_panel.agc_enabled;
-            state.current_gain = self.control_panel.gain_value;
+            state.current_gain = control.get_current_gain();
         }
     }
 
@@ -174,6 +174,11 @@ impl OverlayApp {
             }
         }
 
+        self.save_settings();
+    }
+
+    /// Save explicitly even with auto-save disabled; failures are reported in the log.
+    fn save_settings(&mut self) {
         let config = build_runtime_config(
             &self.control_panel,
             &self.audio_state,
@@ -181,9 +186,10 @@ impl OverlayApp {
             self.config_context.model_dir.clone(),
         );
         if let Err(error) = config.save(&self.config_context.path) {
-            log::warn!("Overlay auto-save failed: {}", error);
+            log::error!("Overlay settings save failed: {}", error);
         } else {
-            self.last_save_at = Some(now);
+            self.last_save_at = Some(Instant::now());
+            log::info!("Saved settings to {}", self.config_context.path.display());
         }
     }
 
@@ -253,11 +259,17 @@ impl OverlayApp {
                 self.control_panel.set_gain(new_gain);
                 let mut state = self.audio_state.write();
                 self.control_panel.apply_gain(&mut state);
+                if let Some(control) = &self.capture_control {
+                    self.control_panel.apply_capture_settings(control);
+                }
             }
             Control::AgcCheckbox => {
                 self.control_panel.toggle_agc();
                 let mut state = self.audio_state.write();
                 self.control_panel.apply_agc(&mut state);
+                if let Some(control) = &self.capture_control {
+                    self.control_panel.apply_capture_settings(control);
+                }
             }
             Control::PauseButton => {
                 self.control_panel.toggle_pause();
@@ -423,6 +435,9 @@ impl ApplicationHandler for OverlayApp {
                             self.control_panel.toggle_open_for_surface(true);
                             self.sync_panel_surface_size();
                             needs_repaint = true;
+                        }
+                        Key::Character(ref c) if c == "s" || c == "S" => {
+                            self.save_settings();
                         }
                         Key::Character(ref c) if c == "q" || c == "Q" => {
                             self.running.store(false, Ordering::Relaxed);

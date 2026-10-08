@@ -3,15 +3,24 @@ import QtQuick 2.15
 Rectangle {
     id: root
     property string label: ""
+    property string helpText: ""
     signal activated()
-
+    signal helpRequested(string description)
+    activeFocusOnTab: true
     width: buttonLabel.implicitWidth + 24
-    height: 28
+    height: 30
     radius: 12
-    color: "#2b211d"
-    border.width: 1
-    border.color: "#4a3831"
-
+    opacity: enabled ? 1 : 0.45
+    color: mouse.containsMouse ? "#3b2e26" : "#2b211d"
+    border.width: activeFocus ? 2 : 1
+    border.color: activeFocus ? "#d5ad67" : "#4a3831"
+    onActiveFocusChanged: if (activeFocus) helpRequested(helpText)
+    Keys.onSpacePressed: activated()
+    Keys.onReturnPressed: activated()
+    Accessible.role: Accessible.Button
+    Accessible.name: label
+    Accessible.description: helpText
+    Accessible.onPressAction: activated()
     Text {
         id: buttonLabel
         anchors.centerIn: parent
@@ -19,11 +28,15 @@ Rectangle {
         color: "#f0eadf"
         font.pixelSize: 12
         font.weight: Font.Medium
+        width: Math.min(implicitWidth, root.width - 20)
+        elide: Text.ElideRight
     }
-
     MouseArea {
+        id: mouse
         anchors.fill: parent
-        onClicked: root.activated()
+        hoverEnabled: true
+        onEntered: root.helpRequested(root.helpText)
+        onClicked: { root.forceActiveFocus(); root.activated() }
         cursorShape: Qt.PointingHandCursor
     }
 }

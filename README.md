@@ -1,202 +1,125 @@
-# usit - Streaming ASR with Live Revision
+# usit — streaming dictation for Linux
 
-**uspeakitype** ("you speak, I type") is a streaming speech-to-text overlay for Linux that transcribes audio in real-time with live word-by-word revision, providing both terminal (ANSI) and graphical (WGPU) interfaces.
+**uspeakitype** ("you speak, I type") captures a PipeWire microphone, transcribes
+speech locally, and can insert completed phrases into the focused application.
+Provisional words update while you speak; voice activity detection decides when
+to commit a phrase.
 
-## Features
+The same Rust engine serves three interfaces: a Qt Quick window (`--qt`), an
+ANSI terminal (`--ansi`), and a WGPU Wayland overlay (the default). The Qt Quick
+window displays the live transcript and spectrum and provides model, gain,
+listening, injection, and appearance controls.
 
-- **Streaming transcription**: Words appear as you speak, not after pauses
-- **Live revision**: Earlier words update as context improves accuracy
-- **Dual interfaces**: Terminal (ANSI) mode and graphical overlay (Wayland layer shell)
-- **Spectrogram visualization**: Real-time audio feedback with bars or waterfall display
-- **Voice Activity Detection**: Silero VAD for commit detection
-- **Moonshine-based**: Fast, efficient ONNX-based ASR, including the newer official `moonshine-tiny-{ar,zh,ja,ko,uk,vi}` flavors
-- **Control panel**: Runtime configuration of audio input, gain and AGC.
+## Build and run
 
-## Model Support
+Requirements include Rust/Cargo, a C/C++ compiler, CMake, pkg-config, Clang for
+bindgen, PipeWire development files, and the Wayland/XKB libraries used by WGPU.
+The Qt frontend additionally requires Qt 6 Core, Gui, Qml, Quick and Test
+libraries and development files. Models and Silero VAD use ONNX Runtime.
 
-`usit` currently supports:
-
-- `moonshine-base`
-- `moonshine-tiny`
-- `moonshine-tiny-ar`
-- `moonshine-tiny-zh`
-- `moonshine-tiny-ja`
-- `moonshine-tiny-ko`
-- `moonshine-tiny-uk`
-- `moonshine-tiny-vi`
-- `parakeet-tdt-0.6b-v3`
-
-Recent upstream audit notes live in [`doc/upstream-audit-2026-03.md`](doc/upstream-audit-2026-03.md).
-
-## Input Injection Backends
-
-usit automatically selects the best available input injection backend for your compositor/desktop environment. The selection follows a fallback chain: **input_method** → **fcitx5_bridge** → **wrtype** → **ydotool** → **display-only mode**.
-
-### Backend Comparison
-
-| Backend | Compositor/DE | Requirements | Limitations |
-|---------|---------------|--------------|-------------|
-| **input_method** | Wayland compositors with zwp_input_method_v2 (wlroots, KDE, GNOME*) | None (built-in) | May conflict with other IMEs (fcitx5, ibus); GNOME support varies |
-| **fcitx5_bridge** | KDE Plasma (or anywhere fcitx5 is the active IME) | fcitx5-usit-bridge addon | Requires addon build/install |
-| **wrtype** | wlroots-based (Sway, Hyprland, River, etc.) | None (built-in) | wlroots compositors only |
-| **ydotool** | Any Linux compositor | `ydotool` package, `ydotoold` daemon, uinput permissions | Requires daemon setup |
-| **display-only** | Any | None | No text injection (transcription display only) |
-
-### Feature Degradation
-
-All backends support UTF-8 and emoji when available. The table shows what happens as you move down the fallback chain:
-
-| Feature | input_method | fcitx5_bridge | wrtype | ydotool | display-only |
-|---------|--------------|---------------|--------|---------|--------------|
-| Text injection | ✓ | ✓ | ✓ | ✓ | ✗ |
-| UTF-8 support | ✓ | ✓ | ✓ | ✓ | N/A |
-| Emoji support | ✓ | ✓ | ✓ | ✓* | N/A |
-| Setup required | None | Addon install | None | Package + daemon | None |
-
-*ydotool emoji support depends on application's input handling
-
-### Backend Setup
-
-#### input_method (Wayland compositors)
-No setup required - works out of the box on compositors that support the `zwp_input_method_v2` protocol (wlroots-based compositors like Sway/Hyprland, KDE Plasma, and some GNOME configurations).
-
-**Note**: If another IME (fcitx5, ibus) is already active, `input_method` will gracefully fall back to `fcitx5_bridge`, `wrtype`, or `ydotool`.
-
-#### fcitx5_bridge (KDE / fcitx5 users)
-For KDE Plasma users (or anyone using fcitx5 as their input method), the `fcitx5_bridge` backend injects text through fcitx5 via D-Bus using a small addon.
-
-**Build and install the addon:**
-```bash
-cd fcitx5-usit-bridge
-mkdir -p build && cd build
-cmake ..
-make
-
-# Install to ~/.local (no root required)
-mkdir -p ~/.local/lib/fcitx5 ~/.local/share/fcitx5/addon
-cp src/libusitbridge.so ~/.local/lib/fcitx5/
-cp src/usitbridge.conf ~/.local/share/fcitx5/addon/
-```
-
-**Restart fcitx5** to load the addon (usit will do this automatically if needed):
-```bash
-fcitx5 -r
-```
-
-**Dependencies** (Arch Linux):
-```bash
-sudo pacman -S fcitx5 fcitx5-qt fcitx5-gtk cmake
-```
-
-**Dependencies** (Debian/Ubuntu):
-```bash
-sudo apt install fcitx5 fcitx5-modules fcitx5-modules-dev libfcitx5core-dev cmake
-```
-
-**How it works**: The addon exposes a D-Bus interface that usit calls to inject text. When usit detects fcitx5 is running but the addon isn't loaded, it will automatically restart fcitx5 with the correct `FCITX_ADDON_DIRS` to load the addon from `~/.local`.
-
-**Recommended: Disable fcitx5's clipboard addon**
-
-fcitx5 includes a clipboard monitoring addon that can conflict with KDE's clipboard handling (klipper), potentially causing plasmashell crashes in a loop. If you experience repeated plasmashell crashes or see single-character entries flooding klipper's history, disable the fcitx5 clipboard addon:
-
-```bash
-# Edit ~/.config/fcitx5/config and set:
-# DisabledAddons=clipboard
-# in the [Behavior] section
-
-# Or use sed:
-sed -i 's/^DisabledAddons=.*/DisabledAddons=clipboard/' ~/.config/fcitx5/config
-
-# Restart fcitx5
-pkill fcitx5 && fcitx5 -d
-```
-
-This removes fcitx5 from clipboard monitoring, leaving only klipper to manage clipboard state.
-
-#### wrtype (wlroots compositors)
-No setup required - works out of the box on Sway, Hyprland, River, and other wlroots-based compositors.
-
-#### ydotool (universal fallback)
-```bash
-# Arch Linux
-sudo pacman -S ydotool
-
-# Debian/Ubuntu
-sudo apt install ydotool
-
-# Start the daemon (user service)
-systemctl --user enable --now ydotool
-
-# Or manually
-ydotoold &
-```
-
-**Permissions**: Ensure your user has access to `/dev/uinput` (usually via `input` or `uinput` group).
-
-### CLI Flags
-
-#### `--backend-disable=BACKEND[,BACKEND...]`
-Skip specific backends during selection. Useful for testing or working around issues.
-
-```bash
-# Skip input_method (try fcitx5_bridge or wrtype)
-usit --backend-disable=input_method
-
-# Force ydotool (skip all other backends)
-usit --backend-disable=input_method,fcitx5_bridge,wrtype
-
-# Test display-only mode
-usit --backend-disable=input_method,fcitx5_bridge,wrtype,ydotool
-
-# Case-insensitive, whitespace-tolerant
-usit --backend-disable="Input_Method, Fcitx5_Bridge, WrType, YdoTool"
-```
-
-Valid backend names: `input_method`, `fcitx5_bridge`, `wrtype`, `ydotool`
-
-#### `--autostart-ydotoold`
-Automatically start the ydotoold daemon if the socket is missing. Useful for systems where the daemon isn't running as a service.
-
-```bash
-usit --autostart-ydotoold
-```
-
-The daemon will be spawned in the background. usit waits 500ms for the socket to appear, then continues with backend selection.
-
-### Troubleshooting
-
-**"Input injection: unavailable (display-only mode)"**
-- All backends failed to initialize
-- Check compositor type and install appropriate backend
-- Run with `--backend-disable=` to see probe results
-
-**"ydotoold not running"**
-- Start daemon: `systemctl --user start ydotool` or `ydotoold &`
-- Or use `--autostart-ydotoold` flag
-- Check socket exists: `ls -la $XDG_RUNTIME_DIR/.ydotool_socket`
-
-**KDE authorization prompt every time**
-- Click "Remember" when granting permission
-- Check KDE settings: System Settings → Applications → Launch Feedback
-
-**Text not appearing in application**
-- Ensure application window has focus
-- Some applications (terminals, password fields) may block injection
-- Try different backend with `--backend-disable`
-
-## Quick Start
-
-```bash
-# Build and run
+```sh
 cargo build --release
-cargo run --release
+./scripts/build-qt-overlay.sh
+./target/release/usit --qt --no-inject
 
-# Terminal-only mode
-cargo run --release -- --ansi
-
-# Demo mode (synthetic audio)
-cargo run --release -- --demo
+# Other interfaces and a microphone-free demonstration
+./target/release/usit --ansi --no-inject
+./target/release/usit --demo
+./target/release/usit --qt --demo
 ```
+
+`--no-inject` starts with typing disabled; the **Injecting** control enables it.
+Demo mode never injects text. Focus the destination application after adjusting
+controls. The Qt window is a normal tool window, not a layer-shell surface.
+Closing it stops the Rust session and microphone capture.
+
+For a user-local command and application menu entry, run
+`./scripts/install-local-launcher.sh` after building. The launcher runs the
+release executable with `--qt` and forwards additional arguments. It references
+this checkout, which must remain at its current location.
+
+## Audio, models, and settings
+
+```sh
+./target/release/usit --list-sources
+./target/release/usit --qt --source SOURCE_NAME --auto-gain --no-inject
+./target/release/usit --qt --model parakeet-tdt-0.6b-v3 --no-inject
+```
+
+Supported model identifiers are `moonshine-base`, `moonshine-tiny`,
+`moonshine-tiny-{ar,zh,ja,ko,uk,vi}`, and `parakeet-tdt-0.6b-v3`. Model availability
+and download success depend on the configured upstream files. A failed model
+switch retains the working model. If no model can load, graphical and terminal
+interfaces continue as audio visualizers with an error; input registration is
+disabled. Model files live under `~/.cache/usit/models/` and are integrity checked.
+
+The Qt model list selects a model directly; browsing does not initiate downloads.
+Input-device changes take effect on the next launch. Automatic gain disables
+manual gain control; its adjustments do not overwrite the saved manual gain.
+
+Settings live in `~/.config/usit/usit.toml`. Runtime controls take precedence over
+explicit command-line values, then configuration, then defaults. Auto-save
+persists explicit control changes. With auto-save disabled, use **Save settings**
+or **Ctrl+S** in Qt, or **S** in ANSI/WGPU. Command-line overrides alone do not
+rewrite the configuration. See [Qt controls](examples/qt_quick_overlay/README.md)
+for the complete keyboard and mouse interface.
+
+## Typing through KDE and Fcitx 5
+
+For a Plasma desktop using Fcitx 5, build the small usit addon:
+
+```sh
+./scripts/install-fcitx-bridge.sh
+```
+
+It requires Fcitx 5 development headers, CMake and a C++ compiler. The script
+installs the library under `~/.local/lib/fcitx5/` and writes an addon descriptor
+under the user data directory with its absolute library path. Restart Fcitx
+through the desktop session, or log out and back in, to load it. usit does not
+restart or replace the desktop's input-method process.
+
+Fcitx must already be configured as the desktop input method. Plasma's Fcitx
+settings page also requires the Fcitx configuration tool with its KDE module
+(on Gentoo: `app-i18n/fcitx-configtool` with `kcm` enabled).
+
+The addon commits text only to Fcitx's currently focused input context. With
+`--qt` or `--ansi`, usit tries Fcitx first, followed by wrtype and ydotool. The
+WGPU overlay additionally tries `zwp_input_method_v2` when the compositor offers
+it. Protocol and application support vary; a visible transcript does not by
+itself establish that injection is available.
+
+`--backend-disable=input_method,fcitx5_bridge,wrtype,ydotool` disables every
+injection backend. Individual names can be disabled to select a fallback.
+`--autostart-ydotoold` requests `systemctl --user start ydotool.service` when its
+socket is absent; it requires an existing user service and uinput permissions.
+Without a usable backend, transcription remains visible and diagnostics explain
+the failed probe.
+
+## Validation and recognition comparisons
+
+```sh
+cargo check --locked
+cargo test --all-targets
+cargo test --doc
+python3 qt_quick_overlay/tests/smoke.py
+```
+
+[Testing guidance](tests/README.md) describes safe isolation from the live desktop,
+Docker compositor and audio tests, and the requirements for ignored integration
+tests. Do not run input-delivery tests against an ordinary desktop session.
+
+To compare cached models on the same recording:
+
+```sh
+cargo run --release --bin wav_stream -- \
+  --input speech.wav --model parakeet-tdt-0.6b-v3 \
+  --model-dir ~/.cache/usit/models/parakeet-tdt-0.6b-v3 --whole-file
+```
+
+Transcripts go to stdout and timing to stderr. The recording must be mono at
+16 kHz. `--whole-file` uses each backend's existing decoder behavior, including
+Parakeet's internal windows. Silence and phrase context affect accuracy, so use
+the same recording and segmentation when comparing models.
 
 ## Acknowledgments
 

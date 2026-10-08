@@ -61,6 +61,10 @@ RUN sha256sum Cargo.lock | cut -d' ' -f1 > /app/.cargo-lock-hash && \
 # Build usit
 RUN cargo build --release
 
+# Runtime services for isolated virtual-source audio tests
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    dbus pipewire wireplumber && rm -rf /var/lib/apt/lists/*
+
 # Test entrypoint
 COPY scripts/docker-test.sh /docker-test.sh
 RUN chmod +x /docker-test.sh

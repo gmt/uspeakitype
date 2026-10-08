@@ -7,7 +7,7 @@ use usit::input::{InputMethodInjector, TextInjector as _};
 
 /// Check if running in Docker test environment
 fn is_docker_env() -> bool {
-    std::env::var("USIT_CANONICAL_TEST_ENV").is_ok()
+    std::env::var("USIT_CANONICAL_TEST_ENV").as_deref() == Ok("1")
 }
 
 /// Skip reason for non-Docker environments
@@ -62,16 +62,11 @@ fn test_input_method_inject_not_activated() {
 
     match InputMethodInjector::new() {
         Ok(mut injector) => {
-            // Try to inject without activation - should fail gracefully
-            match injector.inject("test") {
-                Ok(_) => {
-                    println!("✓ inject() succeeded (input method may be activated)");
-                }
-                Err(e) => {
-                    // Expected: input method not activated
-                    println!("✓ inject() correctly failed when not activated: {}", e);
-                }
-            }
+            // This compositor has no focused text-input client.
+            let error = injector
+                .inject("test")
+                .expect_err("unfocused IME must reject text");
+            assert!(error.to_string().contains("not activated"), "{error}");
         }
         Err(e) => {
             eprintln!("✗ Failed to create injector: {}", e);

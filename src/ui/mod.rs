@@ -1,6 +1,7 @@
 pub mod app;
 pub mod control_panel;
 pub mod icon;
+pub mod qt_external;
 pub mod renderer;
 pub mod spectrogram;
 pub mod spectrogram_widget;
