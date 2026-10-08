@@ -1,6 +1,6 @@
 //! Control panel state management
 //!
-//! Manages the state for the 11 control panel controls:
+//! Manages the state for the 13 control panel controls:
 //! - Device selector
 //! - Gain slider
 //! - AGC checkbox
@@ -185,13 +185,15 @@ impl PanelRect {
     }
 }
 
-/// The 11 control panel controls
+/// The 13 control panel controls
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Control {
     DeviceSelector,
     GainSlider,
     AgcCheckbox,
     PauseButton,
+    PushToTalkToggle,
+    PttShortcut,
     VizToggle,
     ColorPicker,
     InjectionToggle,
@@ -202,12 +204,14 @@ pub enum Control {
 }
 
 impl Control {
-    /// All 11 controls in order (used for navigation and rendering)
+    /// All controls in order (used for navigation and rendering)
     pub const ALL: &'static [Control] = &[
         Control::DeviceSelector,
         Control::GainSlider,
         Control::AgcCheckbox,
         Control::PauseButton,
+        Control::PushToTalkToggle,
+        Control::PttShortcut,
         Control::VizToggle,
         Control::ColorPicker,
         Control::InjectionToggle,
@@ -227,7 +231,9 @@ impl Control {
             Control::DeviceSelector
             | Control::GainSlider
             | Control::AgcCheckbox
-            | Control::PauseButton => ControlSection::Capture,
+            | Control::PauseButton
+            | Control::PushToTalkToggle
+            | Control::PttShortcut => ControlSection::Capture,
             Control::VizToggle | Control::ColorPicker | Control::ModelSelector => {
                 ControlSection::Recognition
             }
@@ -242,6 +248,8 @@ impl Control {
             Control::GainSlider => "Software gain",
             Control::AgcCheckbox => "Auto gain",
             Control::PauseButton => "Capture",
+            Control::PushToTalkToggle => "Listening mode",
+            Control::PttShortcut => "Talk shortcut",
             Control::VizToggle => "Spectrogram mode",
             Control::ColorPicker => "Palette",
             Control::InjectionToggle => "Text injection",
@@ -269,6 +277,14 @@ impl Control {
             Control::PauseButton => (
                 "Capture gate",
                 "Pause listening without tearing the rest of the session down. This is the closest thing the current UI has to a lightweight helper standby mode.",
+            ),
+            Control::PushToTalkToggle => (
+                "Listening mode",
+                "Choose always-on recognition or hold-to-talk. In push-to-talk mode, recognition runs only while the global shortcut is held; manual pause still takes priority.",
+            ),
+            Control::PttShortcut => (
+                "Global talk shortcut",
+                "Choose F8, F9, or F10 by activating this control. Set any supported shortcut in Qt Quick, --ptt-shortcut, or the config file. Shortcut conflicts appear as errors.",
             ),
             Control::VizToggle => (
                 "Spectrogram mode",
@@ -460,6 +476,23 @@ impl ControlPanelState {
         self.agc_enabled = !self.agc_enabled;
     }
 
+    /// Change the shared capture gate so every frontend sees the same mode.
+    pub fn toggle_ptt(&self, audio_state: &mut AudioState) {
+        audio_state.set_push_to_talk(!audio_state.push_to_talk);
+    }
+
+    /// Offer usable global-key presets while retaining custom configured keys.
+    pub fn cycle_ptt_shortcut(&self, audio_state: &mut AudioState) {
+        let shortcut = match audio_state.ptt_shortcut.as_str() {
+            "F8" => "F9",
+            "F9" => "F10",
+            _ => "F8",
+        };
+        audio_state.set_ptt_held(false);
+        audio_state.ptt_shortcut = shortcut.to_string();
+        audio_state.ptt_error = None;
+    }
+
     pub fn toggle_pause(&mut self) {
         self.is_paused = !self.is_paused;
     }
@@ -524,6 +557,19 @@ impl ControlPanelState {
                     "Listening".to_string()
                 }
             }
+            Control::PushToTalkToggle => {
+                if !audio_state.push_to_talk {
+                    "Always on".to_string()
+                } else if audio_state.ptt_held {
+                    "Push to talk (held)".to_string()
+                } else {
+                    "Push to talk (waiting)".to_string()
+                }
+            }
+            Control::PttShortcut => match &audio_state.ptt_error {
+                Some(error) => format!("{} — {}", audio_state.ptt_shortcut, error),
+                None => audio_state.ptt_shortcut.clone(),
+            },
             Control::VizToggle => match self.viz_mode {
                 SpectrogramMode::BarMeter => "Bar meter".to_string(),
                 SpectrogramMode::Waterfall => "Waterfall".to_string(),
@@ -671,6 +717,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ptt_controls_share_mode_and_shortcut_state() {
+        let panel = ControlPanelState::new();
+        let mut state = AudioState::new();
+        assert_eq!(
+            panel.control_value(Control::PushToTalkToggle, &state),
+            "Always on"
+        );
+        panel.toggle_ptt(&mut state);
+        assert_eq!(
+            panel.control_value(Control::PushToTalkToggle, &state),
+            "Push to talk (waiting)"
+        );
+        state.set_ptt_held(true);
+        assert_eq!(
+            panel.control_value(Control::PushToTalkToggle, &state),
+            "Push to talk (held)"
+        );
+        state.ptt_shortcut = "Ctrl+F12".to_string();
+        assert_eq!(
+            panel.control_value(Control::PttShortcut, &state),
+            "Ctrl+F12"
+        );
+        panel.cycle_ptt_shortcut(&mut state);
+        assert_eq!(state.ptt_shortcut, "F8");
+        assert!(!state.ptt_held);
+        panel.cycle_ptt_shortcut(&mut state);
+        assert_eq!(state.ptt_shortcut, "F9");
+        panel.cycle_ptt_shortcut(&mut state);
+        assert_eq!(state.ptt_shortcut, "F10");
+        panel.cycle_ptt_shortcut(&mut state);
+        assert_eq!(state.ptt_shortcut, "F8");
+    }
+
+    #[test]
     fn transcript_content_bounds_preserve_a_full_line() {
         let content = PanelRect {
             x: 10.0,
@@ -814,8 +894,8 @@ mod tests {
     }
 
     #[test]
-    fn control_all_has_eleven_controls() {
-        assert_eq!(Control::ALL.len(), 11);
+    fn control_all_has_thirteen_controls() {
+        assert_eq!(Control::ALL.len(), 13);
     }
 
     #[test]
@@ -857,7 +937,7 @@ mod tests {
         state.open_for_surface(false);
         assert_eq!(state.focused_control, Some(Control::DeviceSelector));
 
-        for _ in 0..9 {
+        for _ in 0..(navigable_controls(false).len() - 1) {
             state.focus_next(false);
         }
         assert_eq!(state.focused_control, Some(Control::QuitButton));

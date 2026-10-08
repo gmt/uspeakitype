@@ -450,13 +450,20 @@ impl Renderer {
             source_change_pending_restart,
             requested_model,
             active_model,
+            push_to_talk,
+            ptt_shortcut,
+            ptt_held,
+            ptt_error,
         ) = {
             let state = self.audio_state.read();
             (
                 state.committed.clone(),
                 state.partial.clone(),
                 state.samples.clone(),
-                state.model_error.clone(),
+                state
+                    .ptt_error
+                    .clone()
+                    .or_else(|| state.model_error.clone()),
                 state.download_progress,
                 state.injection_enabled,
                 state.transcription_available,
@@ -466,9 +473,17 @@ impl Renderer {
                 state.source_change_pending_restart,
                 state.requested_model,
                 state.active_model,
+                state.push_to_talk,
+                state.ptt_shortcut.clone(),
+                state.ptt_held,
+                state.ptt_error.clone(),
             )
         };
         let helper_state = super::AudioState {
+            push_to_talk,
+            ptt_shortcut,
+            ptt_held,
+            ptt_error,
             available_sources: available_sources.clone(),
             selected_source_id,
             selected_source_name: selected_source_name.clone(),

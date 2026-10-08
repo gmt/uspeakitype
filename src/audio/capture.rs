@@ -2,12 +2,13 @@
 
 use std::convert::TryInto;
 use std::mem;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 use anyhow::{Context, Result};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use pipewire as pw;
 use pw::spa;
 use pw::spa::param::audio::{AudioFormat, AudioInfoRaw};
@@ -61,8 +62,76 @@ impl Default for AgcConfig {
     }
 }
 
+/// Ordered commands and audio delivered to the transcription worker.
+#[derive(Debug)]
+pub enum CaptureEvent {
+    Begin,
+    Finish,
+    Reset,
+    Audio(QueuedAudio),
+}
+
+/// A generation is canceled by manual pause or a change of admission mode.
+#[derive(Debug)]
+pub struct CaptureMessage {
+    pub generation: u64,
+    pub event: CaptureEvent,
+}
+
+/// A bounded audio frame; control events never compete with audio for queue capacity.
+#[derive(Debug)]
+pub struct QueuedAudio {
+    pub samples: Vec<f32>,
+    pub push_to_talk: bool,
+    pending: Arc<AtomicUsize>,
+}
+
+impl Drop for QueuedAudio {
+    fn drop(&mut self) {
+        self.pending.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+#[derive(Debug, Default)]
+struct CaptureGate {
+    push_to_talk: bool,
+    held: bool,
+    paused: bool,
+    sender: Option<Sender<CaptureMessage>>,
+    generation: u64,
+    pending: Arc<AtomicUsize>,
+}
+
+impl CaptureGate {
+    fn send(&self, event: CaptureEvent) {
+        if let Some(sender) = &self.sender {
+            let _ = sender.send(CaptureMessage {
+                generation: self.generation,
+                event,
+            });
+        }
+    }
+
+    fn admits_audio(&self) -> bool {
+        !self.paused && (!self.push_to_talk || self.held)
+    }
+
+    fn audio(&self, samples: &[f32]) {
+        if self.sender.is_some() && self.pending.load(Ordering::Relaxed) < 100 {
+            self.pending.fetch_add(1, Ordering::Relaxed);
+            self.send(CaptureEvent::Audio(QueuedAudio {
+                samples: samples.to_vec(),
+                push_to_talk: self.push_to_talk,
+                pending: self.pending.clone(),
+            }));
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct CaptureControl {
     pub paused: AtomicBool,
+    gate: Mutex<CaptureGate>,
     pub auto_gain_enabled: AtomicBool,
     pub current_gain: std::sync::atomic::AtomicU32,
     manual_gain: AtomicU32,
@@ -75,6 +144,7 @@ impl CaptureControl {
     pub fn new() -> Self {
         Self {
             paused: AtomicBool::new(false),
+            gate: Mutex::new(CaptureGate::default()),
             auto_gain_enabled: AtomicBool::new(false),
             current_gain: AtomicU32::new(f32::to_bits(1.0)),
             manual_gain: AtomicU32::new(f32::to_bits(1.0)),
@@ -85,10 +155,18 @@ impl CaptureControl {
     }
 
     pub fn pause(&self) {
+        let mut gate = self.gate.lock();
+        if !gate.paused {
+            gate.paused = true;
+            gate.generation = gate.generation.wrapping_add(1);
+            gate.held = false;
+            gate.send(CaptureEvent::Reset);
+        }
         self.paused.store(true, Ordering::SeqCst);
     }
 
     pub fn resume(&self) {
+        self.gate.lock().paused = false;
         self.paused.store(false, Ordering::SeqCst);
     }
 
@@ -97,8 +175,52 @@ impl CaptureControl {
     }
 
     pub fn toggle_pause(&self) -> bool {
-        let was_paused = self.paused.fetch_xor(true, Ordering::SeqCst);
-        !was_paused
+        if self.is_paused() {
+            self.resume();
+            false
+        } else {
+            self.pause();
+            true
+        }
+    }
+
+    /// Connect the ordered audio/control stream before starting capture.
+    pub fn set_event_sender(&self, sender: Sender<CaptureMessage>) {
+        self.gate.lock().sender = Some(sender);
+    }
+
+    pub fn set_push_to_talk(&self, enabled: bool) {
+        let mut gate = self.gate.lock();
+        if gate.push_to_talk != enabled {
+            gate.push_to_talk = enabled;
+            gate.generation = gate.generation.wrapping_add(1);
+            gate.held = false;
+            gate.send(CaptureEvent::Reset);
+        }
+    }
+
+    pub fn is_ptt_held(&self) -> bool {
+        self.gate.lock().held
+    }
+
+    /// Current cancellation generation (key edges alone do not cancel completed holds).
+    pub fn generation(&self) -> u64 {
+        self.gate.lock().generation
+    }
+
+    /// Returns whether the key is held after applying the manual-pause gate.
+    pub fn set_ptt_held(&self, held: bool) -> bool {
+        let mut gate = self.gate.lock();
+        let held = held && gate.push_to_talk && !gate.paused;
+        if gate.held != held {
+            gate.held = held;
+            gate.send(if held {
+                CaptureEvent::Begin
+            } else {
+                CaptureEvent::Finish
+            });
+        }
+        gate.held
     }
 
     pub fn set_auto_gain(&self, enabled: bool) {
@@ -165,7 +287,15 @@ pub struct AudioCapture {
 
 impl AudioCapture {
     pub fn new(callback: AudioCallback, config: CaptureConfig) -> Result<Self> {
-        let control = Arc::new(CaptureControl::new());
+        Self::with_control(callback, config, Arc::new(CaptureControl::new()))
+    }
+
+    /// Start capture with its admission gate already configured.
+    pub fn with_control(
+        callback: AudioCallback,
+        config: CaptureConfig,
+        control: Arc<CaptureControl>,
+    ) -> Result<Self> {
         control.set_auto_gain(config.auto_gain_enabled);
 
         let control_clone = control.clone();
@@ -690,7 +820,10 @@ fn run_capture_loop(
             }
         })
         .process(|stream, user_data| {
-            if user_data.control.is_paused() {
+            // Hold admission through DSP and enqueue, so release is ordered after
+            // the final admitted frame. Never hold it across the UI callback.
+            let gate = user_data.control.gate.lock();
+            if !gate.admits_audio() {
                 let _ = stream.dequeue_buffer();
                 return;
             }
@@ -744,6 +877,8 @@ fn run_capture_loop(
                     &mut user_data.limiter,
                 );
 
+                gate.audio(&samples);
+                drop(gate);
                 (user_data.callback)(&samples);
             }
         })
@@ -921,6 +1056,112 @@ pub fn list_audio_sources() -> Result<Vec<AudioSource>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn feed_gate(control: &CaptureControl, samples: &[f32]) {
+        let gate = control.gate.lock();
+        if gate.admits_audio() {
+            gate.audio(samples);
+        }
+    }
+
+    #[test]
+    fn ptt_gate_orders_key_edges_and_admitted_audio_without_duplicates() {
+        let control = CaptureControl::new();
+        let (tx, rx) = std::sync::mpsc::channel();
+        control.set_event_sender(tx);
+        control.set_push_to_talk(true);
+        assert!(matches!(rx.recv().unwrap().event, CaptureEvent::Reset));
+        feed_gate(&control, &[99.0]);
+        control.set_ptt_held(true);
+        control.set_ptt_held(true); // key-repeat
+        feed_gate(&control, &[1.0, 2.0]);
+        control.set_ptt_held(false);
+        control.set_ptt_held(false);
+        feed_gate(&control, &[98.0]);
+        control.set_ptt_held(true);
+        feed_gate(&control, &[3.0]);
+        control.set_ptt_held(false);
+        let events: Vec<_> = rx.try_iter().map(|message| message.event).collect();
+        assert_eq!(events.len(), 6);
+        assert!(matches!(events[0], CaptureEvent::Begin));
+        let CaptureEvent::Audio(frame) = &events[1] else {
+            panic!("expected audio")
+        };
+        assert_eq!(frame.samples, [1.0, 2.0]);
+        assert!(frame.push_to_talk);
+        assert!(matches!(events[2], CaptureEvent::Finish));
+        assert!(matches!(events[3], CaptureEvent::Begin));
+        let CaptureEvent::Audio(frame) = &events[4] else {
+            panic!("expected audio")
+        };
+        assert_eq!(frame.samples, [3.0]);
+        assert!(matches!(events[5], CaptureEvent::Finish));
+        assert!(!control.is_paused()); // idle PTT is not manual pause
+    }
+
+    #[test]
+    fn ptt_generation_preserves_completed_holds_but_cancels_manual_pause_backlog() {
+        let control = CaptureControl::new();
+        let (tx, rx) = std::sync::mpsc::channel();
+        control.set_event_sender(tx);
+        control.set_push_to_talk(true);
+        let generation = control.generation();
+        control.set_ptt_held(true);
+        feed_gate(&control, &[1.0]);
+        control.set_ptt_held(false);
+        control.set_ptt_held(true);
+        // A fast second press does not invalidate the first utterance's commit.
+        assert_eq!(control.generation(), generation);
+        let backlog: Vec<_> = rx.try_iter().collect();
+        assert!(backlog
+            .iter()
+            .all(|message| message.generation == generation));
+        control.pause();
+        control.resume();
+        assert_ne!(control.generation(), generation);
+        assert!(backlog
+            .iter()
+            .all(|message| message.generation != control.generation()));
+        let reset = rx.recv().unwrap();
+        assert_eq!(reset.generation, control.generation());
+        assert!(matches!(reset.event, CaptureEvent::Reset));
+        let generation = control.generation();
+        control.set_push_to_talk(false);
+        assert_ne!(control.generation(), generation);
+    }
+
+    #[test]
+    fn ptt_queue_capacity_never_drops_release_and_pause_cancels_hold() {
+        let control = CaptureControl::new();
+        let (tx, rx) = std::sync::mpsc::channel();
+        control.set_event_sender(tx);
+        control.set_push_to_talk(true);
+        control.set_ptt_held(true);
+        for _ in 0..110 {
+            feed_gate(&control, &[1.0]);
+        }
+        control.set_ptt_held(false);
+        let events: Vec<_> = rx.try_iter().map(|message| message.event).collect();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e, CaptureEvent::Audio(_)))
+                .count(),
+            100
+        );
+        assert!(matches!(events.last(), Some(CaptureEvent::Finish)));
+        drop(events);
+        assert_eq!(control.gate.lock().pending.load(Ordering::Relaxed), 0);
+        control.set_ptt_held(true);
+        control.pause();
+        assert!(!control.set_ptt_held(true));
+        control.resume();
+        feed_gate(&control, &[99.0]);
+        let events: Vec<_> = rx.try_iter().map(|message| message.event).collect();
+        assert_eq!(events.len(), 2);
+        assert!(matches!(events[0], CaptureEvent::Begin));
+        assert!(matches!(events[1], CaptureEvent::Reset));
+    }
 
     #[test]
     fn manual_gain_applies_to_samples_and_survives_agc() {

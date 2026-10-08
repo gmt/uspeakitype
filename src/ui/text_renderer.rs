@@ -303,6 +303,13 @@ impl TextRenderer {
         self.atlas.trim();
     }
 
+    fn ensure_panel_capacity(&mut self, count: usize) {
+        while self.panel_buffers.len() < count {
+            self.panel_buffers
+                .push(Buffer::new(&mut self.font_system, Metrics::new(14.0, 18.0)));
+        }
+    }
+
     /// Render batched panel text (control panel title + controls)
     pub fn render_panel_text(
         &mut self,
@@ -312,7 +319,8 @@ impl TextRenderer {
         bounds: TextBounds,
         panel_width: f32,
     ) {
-        let line_count = lines.len().min(self.panel_buffers.len());
+        self.ensure_panel_capacity(lines.len());
+        let line_count = lines.len();
 
         for (i, line) in lines.iter().take(line_count).enumerate() {
             let line_height = (line.font_size * 1.3).max(18.0);
@@ -410,7 +418,8 @@ impl TextRenderer {
         is_error: bool,
     ) {
         let theme_wgpu = self.theme.to_wgpu();
-        let line_count = status_lines.len().min(self.panel_buffers.len());
+        self.ensure_panel_capacity(status_lines.len());
+        let line_count = status_lines.len();
 
         for (i, line) in status_lines.iter().take(line_count).enumerate() {
             let line_height = (line.font_size * 1.3).max(18.0);

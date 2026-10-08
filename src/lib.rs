@@ -9,3 +9,5 @@ pub mod model_cache;
 pub mod spectrum;
 pub mod streaming;
 pub mod ui;
+
+pub mod hotkey;

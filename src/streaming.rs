@@ -40,6 +40,7 @@ impl Default for StreamingConfig {
 pub trait VadProcessor {
     fn process(&mut self, samples: &[f32]) -> Result<()>;
     fn is_speaking(&self) -> bool;
+    fn reset(&mut self) {}
 }
 
 /// Trait for transcription (allows mocking in tests)
@@ -70,6 +71,7 @@ pub struct StreamingTranscriber<V: VadProcessor, T: Transcriber> {
     transcription_buffer: Vec<f32>,
     samples_since_update: usize,
     was_speaking: bool,
+    ptt_active: bool,
 }
 
 impl<V: VadProcessor, T: Transcriber> StreamingTranscriber<V, T> {
@@ -83,24 +85,68 @@ impl<V: VadProcessor, T: Transcriber> StreamingTranscriber<V, T> {
             transcription_buffer: Vec::new(),
             samples_since_update: 0,
             was_speaking: false,
+            ptt_active: false,
         }
     }
 
     /// Replace the transcriber with a new instance and reset all internal state.
     ///
-    /// Used for model hot-swap: clears buffers, resets counters, and installs
-    /// the new transcriber. The VAD is left untouched (same mic, same voice).
+    /// Model hot-swap discards the previous utterance and its VAD context.
     pub fn swap_transcriber(&mut self, new_transcriber: T) {
         self.transcriber = new_transcriber;
+        self.reset();
+    }
+
+    /// Discard all state, including VAD context and pre-roll, across capture sessions.
+    pub fn reset(&mut self) {
+        self.vad.reset();
         self.transcriber.reset();
         self.pre_roll.clear();
         self.transcription_buffer.clear();
         self.samples_since_update = 0;
         self.was_speaking = false;
+        self.ptt_active = false;
     }
 
     pub fn is_speaking(&self) -> bool {
-        self.vad.is_speaking()
+        self.ptt_active && !self.transcription_buffer.is_empty() || self.vad.is_speaking()
+    }
+
+    /// A held key defines one utterance independently of silence detection.
+    pub fn begin_push_to_talk(&mut self) {
+        self.reset();
+        self.ptt_active = true;
+    }
+
+    pub fn process_push_to_talk(&mut self, samples: &[f32]) -> Result<Vec<StreamEvent>> {
+        if !self.ptt_active {
+            return Ok(Vec::new());
+        }
+        self.transcription_buffer.extend_from_slice(samples);
+        self.samples_since_update += samples.len();
+        if self.samples_since_update >= self.config.update_interval_samples {
+            let text = self
+                .transcriber
+                .transcribe_incremental(&self.transcription_buffer)?;
+            self.samples_since_update = 0;
+            Ok(vec![StreamEvent::Partial(text)])
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    /// Decode every admitted sample, including a tail shorter than the update interval.
+    /// Repeated release events are harmless and never commit a second time.
+    pub fn finish_push_to_talk(&mut self) -> Result<Vec<StreamEvent>> {
+        let result = if self.ptt_active && !self.transcription_buffer.is_empty() {
+            self.transcriber
+                .transcribe_incremental(&self.transcription_buffer)
+                .map(|text| vec![StreamEvent::Commit(text)])
+        } else {
+            Ok(Vec::new())
+        };
+        self.reset();
+        result
     }
 
     pub fn process(&mut self, samples: &[f32]) -> Result<Vec<StreamEvent>> {
@@ -160,6 +206,9 @@ impl<V: VadProcessor, T: Transcriber> StreamingTranscriber<V, T> {
 }
 
 impl VadProcessor for SileroVad {
+    fn reset(&mut self) {
+        SileroVad::reset(self);
+    }
     fn process(&mut self, samples: &[f32]) -> Result<()> {
         self.process(samples)?;
         Ok(())
@@ -228,6 +277,76 @@ mod tests {
         }
 
         fn reset(&mut self) {}
+    }
+
+    #[test]
+    fn ptt_release_flushes_short_tail_once_and_next_hold_starts_clean() {
+        let mut streamer = StreamingTranscriber::new(
+            MockVad { speaking: false },
+            RecordingTranscriber::default(),
+            StreamingConfig {
+                pre_roll_samples: 3,
+                update_interval_samples: 3,
+            },
+        );
+        // Idle audio cannot leak into an explicitly held utterance.
+        streamer.process(&[99.0, 98.0]).unwrap();
+        streamer.begin_push_to_talk();
+        assert_eq!(
+            streamer.process_push_to_talk(&[1.0, 2.0, 3.0]).unwrap(),
+            vec![StreamEvent::Partial("3 samples".into())]
+        );
+        assert!(streamer.process_push_to_talk(&[4.0]).unwrap().is_empty());
+        assert_eq!(
+            streamer.finish_push_to_talk().unwrap(),
+            vec![StreamEvent::Commit("4 samples".into())]
+        );
+        assert_eq!(
+            streamer.transcriber.inputs.last().unwrap(),
+            &[1.0, 2.0, 3.0, 4.0]
+        );
+        assert!(streamer.finish_push_to_talk().unwrap().is_empty());
+        assert!(streamer.process_push_to_talk(&[97.0]).unwrap().is_empty());
+        streamer.begin_push_to_talk();
+        streamer.process_push_to_talk(&[5.0]).unwrap();
+        assert_eq!(
+            streamer.finish_push_to_talk().unwrap(),
+            vec![StreamEvent::Commit("1 samples".into())]
+        );
+        assert_eq!(streamer.transcriber.inputs.last().unwrap(), &[5.0]);
+        streamer.begin_push_to_talk();
+        assert!(streamer.finish_push_to_talk().unwrap().is_empty());
+    }
+
+    #[test]
+    fn ptt_reset_discards_pending_audio_and_resets_vad_context() {
+        struct StatefulVad {
+            dirty: bool,
+        }
+        impl VadProcessor for StatefulVad {
+            fn process(&mut self, _: &[f32]) -> Result<()> {
+                self.dirty = true;
+                Ok(())
+            }
+            fn is_speaking(&self) -> bool {
+                self.dirty
+            }
+            fn reset(&mut self) {
+                self.dirty = false;
+            }
+        }
+        let mut streamer = StreamingTranscriber::new(
+            StatefulVad { dirty: true },
+            RecordingTranscriber::default(),
+            StreamingConfig::default(),
+        );
+        streamer.begin_push_to_talk();
+        assert!(!streamer.vad.dirty);
+        streamer.process_push_to_talk(&[1.0, 2.0]).unwrap();
+        streamer.reset();
+        assert!(streamer.finish_push_to_talk().unwrap().is_empty());
+        assert!(streamer.transcriber.inputs.is_empty());
+        assert!(streamer.pre_roll.is_empty());
     }
 
     #[test]

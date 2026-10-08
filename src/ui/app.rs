@@ -157,6 +157,7 @@ impl OverlayApp {
             self.control_panel.gain_value = control.get_manual_gain();
             let mut state = self.audio_state.write();
             state.is_paused = self.control_panel.is_paused;
+            state.ptt_held = control.is_ptt_held();
             state.auto_gain_enabled = self.control_panel.agc_enabled;
             state.current_gain = control.get_current_gain();
         }
@@ -276,6 +277,13 @@ impl OverlayApp {
                 if let Some(ref ctrl) = self.capture_control {
                     self.control_panel.apply_pause(ctrl);
                 }
+            }
+            Control::PushToTalkToggle => {
+                self.control_panel.toggle_ptt(&mut self.audio_state.write());
+            }
+            Control::PttShortcut => {
+                self.control_panel
+                    .cycle_ptt_shortcut(&mut self.audio_state.write());
             }
             Control::VizToggle => {
                 self.control_panel.toggle_viz_mode();

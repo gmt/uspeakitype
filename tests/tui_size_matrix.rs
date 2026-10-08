@@ -433,8 +433,12 @@ fn test_color_scheme_cycling() {
         "Should show flame scheme initially"
     );
 
-    // Navigate to ColorPicker (6th control)
-    for _ in 0..5 {
+    // Follow the control model so added capture controls do not redirect this test.
+    let palette_index = usit::ui::control_panel::navigable_controls(false)
+        .iter()
+        .position(|control| *control == usit::ui::Control::ColorPicker)
+        .expect("palette is navigable in ANSI mode");
+    for _ in 0..palette_index {
         harness.send_keys("\x1b[B").unwrap();
         harness.wait_frames(1).unwrap();
     }
@@ -442,12 +446,15 @@ fn test_color_scheme_cycling() {
 
     harness.send_keys("\r").unwrap();
     harness.wait_frames(3).unwrap();
-    assert!(harness.has_text("ice"), "Should show ice after first Enter");
+    assert!(
+        harness.has_text("Color: ice"),
+        "Should show ice after first Enter"
+    );
 
     harness.send_keys("\r").unwrap();
     harness.wait_frames(3).unwrap();
     assert!(
-        harness.has_text("mono"),
+        harness.has_text("Color: mono"),
         "Should show mono after second Enter"
     );
 

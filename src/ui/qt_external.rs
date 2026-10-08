@@ -32,7 +32,23 @@ const SNAPSHOT_INTERVAL: Duration = Duration::from_millis(33);
 struct QtCommand {
     #[serde(rename = "type")]
     command_type: String,
-    value: Option<f32>,
+    value: Option<QtCommandValue>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum QtCommandValue {
+    Number(f32),
+    Text(String),
+}
+
+impl QtCommand {
+    fn number(&self) -> Option<f32> {
+        match &self.value {
+            Some(QtCommandValue::Number(number)) => Some(*number),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -46,6 +62,10 @@ struct QtSnapshot {
     committed: String,
     partial: String,
     paused: bool,
+    push_to_talk: bool,
+    ptt_shortcut: String,
+    ptt_held: bool,
+    ptt_error: Option<String>,
     injection_enabled: bool,
     transcription_available: bool,
     auto_gain_enabled: bool,
@@ -159,6 +179,7 @@ fn run_inner(
             panel.gain_value = control.get_manual_gain();
             let mut state = audio_state.write();
             state.is_paused = panel.is_paused;
+            state.ptt_held = control.is_ptt_held();
             state.auto_gain_enabled = panel.agc_enabled;
             state.current_gain = control.get_current_gain();
         }
@@ -268,6 +289,10 @@ fn build_snapshot(
         committed: state.committed.clone(),
         partial: state.partial.clone(),
         paused: state.is_paused,
+        push_to_talk: state.push_to_talk,
+        ptt_shortcut: state.ptt_shortcut.clone(),
+        ptt_held: state.ptt_held,
+        ptt_error: state.ptt_error.clone(),
         injection_enabled: state.injection_enabled,
         transcription_available: state.transcription_available,
         auto_gain_enabled: panel.agc_enabled,
@@ -320,6 +345,21 @@ fn apply_command(
             audio_state.write().is_paused = panel.is_paused;
             persist = false;
         }
+        "toggle_ptt" => panel.toggle_ptt(&mut audio_state.write()),
+        "set_ptt_shortcut" => {
+            let Some(QtCommandValue::Text(value)) = &command.value else {
+                return Ok(());
+            };
+            let shortcut = value.trim();
+            anyhow::ensure!(
+                !shortcut.is_empty() && shortcut.len() <= 128,
+                "Talk shortcut must contain 1 to 128 characters"
+            );
+            let mut state = audio_state.write();
+            state.set_ptt_held(false);
+            state.ptt_shortcut = shortcut.to_string();
+            state.ptt_error = None;
+        }
         "toggle_injection" => panel.toggle_injection(&mut audio_state.write()),
         "toggle_viz" => panel.toggle_viz_mode(),
         "toggle_agc" => {
@@ -347,7 +387,7 @@ fn apply_command(
             }
         }
         "select_model" => {
-            let Some(index) = command.value.filter(|value| {
+            let Some(index) = command.number().filter(|value| {
                 value.is_finite()
                     && *value >= 0.0
                     && value.fract() == 0.0
@@ -368,7 +408,7 @@ fn apply_command(
             persist = false;
         }
         "set_gain" => {
-            if let Some(value) = command.value.filter(|v| v.is_finite()) {
+            if let Some(value) = command.number().filter(|v| v.is_finite()) {
                 panel.set_gain(value);
                 panel.apply_gain(&mut audio_state.write());
             } else {
@@ -376,7 +416,7 @@ fn apply_command(
             }
         }
         "set_opacity" => {
-            if let Some(value) = command.value.filter(|v| v.is_finite()) {
+            if let Some(value) = command.number().filter(|v| v.is_finite()) {
                 panel.opacity = value.clamp(0.1, 1.0);
             } else {
                 return Ok(());
@@ -444,7 +484,7 @@ mod tests {
     fn command(name: &str, value: Option<f32>) -> QtCommand {
         QtCommand {
             command_type: name.to_string(),
-            value,
+            value: value.map(QtCommandValue::Number),
         }
     }
 
@@ -484,6 +524,65 @@ mod tests {
         assert!(state.read().is_paused);
         apply("quit", None, &mut panel);
         assert!(!running.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn ptt_commands_persist_shortcut_and_keep_numeric_commands_strict() {
+        let dir = tempfile::tempdir().unwrap();
+        let options = options(dir.path().join("usit.toml"));
+        let state = new_shared_state();
+        let mut panel = options.control_panel.clone();
+        let running = AtomicBool::new(true);
+        apply_command(
+            &command("toggle_ptt", None),
+            &state,
+            None,
+            &mut panel,
+            &options,
+            &running,
+        )
+        .unwrap();
+        assert!(state.read().push_to_talk);
+        state.write().set_ptt_held(true);
+        let shortcut: QtCommand =
+            serde_json::from_str(r#"{"type":"set_ptt_shortcut","value":"Ctrl+F8"}"#).unwrap();
+        apply_command(&shortcut, &state, None, &mut panel, &options, &running).unwrap();
+        assert_eq!(state.read().ptt_shortcut, "Ctrl+F8");
+        assert!(
+            !state.read().ptt_held,
+            "a changed shortcut must release the old gate"
+        );
+        let config = crate::config::Config::load(&options.config.path).unwrap();
+        assert!(config.push_to_talk);
+        assert_eq!(config.ptt_shortcut, "Ctrl+F8");
+        let invalid_gain: QtCommand =
+            serde_json::from_str(r#"{"type":"set_gain","value":"1.5"}"#).unwrap();
+        apply_command(&invalid_gain, &state, None, &mut panel, &options, &running).unwrap();
+        assert_eq!(
+            panel.gain_value, 1.0,
+            "numeric controls must reject text values"
+        );
+        let invalid_shortcut: QtCommand =
+            serde_json::from_str(r#"{"type":"set_ptt_shortcut","value":" "}"#).unwrap();
+        assert!(apply_command(
+            &invalid_shortcut,
+            &state,
+            None,
+            &mut panel,
+            &options,
+            &running
+        )
+        .is_err());
+        assert_eq!(state.read().ptt_shortcut, "Ctrl+F8");
+        state.write().ptt_error = Some("Shortcut already in use".to_string());
+        let mut spectrum = SpectrumAnalyzer::new(SpectrumConfig::default());
+        let snapshot = build_snapshot(&state, &panel, &mut spectrum);
+        assert!(snapshot.push_to_talk);
+        assert_eq!(snapshot.ptt_shortcut, "Ctrl+F8");
+        assert_eq!(
+            snapshot.ptt_error.as_deref(),
+            Some("Shortcut already in use")
+        );
     }
 
     #[test]

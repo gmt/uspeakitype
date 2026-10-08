@@ -135,6 +135,11 @@ fn format_control_label(control: Control, value: &str, mode: LayoutMode) -> Stri
         (Control::PauseButton, LayoutMode::Compact) => "Pse",
         (Control::PauseButton, _) => "P",
 
+        (Control::PushToTalkToggle, LayoutMode::Full) => "Listening",
+        (Control::PushToTalkToggle, _) => "PTT",
+        (Control::PttShortcut, LayoutMode::Full) => "Talk key",
+        (Control::PttShortcut, _) => "Key",
+
         // VizToggle
         (Control::VizToggle, LayoutMode::Full) => "Visualization",
         (Control::VizToggle, LayoutMode::Compact) => "Viz",
@@ -287,6 +292,10 @@ pub struct TerminalVisualizer {
     committed_text: String,
     partial_text: String,
     is_paused: bool,
+    push_to_talk: bool,
+    ptt_shortcut: String,
+    ptt_held: bool,
+    ptt_error: Option<String>,
     is_speaking: bool,
     injection_enabled: bool,
     transcription_available: bool,
@@ -348,6 +357,10 @@ impl TerminalVisualizer {
             committed_text: String::new(),
             partial_text: String::new(),
             is_paused: false,
+            push_to_talk: false,
+            ptt_shortcut: "F9".to_string(),
+            ptt_held: false,
+            ptt_error: None,
             is_speaking: false,
             injection_enabled: true,
             transcription_available: false,
@@ -500,6 +513,20 @@ impl TerminalVisualizer {
         self.download_progress = progress;
     }
 
+    /// Update the shared global shortcut status even when no audio is arriving.
+    pub fn set_ptt_status(
+        &mut self,
+        enabled: bool,
+        shortcut: String,
+        held: bool,
+        error: Option<String>,
+    ) {
+        self.push_to_talk = enabled;
+        self.ptt_shortcut = shortcut;
+        self.ptt_held = held;
+        self.ptt_error = error;
+    }
+
     pub fn set_model_error(&mut self, error: Option<String>) {
         self.model_error = error;
     }
@@ -570,6 +597,10 @@ impl TerminalVisualizer {
         let mode = self.layout_mode();
         let (help_title, help_body) = panel.help_copy();
         let audio_state = crate::ui::AudioState {
+            push_to_talk: self.push_to_talk,
+            ptt_shortcut: self.ptt_shortcut.clone(),
+            ptt_held: self.ptt_held,
+            ptt_error: self.ptt_error.clone(),
             injection_enabled: self.injection_enabled,
             transcription_available: self.transcription_available,
             selected_source_name: self.selected_source_name.clone(),
@@ -693,10 +724,7 @@ impl TerminalVisualizer {
             return self.process_and_render();
         }
 
-        if self.layout_mode() != LayoutMode::Degenerate {
-            if !self.analyzer.process() {
-                return Ok(());
-            }
+        if self.layout_mode() != LayoutMode::Degenerate && self.analyzer.process() {
             let bands = self.analyzer.data().bands.clone();
             self.push_waterfall_column(&bands);
         }
@@ -713,7 +741,7 @@ impl TerminalVisualizer {
         let theme = self.theme;
         let panel_is_open = panel.is_open;
         let download_progress = self.download_progress;
-        let model_error = self.model_error.clone();
+        let model_error = self.ptt_error.clone().or_else(|| self.model_error.clone());
 
         let panel_data = if panel_is_open {
             Some(self.build_panel_data(panel))
@@ -722,6 +750,10 @@ impl TerminalVisualizer {
         };
 
         let helper_state = crate::ui::AudioState {
+            push_to_talk: self.push_to_talk,
+            ptt_shortcut: self.ptt_shortcut.clone(),
+            ptt_held: self.ptt_held,
+            ptt_error: self.ptt_error.clone(),
             injection_enabled: self.injection_enabled,
             transcription_available: self.transcription_available,
             requested_model: self.requested_model,
@@ -785,11 +817,10 @@ impl TerminalVisualizer {
 
             if let Some(ref error) = model_error {
                 // Show model error prominently in red
-                let error_text = if error.len() > status_area.width as usize - 4 {
-                    format!("ERR: {}...", &error[..status_area.width as usize - 8])
-                } else {
-                    format!("ERR: {}", error)
-                };
+                let error_text: String = format!("ERR: {}", error)
+                    .chars()
+                    .take(status_area.width as usize)
+                    .collect();
                 let error_paragraph = Paragraph::new(error_text)
                     .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD));
                 frame.render_widget(error_paragraph, status_area);

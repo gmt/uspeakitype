@@ -163,6 +163,14 @@ pub struct Config {
     #[serde(default)]
     pub model_dir: Option<PathBuf>,
 
+    /// Admit microphone audio only while the global shortcut is held.
+    #[serde(default)]
+    pub push_to_talk: bool,
+
+    /// Global push-to-talk shortcut in portable Qt key-sequence notation.
+    #[serde(default = "default_ptt_shortcut")]
+    pub ptt_shortcut: String,
+
     /// Window opacity (0.0-1.0, default: 0.85)
     #[serde(default = "default_opacity")]
     pub opacity: f32,
@@ -181,8 +189,14 @@ impl Default for Config {
             auto_save: true,
             model_dir: None,
             opacity: 0.85,
+            push_to_talk: false,
+            ptt_shortcut: default_ptt_shortcut(),
         }
     }
+}
+
+fn default_ptt_shortcut() -> String {
+    "F9".to_string()
 }
 
 fn default_opacity() -> f32 {
@@ -274,6 +288,8 @@ mod tests {
         assert!(config.auto_save);
         assert_eq!(config.source, None);
         assert_eq!(config.model_dir, None);
+        assert!(!config.push_to_talk);
+        assert_eq!(config.ptt_shortcut, "F9");
     }
 
     #[test]
@@ -292,6 +308,8 @@ mod tests {
             auto_save: false,
             model_dir: Some(PathBuf::from("/tmp/models")),
             opacity: 0.75,
+            push_to_talk: true,
+            ptt_shortcut: "Ctrl+F9".to_string(),
         };
 
         // Save
@@ -310,6 +328,8 @@ mod tests {
         assert_eq!(loaded.injection_enabled, original.injection_enabled);
         assert_eq!(loaded.auto_save, original.auto_save);
         assert_eq!(loaded.model_dir, original.model_dir);
+        assert_eq!(loaded.push_to_talk, original.push_to_talk);
+        assert_eq!(loaded.ptt_shortcut, original.ptt_shortcut);
     }
 
     #[test]

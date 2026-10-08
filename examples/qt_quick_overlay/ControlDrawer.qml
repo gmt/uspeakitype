@@ -48,6 +48,23 @@ Rectangle {
             width: scroll.width
             spacing: 10
             DrawerSwitch {
+                width: parent.width; label: "Hold to talk"; value: !!root.state.push_to_talk
+                helpText: "Recognize speech only while the global hold key is down. The key works while another application has focus."
+                onActivated: root.command("toggle_ptt", null)
+                onHelpRequested: description => root.description = description
+            }
+            ActionButton {
+                width: parent.width; label: "Hold key: " + (root.state.ptt_shortcut || "Not configured")
+                helpText: "Choose one key or key combination. Existing KDE shortcuts are not taken over."
+                onActivated: usitTray.editPttShortcut()
+                onHelpRequested: description => root.description = description
+            }
+            Text {
+                width: parent.width; visible: !!root.state.ptt_error
+                text: root.state.ptt_error || ""; textFormat: Text.PlainText
+                wrapMode: Text.WordWrap; color: "#ff9785"; font.pixelSize: 12
+            }
+            DrawerSwitch {
                 id: agc; objectName: "agcControl"
                 width: parent.width; label: "Automatic gain"; value: !!root.state.auto_gain_enabled
                 helpText: "Adjust microphone gain automatically. Manual gain is disabled while this is enabled."

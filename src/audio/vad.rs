@@ -170,6 +170,7 @@ impl SileroVad {
         self.current_state = VadState::Silence;
         self.frame_counter = 0;
         self.sample_buffer.clear();
+        self.context.fill(0.0);
 
         let state_array = ArrayD::<f32>::zeros(IxDyn(&[2, 1, 128]));
         if let Ok(tensor) = Tensor::from_array(state_array) {

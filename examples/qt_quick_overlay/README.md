@@ -1,15 +1,18 @@
-# Qt Quick dictation window
+# Qt Quick dictation display and settings
 
 The Qt Quick frontend displays live speech recognition from the Rust engine.
-It provides committed and provisional transcript text, a frequency spectrum or
-scrolling waterfall, and microphone, model, gain and appearance controls. Its
-warm dark window stays above ordinary windows and can be resized.
+Its warm, translucent transcript display stays above ordinary windows without
+taking keyboard focus. A separate Settings window provides microphone, model,
+gain, hold-to-talk and appearance controls. The system tray provides quick
+access while the transcript is hidden.
 
 ## Build and run
 
-Requirements: CMake, a C++17 compiler, and Qt 6 Core, Gui, Qml, Quick, Widgets and Test
-libraries with their development files. The speech engine's dependencies and
-model requirements are described in the repository README.
+Requirements: CMake, a C++17 compiler, Qt 6 Core, Gui, Qml, Quick, Widgets, DBus
+and Test development libraries, KDE Frameworks 6 GlobalAccel, and LayerShellQt.
+KDE Plasma's global shortcut service supplies press/release events for
+hold-to-talk. The engine's audio and model requirements are in the repository
+README.
 
 From the repository root:
 
@@ -19,67 +22,96 @@ cargo run --release -- --qt
 ```
 
 The helper is built at `target/qt-quick/usit-qt-overlay`. QML resources are
-embedded in that executable, so rebuild it after changing these files. Launch
-through `usit --qt`: the helper alone expects a live engine on standard input.
+embedded in that executable, so rebuild after changing these files. Launch
+through `usit --qt`: the helper expects a live engine on standard input.
 
 For a microphone-free demonstration, use `cargo run -- --qt --demo`. Demo audio
 and transcript come from the engine's explicit demo mode; the Qt frontend does
 not synthesize speech, spectrum values, or transcript text.
 
+## Focus and tray behavior
+
+On Wayland, the transcript is a LayerShellQt overlay with keyboard interaction
+disabled. It has no editable fields and never requests activation when shown or
+restored from the tray. It leaves the application receiving your dictation
+focused. On X11, its window flags prevent keyboard focus.
+
+**Controls** on the display, or **Settings…** in the tray, explicitly opens a
+normal focusable Settings window. Closing Settings leaves dictation running.
+After changing settings, return focus to the application receiving dictation.
+Clicking the tray icon toggles only the passive transcript display. **Hide** or
+closing the display hides it when a tray is available; without a tray it quits
+so an inaccessible session is not left running. **Quit usit** always ends the
+session. If the tray disappears while the display is hidden, the display
+returns without requesting focus.
+
 ## Controls
 
-- **Listening / Paused** pauses or resumes recognition; shortcut **P**.
-- **Injecting** enables typing committed phrases into the focused application;
-  shortcut **I**. A working speech model and input backend are required.
+- **Hold to talk** recognizes speech while the configured global key is held.
+  **Hold key** opens a shortcut editor accepting one key or key combination,
+  such as `F9` or `Ctrl+Alt+Space`. The tray and transcript show whether usit is
+  waiting for the key, dictating, or unable to register the key.
+- **Listening / Paused** pauses or resumes continuous recognition; shortcut
+  **P** in Settings. This control is disabled in hold-to-talk mode.
+- **Injecting** types committed phrases into the focused application;
+  shortcut **I** in Settings. A working model and input backend are required.
 - **Waterfall / Bars** changes the audio visualization; shortcut **V**.
-- **Controls** opens or closes settings; shortcut **C**.
 - **Automatic gain** lets capture manage microphone level. Manual software gain
   is disabled while automatic gain is active.
 - **Input** cycles microphones. Selection takes effect on the next launch.
-- **Model** opens a list for direct selection. Browse with arrow keys and select
+- **Model** opens a direct-selection list. Browse with arrow keys and select
   with Return, or click a model. Browsing does not download intermediate models.
   A missing selected model downloads before activation; **Cancel model download**
-  cancels that download while retaining the active model.
-- **Colors** and **Window opacity** change appearance.
-- **Auto-save** persists explicit setting changes. **Save settings** or
-  **Ctrl+S** saves when auto-save is disabled. Algorithmic gain changes do not
-  change the saved manual gain.
-- The **tray icon** uses the Tux headset artwork. Click it to show or hide the
-  window; its menu also controls **Listening**, **Type into focused application**,
-  and **Quit usit**. The tooltip reports the active model and listening/typing state.
-- Closing the window hides it in the tray while dictation continues. If no tray is
-  available, closing ends the session. **Ctrl+Q** or **Quit usit** always stops it.
-  If the tray host disappears while the window is hidden, the window reappears.
+  cancels it while retaining the active model.
+- **Colors** and **Window opacity** change the transcript's appearance.
+- **Auto-save** persists explicit changes. **Save settings** or **Ctrl+S** saves
+  when auto-save is disabled. Automatic gain adjustments do not change saved
+  manual gain.
+- **Ctrl+Q** in Settings or **Quit usit** in the tray ends the session.
 
-Click controls or use **Tab / Shift+Tab**, then **Space / Return** to activate.
+Settings supports **Tab / Shift+Tab**, then **Space / Return** to activate.
 Sliders use **Left / Right** and **Home / End**. Focused and hovered controls
-show help at the bottom of the settings panel. When the window is short, scroll
-settings with the mouse; keyboard focus scrolls the active control into view.
+show help at the bottom of the panel. Scrolling and keyboard focus keep controls
+accessible in a short window.
 
-The window has no editable text field. After adjusting settings, focus the
-application where you want dictation inserted. Desktop focus behavior is owned
-by the compositor; this is a Qt tool window, not a Wayland layer-shell surface.
+The hold-key listener is independent of the graphical frontend, so the Rust
+engine can use it with terminal and WGPU presentations too. Only one usit
+session may own hold-to-talk on a session bus. An occupied shortcut produces a
+readable error; usit does not take another application's binding. Disabling
+hold-to-talk, disconnecting the engine, or losing KDE's shortcut service
+releases a held key. The helper unregisters its binding on shutdown.
 
 ## Frontend checks
 
 ```sh
 python3 qt_quick_overlay/tests/smoke.py
+python3 qt_quick_overlay/tests/hotkey.py
 ```
 
-The bounded test uses Qt's offscreen platform with software rendering. It checks
-live snapshot bindings, real mouse and keyboard activation, outgoing command
-values, malformed and fragmented input, rendering, and automatic exit when the
-engine pipe closes. To additionally check the native desktop tray's close/hide,
-restore, menu actions and quit lifecycle without capturing audio or injecting text,
-run `USIT_QT_LIVE_TRAY_TEST=1 python3 qt_quick_overlay/tests/smoke.py`.
-To keep the rendered screenshot, set
-`USIT_QT_TEST_SCREENSHOT=/tmp/usit-qt.png`.
+The smoke test uses Qt's offscreen platform with software rendering. It checks
+snapshot bindings, nonfocus/transparency flags, separate Settings lifecycle,
+real mouse and keyboard activation, commands, malformed and fragmented input,
+rendering, and exit when the engine pipe closes. To keep the display screenshot,
+set `USIT_QT_TEST_SCREENSHOT=/tmp/usit-qt.png`. Set
+`USIT_QT_LIVE_TRAY_TEST=1` only when deliberately testing the current desktop's
+tray; the default smoke test stays offscreen.
+
+The hotkey test uses simulated registration and activation to verify repeat
+suppression and release on disable, service loss and stdin EOF. It also checks
+the production helper's missing-service error with an unreachable session bus.
+It does not register a shortcut on the current desktop. Actual compositor
+focus and global-key delivery require a KDE/Wayland integration check.
 
 ## Engine boundary
 
-`qt_quick_overlay/main.cpp` exposes `usitBridge.state` to QML. Each newline JSON
-object on stdin replaces that state. User controls call
-`usitBridge.send(type, value)`; compact JSON command objects are emitted on
-stdout. Diagnostics go to stderr. stdin is nonblocking, and EOF exits the
-helper. Rust owns model activation, audio capture, gain, settings persistence,
-and text injection; the window only displays their state and sends user intent.
+`qt_quick_overlay/bridge.h` exposes `usitBridge.state` to QML. Each newline JSON
+object on stdin replaces that state. Controls call
+`usitBridge.send(type, value)`; compact JSON commands go to stdout. Diagnostics
+go to stderr. stdin is nonblocking, and EOF exits the helper. Rust owns model
+activation, capture, gain, persistence, and text injection.
+
+The same executable accepts `--hotkey-only`, which creates neither QML windows
+nor a tray icon. Its input snapshots contain `push_to_talk` and `ptt_shortcut`.
+It emits `ptt_press`, `ptt_release`, and `hotkey_status` with `available`,
+`shortcut`, and nullable `error` fields. Only this process registers the stable
+KDE action `usit / hold_to_dictate`; the graphical process never registers it.

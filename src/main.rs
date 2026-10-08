@@ -14,6 +14,7 @@ use crossterm::terminal;
 use supports_unicode::Stream;
 use terminal_size::{terminal_size, Height, Width};
 
+use usit::audio::capture::{CaptureEvent, CaptureMessage};
 use usit::audio::{self, AudioCapture, CaptureConfig, CaptureControl};
 use usit::config::{AsrModelId, Config};
 use usit::instance::{find_duplicate_tag, find_instances};
@@ -25,6 +26,12 @@ use usit::ui::terminal::{
     clamp_terminal_surface_dimensions, TerminalConfig, TerminalMode, TerminalVisualizer,
 };
 use usit::{backend, download, streaming};
+
+/// Completed text retains its capture generation while waiting for an injector.
+struct InjectionRequest {
+    text: String,
+    generation: u64,
+}
 
 /// Commands sent to the download manager thread
 #[derive(Debug)]
@@ -327,6 +334,12 @@ struct Args {
         help = "Start with text injection disabled (can be enabled in the UI)"
     )]
     no_inject: bool,
+
+    #[arg(long, action = clap::ArgAction::Set, num_args = 0..=1, default_missing_value = "true", help = "Listen only while the global shortcut is held")]
+    push_to_talk: Option<bool>,
+
+    #[arg(long, help = "Global push-to-talk shortcut (default F9)")]
+    ptt_shortcut: Option<String>,
 
     #[arg(long, help = "Manual software gain, used when automatic gain is off")]
     gain: Option<f32>,
@@ -770,6 +783,12 @@ fn main() -> anyhow::Result<()> {
         args.opacity = config.opacity;
     }
     config.model = args.model;
+    if let Some(enabled) = args.push_to_talk {
+        config.push_to_talk = enabled;
+    }
+    if let Some(shortcut) = &args.ptt_shortcut {
+        config.ptt_shortcut = shortcut.clone();
+    }
 
     if let Some(gain) = args.gain {
         anyhow::ensure!(
@@ -887,7 +906,12 @@ fn main() -> anyhow::Result<()> {
     let audio_state = ui::new_shared_state();
 
     // Apply config: injection_enabled
-    audio_state.write().injection_enabled = config.injection_enabled;
+    {
+        let mut state = audio_state.write();
+        state.injection_enabled = config.injection_enabled;
+        state.push_to_talk = config.push_to_talk;
+        state.ptt_shortcut = config.ptt_shortcut.clone();
+    }
 
     let runtime_source = args.source.clone().or(config.source.clone());
     let persisted_source_base = config.source.clone();
@@ -1029,9 +1053,9 @@ fn main() -> anyhow::Result<()> {
     };
 
     let (audio_tx, audio_rx): (
-        std::sync::mpsc::SyncSender<Vec<f32>>,
-        std::sync::mpsc::Receiver<Vec<f32>>,
-    ) = std::sync::mpsc::sync_channel(100);
+        std::sync::mpsc::Sender<CaptureMessage>,
+        std::sync::mpsc::Receiver<CaptureMessage>,
+    ) = std::sync::mpsc::channel();
 
     if args.demo {
         apply_demo_overlay_state(&audio_state, args.demo_overlay_state);
@@ -1039,8 +1063,8 @@ fn main() -> anyhow::Result<()> {
 
     // Injection channel for typing transcribed text into focused apps
     let (injection_tx, injection_rx): (
-        std::sync::mpsc::Sender<String>,
-        std::sync::mpsc::Receiver<String>,
+        std::sync::mpsc::Sender<InjectionRequest>,
+        std::sync::mpsc::Receiver<InjectionRequest>,
     ) = std::sync::mpsc::channel();
 
     // Model hot-swap channel: TUI sends new AsrModelId, streaming thread receives
@@ -1067,7 +1091,7 @@ fn main() -> anyhow::Result<()> {
         let mut injector: Option<Box<dyn TextInjector>> = None;
         let mut last_probe: Option<Instant> = None;
         while injection_running.load(Ordering::Relaxed) {
-            let text = match injection_rx.recv_timeout(Duration::from_millis(100)) {
+            let request = match injection_rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(text) => text,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
@@ -1076,7 +1100,8 @@ fn main() -> anyhow::Result<()> {
             let permitted = !is_demo
                 && state.transcription_available
                 && state.injection_enabled
-                && !state.is_paused;
+                && !state.is_paused
+                && state.capture_generation_matches(request.generation);
             drop(state);
             if !permitted {
                 continue;
@@ -1103,13 +1128,14 @@ fn main() -> anyhow::Result<()> {
             let still_permitted = state.transcription_available
                 && state.injection_enabled
                 && !state.is_paused
-                && injection_running.load(Ordering::Relaxed);
+                && injection_running.load(Ordering::Relaxed)
+                && state.capture_generation_matches(request.generation);
             drop(state);
             if !still_permitted {
                 continue;
             }
             if let Some(ref mut selected) = injector {
-                if let Err(error) = selected.inject(&text) {
+                if let Err(error) = selected.inject(&request.text) {
                     log::error!("Injection error: {error}");
                 }
             }
@@ -1133,13 +1159,16 @@ fn main() -> anyhow::Result<()> {
             };
 
             let state = audio_state.clone();
-            let tx = audio_tx.clone();
-            let capture = AudioCapture::new(
+            let control = Arc::new(CaptureControl::new());
+            control.set_event_sender(audio_tx.clone());
+            control.set_push_to_talk(config.push_to_talk);
+            audio_state.write().capture_control = Some(control.clone());
+            let capture = AudioCapture::with_control(
                 Box::new(move |samples| {
                     state.write().update_samples(samples);
-                    if tx.try_send(samples.to_vec()).is_err() {}
                 }),
                 capture_config,
+                control,
             )?;
 
             let control = capture.control().clone();
@@ -1149,8 +1178,7 @@ fn main() -> anyhow::Result<()> {
                 audio_state.write().auto_gain_enabled = true;
             }
 
-            // Keep capture alive - dropping it triggers shutdown cascade
-            // (closes audio channel → worker exits → injection channel closes → injector exits)
+            // Keep the capture thread alive for the frontend's lifetime.
             (Some(control), Some(capture))
         };
 
@@ -1214,11 +1242,17 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
+        let worker_running = running.clone();
         std::thread::spawn(move || {
             // Start with optional transcriber
             let mut streamer = streaming_transcriber;
 
-            while let Ok(samples) = audio_rx.recv() {
+            while worker_running.load(Ordering::Relaxed) {
+                let input = match audio_rx.recv_timeout(Duration::from_millis(50)) {
+                    Ok(event) => Some(event),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                };
                 // Check for model swap requests from TUI (non-blocking)
                 if let Ok(new_variant) = model_swap_rx.try_recv() {
                     // Update requested model in shared state
@@ -1358,11 +1392,43 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
 
+                // Canceled generations must not update the transcript or inject text,
+                // including frames queued before pause followed by a quick resume.
+                let Some(input) = input else { continue };
+                if !audio_state_for_worker
+                    .read()
+                    .capture_generation_matches(input.generation)
+                {
+                    continue;
+                }
+                let generation = input.generation;
                 // Process audio if we have a streamer
                 if let Some(ref mut s) = streamer {
-                    match s.process(&samples) {
+                    let events = match input.event {
+                        CaptureEvent::Begin => {
+                            s.begin_push_to_talk();
+                            Ok(Vec::new())
+                        }
+                        CaptureEvent::Reset => {
+                            s.reset();
+                            audio_state_for_worker.write().partial.clear();
+                            Ok(Vec::new())
+                        }
+                        CaptureEvent::Finish => s.finish_push_to_talk(),
+                        CaptureEvent::Audio(frame) => {
+                            if frame.push_to_talk {
+                                s.process_push_to_talk(&frame.samples)
+                            } else {
+                                s.process(&frame.samples)
+                            }
+                        }
+                    };
+                    match events {
                         Ok(events) => {
                             let mut state = audio_state_for_worker.write();
+                            if !state.capture_generation_matches(generation) {
+                                continue;
+                            }
                             state.is_speaking = s.is_speaking();
                             for event in events {
                                 match event {
@@ -1374,7 +1440,8 @@ fn main() -> anyhow::Result<()> {
                                         state.commit();
 
                                         if !state.is_paused && state.injection_enabled {
-                                            let _ = injection_tx_for_worker.send(text);
+                                            let _ = injection_tx_for_worker
+                                                .send(InjectionRequest { text, generation });
                                         }
                                     }
                                 }
@@ -1387,6 +1454,19 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         })
+    };
+
+    let _hotkey_service = if !args.demo && !args.ansi_sweep {
+        match usit::hotkey::start(audio_state.clone(), running.clone()) {
+            Ok(service) => Some(service),
+            Err(error) => {
+                audio_state.write().ptt_error =
+                    Some(format!("Global shortcut unavailable: {error}"));
+                None
+            }
+        }
+    } else {
+        None
     };
 
     if let Some(seconds) = args.run_for_seconds {
@@ -1474,12 +1554,8 @@ fn main() -> anyhow::Result<()> {
         control.stop();
     }
 
-    // Graceful shutdown cascade:
-    // 1. Shutdown download manager
-    // 2. Stop audio capture → closes its tx clone
-    // 3. Drop audio_tx → worker's recv() returns Err → worker exits → drops injection_tx clone
-    // 4. Drop injection_tx → injector's recv() returns Err → injector exits (IME cleanup runs)
-    // 5. Join injector to ensure cleanup completes before process exit
+    // Workers poll the shared running flag even when capture is gated off.
+    // Join capture, transcription and injection before dropping their resources.
     log::debug!("Shutting down download manager...");
     let _ = download_cmd_tx.send(DownloadCommand::Shutdown);
     if download_manager_handle.join().is_err() {
@@ -1502,7 +1578,7 @@ fn main() -> anyhow::Result<()> {
 
 fn run_demo_audio(
     audio_state: ui::SharedAudioState,
-    injection_tx: std::sync::mpsc::Sender<String>,
+    injection_tx: std::sync::mpsc::Sender<InjectionRequest>,
     running: Arc<AtomicBool>,
 ) {
     std::thread::spawn(move || {
@@ -1534,7 +1610,10 @@ fn run_demo_audio(
             if (5.0..5.1).contains(&t) {
                 let state = audio_state.read();
                 if !state.is_paused && state.injection_enabled {
-                    let _ = injection_tx.send("Hello world".to_string());
+                    let _ = injection_tx.send(InjectionRequest {
+                        text: "Hello world".to_string(),
+                        generation: 0,
+                    });
                 }
                 drop(state);
                 audio_state.write().commit();
@@ -1547,7 +1626,10 @@ fn run_demo_audio(
             if (7.0..7.1).contains(&t) {
                 let state = audio_state.read();
                 if !state.is_paused && state.injection_enabled {
-                    let _ = injection_tx.send("this is streaming".to_string());
+                    let _ = injection_tx.send(InjectionRequest {
+                        text: "this is streaming".to_string(),
+                        generation: 0,
+                    });
                 }
                 drop(state);
                 audio_state.write().commit();
@@ -1980,6 +2062,13 @@ fn run_terminal_loop(
                                                 );
                                             }
                                         }
+                                        Some(ui::control_panel::Control::PushToTalkToggle) => {
+                                            control_panel.toggle_ptt(&mut audio_state.write());
+                                        }
+                                        Some(ui::control_panel::Control::PttShortcut) => {
+                                            control_panel
+                                                .cycle_ptt_shortcut(&mut audio_state.write());
+                                        }
                                         Some(ui::control_panel::Control::AutoSaveToggle) => {
                                             control_panel.toggle_auto_save();
                                         }
@@ -2149,6 +2238,12 @@ fn run_terminal_loop(
                                             ));
                                         }
                                     }
+                                    ui::control_panel::Control::PushToTalkToggle => {
+                                        control_panel.toggle_ptt(&mut audio_state.write());
+                                    }
+                                    ui::control_panel::Control::PttShortcut => {
+                                        control_panel.cycle_ptt_shortcut(&mut audio_state.write());
+                                    }
                                     ui::control_panel::Control::AutoSaveToggle => {
                                         control_panel.toggle_auto_save();
                                     }
@@ -2211,8 +2306,18 @@ fn run_terminal_loop(
                 )
             };
 
-            if samples.is_empty() {
-                continue;
+            {
+                let mut state = audio_state.write();
+                state.is_paused = control_panel.is_paused;
+                if state.is_paused {
+                    state.set_ptt_held(false);
+                }
+                visualizer.set_ptt_status(
+                    state.push_to_talk,
+                    state.ptt_shortcut.clone(),
+                    state.ptt_held,
+                    state.ptt_error.clone(),
+                );
             }
 
             visualizer.set_transcript(committed, partial);
@@ -2330,6 +2435,8 @@ mod tests {
             ansi: false,
             qt: false,
             no_inject: false,
+            push_to_talk: None,
+            ptt_shortcut: None,
             gain: None,
             run_for_seconds: None,
             ansi_width: None,

@@ -49,6 +49,11 @@ pub struct AudioState {
     pub partial: String,
     pub processing_state: ProcessingState,
     pub is_paused: bool,
+    pub push_to_talk: bool,
+    pub ptt_shortcut: String,
+    pub ptt_held: bool,
+    pub ptt_error: Option<String>,
+    pub capture_control: Option<Arc<crate::audio::CaptureControl>>,
     pub auto_gain_enabled: bool,
     pub current_gain: f32,
     pub available_sources: Vec<AudioSourceInfo>,
@@ -80,6 +85,11 @@ impl Default for AudioState {
             partial: String::new(),
             processing_state: ProcessingState::Idle,
             is_paused: false,
+            push_to_talk: false,
+            ptt_shortcut: "F9".to_string(),
+            ptt_held: false,
+            ptt_error: None,
+            capture_control: None,
             auto_gain_enabled: false,
             current_gain: 1.0,
             available_sources: Vec::new(),
@@ -101,6 +111,40 @@ impl Default for AudioState {
 impl AudioState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Reject queued audio and text invalidated by pause or mode changes.
+    pub fn capture_generation_matches(&self, generation: u64) -> bool {
+        self.capture_control
+            .as_ref()
+            .is_none_or(|control| control.generation() == generation)
+    }
+
+    /// Switch admission mode and discard an unfinished utterance.
+    pub fn set_push_to_talk(&mut self, enabled: bool) {
+        if self.push_to_talk == enabled {
+            return;
+        }
+        self.push_to_talk = enabled;
+        self.ptt_held = false;
+        self.partial.clear();
+        self.samples.clear();
+        if let Some(control) = &self.capture_control {
+            control.set_push_to_talk(enabled);
+        }
+    }
+
+    /// Handle a global key edge without confusing idle PTT with manual pause.
+    pub fn set_ptt_held(&mut self, held: bool) {
+        let held = held && self.push_to_talk && !self.is_paused;
+        self.ptt_held = if let Some(control) = &self.capture_control {
+            control.set_ptt_held(held)
+        } else {
+            held
+        };
+        if !self.ptt_held {
+            self.samples.clear();
+        }
     }
 
     pub fn set_partial(&mut self, text: String) {
@@ -160,6 +204,8 @@ pub fn build_runtime_config(
 
     Config {
         model: panel.model,
+        push_to_talk: state.push_to_talk,
+        ptt_shortcut: state.ptt_shortcut.clone(),
         auto_gain: panel.agc_enabled,
         gain: panel.gain_value,
         style: match panel.viz_mode {
@@ -334,12 +380,24 @@ pub fn helper_status_summary(state: &AudioState) -> String {
 }
 
 pub fn helper_status_short_summary(state: &AudioState) -> String {
-    format!(
+    let summary = format!(
         "{}  ·  {}  ·  {}",
         helper_mode_short_label(state),
         helper_source_short_label(state),
         model_provenance_short_label(state)
-    )
+    );
+    if state.push_to_talk {
+        let status = if state.is_paused {
+            "paused"
+        } else if state.ptt_held {
+            "speaking"
+        } else {
+            "hold"
+        };
+        format!("{summary}  ·  {status} {}", state.ptt_shortcut)
+    } else {
+        summary
+    }
 }
 
 #[cfg(test)]

@@ -14,8 +14,9 @@ listening, injection, and appearance controls.
 
 Requirements include Rust/Cargo, a C/C++ compiler, CMake, pkg-config, Clang for
 bindgen, PipeWire development files, and the Wayland/XKB libraries used by WGPU.
-The Qt frontend additionally requires Qt 6 Core, Gui, Qml, Quick, Widgets and Test
-libraries and development files. Models and Silero VAD use ONNX Runtime.
+The Qt frontend additionally requires Qt 6 Core, Gui, Qml, Quick, Widgets, DBus and Test
+libraries and development files, plus KF6GlobalAccel and LayerShellQt. Models and
+Silero VAD use ONNX Runtime.
 
 ```sh
 cargo build --release
@@ -30,7 +31,9 @@ cargo build --release
 
 `--no-inject` starts with typing disabled; the **Injecting** control enables it.
 Demo mode never injects text. Focus the destination application after adjusting
-controls. The Qt window is a normal tool window, not a layer-shell surface.
+controls. The Qt transcript is a translucent layer-shell display on Wayland. Showing it
+leaves keyboard focus in the destination app. Controls open a separate settings
+window; only an explicit settings action requests focus.
 Closing it hides the window in the tray and keeps dictation running. Click the
 Tux tray icon to restore it, or use its listening and typing toggles. **Quit usit**
 in the tray menu or **Ctrl+Q** stops the engine and microphone. Without a system
@@ -66,6 +69,33 @@ persists explicit control changes. With auto-save disabled, use **Save settings*
 or **Ctrl+S** in Qt, or **S** in ANSI/WGPU. Command-line overrides alone do not
 rewrite the configuration. See [Qt controls](examples/qt_quick_overlay/README.md)
 for the complete keyboard and mouse interface.
+
+## Global push-to-talk
+
+On KDE Plasma, enable **Hold to talk** in Settings or the tray menu. Hold **F9**
+to dictate and release it to finish the phrase. The shortcut works with the Qt
+window hidden and with ANSI or WGPU selected. Typing still requires **Injecting**
+to be enabled and a focused destination field.
+
+Choose a different key or combination with **Hold key** in Settings, opened
+from **Controls** or the tray menu. ANSI and WGPU provide F8/F9/F10 presets; CLI and configuration accept a
+single Qt portable key sequence, including combinations such as `Ctrl+Alt+Space`.
+Existing shortcuts belonging to other applications are not replaced; a conflict
+appears as a setting error. Only one usit session may own push-to-talk at a time.
+
+```sh
+usit --push-to-talk --ptt-shortcut F9
+usit --push-to-talk=false
+```
+
+The corresponding TOML fields are `push_to_talk = true` and `ptt_shortcut = "F9"`.
+New configurations default to continuous listening. While push-to-talk is idle,
+the PipeWire stream remains connected, but its buffers are discarded before
+recognition. Release finalizes the admitted phrase without waiting for silence.
+Boundaries are applied at audio callbacks, not sample-exact timestamps. Manual
+pause or changing modes discards an unfinished phrase. A lost shortcut helper
+closes the held gate and reports an error; restart usit to reconnect a crashed
+helper. The helper attempts to register again when KDE’s shortcut service returns.
 
 ## Typing through KDE and Fcitx 5
 

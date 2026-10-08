@@ -12,6 +12,7 @@ BINARY = ROOT / "target/qt-quick/usit-qt-overlay"
 ENV = dict(os.environ, QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software")
 SNAPSHOT = {
     "committed": "snapshot committed", "partial": "snapshot partial",
+    "push_to_talk": False, "ptt_shortcut": "F9", "ptt_held": False, "ptt_error": None,
     "paused": True, "injection_enabled": False, "transcription_available": True,
     "auto_gain_enabled": True, "auto_save": False, "gain": 1.0,
     "viz_mode": "waterfall", "color_scheme": "flame", "opacity": 1.0,
@@ -50,12 +51,13 @@ with tempfile.TemporaryDirectory(prefix="usit-qt-test-") as directory:
             "select_model",  # one activation after browsing directly to last entry
             "toggle_pause", "toggle_injection", "toggle_viz", "toggle_agc",
             "toggle_auto_save", "cycle_device", "cycle_model", "set_gain",
-            "set_opacity", "cycle_color", "save",
-            "toggle_pause", "toggle_injection",  # tray uses the same commands
+            "set_opacity", "cycle_color", "save", "toggle_ptt", "set_ptt_shortcut",
+            "toggle_pause", "toggle_injection", "toggle_ptt",  # tray uses the same commands
         ], commands
         assert commands[2]["value"] == 2, commands
         assert commands[10]["value"] == 1.25, commands
         assert commands[11]["value"] == 0.8, commands
+        assert commands[15]["value"] == "Ctrl+Alt+Space", commands
         assert screenshot.stat().st_size > 5000, "Rendered image is unexpectedly empty"
         unexpected = [line for line in errors.splitlines()
                       if "qrc:" in line or "ReferenceError" in line or "TypeError" in line]
@@ -82,7 +84,7 @@ print("Qt frontend: live bindings, mouse/keyboard commands, software rendering, 
 checks = [("--close-test", ENV, ["quit"])]
 if os.environ.get("USIT_QT_LIVE_TRAY_TEST") == "1":
     checks.append(("--tray-self-test", dict(os.environ),
-                   ["toggle_pause", "toggle_injection", "quit"]))
+                   ["toggle_pause", "toggle_injection", "toggle_ptt", "quit"]))
 for flag, environment, expected in checks:
     process = subprocess.Popen([str(BINARY), flag], env=environment,
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
