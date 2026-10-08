@@ -15,7 +15,10 @@ Window {
     property bool paused: !!state.paused
     property bool showWaterfall: state.viz_mode === "waterfall"
     opacity: state.opacity === undefined ? 1 : Math.max(0.1, Number(state.opacity))
-    onClosing: usitBridge.send("quit", null)
+    onClosing: close => {
+        if (usitTray.hideToTray()) close.accepted = false
+        else { usitBridge.send("quit", null); Qt.quit() }
+    }
     function command(type, value) { usitBridge.send(type, value === undefined ? null : value) }
     // Invoked only by the host's explicit --self-test option, against a supplied snapshot.
     function selfTest() {

@@ -51,6 +51,7 @@ with tempfile.TemporaryDirectory(prefix="usit-qt-test-") as directory:
             "toggle_pause", "toggle_injection", "toggle_viz", "toggle_agc",
             "toggle_auto_save", "cycle_device", "cycle_model", "set_gain",
             "set_opacity", "cycle_color", "save",
+            "toggle_pause", "toggle_injection",  # tray uses the same commands
         ], commands
         assert commands[2]["value"] == 2, commands
         assert commands[10]["value"] == 1.25, commands
@@ -74,3 +75,32 @@ with tempfile.TemporaryDirectory(prefix="usit-qt-test-") as directory:
 result = subprocess.run([str(BINARY)], input=b"", env=ENV, capture_output=True, timeout=5)
 assert result.returncode == 0, result.stderr.decode()
 print("Qt frontend: live bindings, mouse/keyboard commands, software rendering, invalid/fragmented input and EOF passed")
+
+# Closing without a tray must exit; an available tray must keep the window alive
+# while hidden. The optional live test creates only this helper, with no engine,
+# microphone or text injector, and removes its tray item on Quit.
+checks = [("--close-test", ENV, ["quit"])]
+if os.environ.get("USIT_QT_LIVE_TRAY_TEST") == "1":
+    checks.append(("--tray-self-test", dict(os.environ),
+                   ["toggle_pause", "toggle_injection", "quit"]))
+for flag, environment, expected in checks:
+    process = subprocess.Popen([str(BINARY), flag], env=environment,
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE)
+    try:
+        process.stdin.write(json.dumps(SNAPSHOT).encode() + b"\n")
+        process.stdin.flush()
+        process.wait(timeout=8)
+        output = process.stdout.read().decode()
+        errors = process.stderr.read().decode()
+        assert process.returncode == 0, errors
+        assert [json.loads(line)["type"] for line in output.splitlines()] == expected, output
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        process.stdin.close()
+        process.stdout.close()
+        process.stderr.close()
+print("Tray actions and close lifecycle passed" +
+      (" (including live desktop tray)" if len(checks) == 2 else " (offscreen)"))

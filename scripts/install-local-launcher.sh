@@ -11,6 +11,9 @@ mkdir -p "$HOME/.local/bin" "${XDG_DATA_HOME:-$HOME/.local/share}/applications"
     printf '#!/usr/bin/env bash\nexec %q --qt "$@"\n' "$root/target/release/usit"
 } > "$HOME/.local/bin/usit"
 chmod +x "$HOME/.local/bin/usit"
+icon_dir="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/512x512/apps"
+install -d "$icon_dir"
+install -m 644 "$root/src/ui/assets/usit_tux_relaxed_icon_tile.png" "$icon_dir/usit.png"
 python3 - "$HOME/.local/bin/usit" "${XDG_DATA_HOME:-$HOME/.local/share}/applications/usit.desktop" <<'PY'
 from pathlib import Path
 import sys
@@ -24,7 +27,7 @@ Type=Application
 Name=usit Dictation
 Comment=Local streaming speech to text
 Exec="{command}"
-Icon=audio-input-microphone
+Icon=usit
 Terminal=false
 Categories=Utility;Accessibility;
 StartupNotify=false

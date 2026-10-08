@@ -7,7 +7,7 @@ warm dark window stays above ordinary windows and can be resized.
 
 ## Build and run
 
-Requirements: CMake, a C++17 compiler, and Qt 6 Core, Gui, Qml, Quick and Test
+Requirements: CMake, a C++17 compiler, and Qt 6 Core, Gui, Qml, Quick, Widgets and Test
 libraries with their development files. The speech engine's dependencies and
 model requirements are described in the repository README.
 
@@ -44,7 +44,12 @@ not synthesize speech, spectrum values, or transcript text.
 - **Auto-save** persists explicit setting changes. **Save settings** or
   **Ctrl+S** saves when auto-save is disabled. Algorithmic gain changes do not
   change the saved manual gain.
-- **Ctrl+Q** or the window close button ends the dictation session.
+- The **tray icon** uses the Tux headset artwork. Click it to show or hide the
+  window; its menu also controls **Listening**, **Type into focused application**,
+  and **Quit usit**. The tooltip reports the active model and listening/typing state.
+- Closing the window hides it in the tray while dictation continues. If no tray is
+  available, closing ends the session. **Ctrl+Q** or **Quit usit** always stops it.
+  If the tray host disappears while the window is hidden, the window reappears.
 
 Click controls or use **Tab / Shift+Tab**, then **Space / Return** to activate.
 Sliders use **Left / Right** and **Home / End**. Focused and hovered controls
@@ -64,7 +69,10 @@ python3 qt_quick_overlay/tests/smoke.py
 The bounded test uses Qt's offscreen platform with software rendering. It checks
 live snapshot bindings, real mouse and keyboard activation, outgoing command
 values, malformed and fragmented input, rendering, and automatic exit when the
-engine pipe closes. To keep the rendered screenshot, set
+engine pipe closes. To additionally check the native desktop tray's close/hide,
+restore, menu actions and quit lifecycle without capturing audio or injecting text,
+run `USIT_QT_LIVE_TRAY_TEST=1 python3 qt_quick_overlay/tests/smoke.py`.
+To keep the rendered screenshot, set
 `USIT_QT_TEST_SCREENSHOT=/tmp/usit-qt.png`.
 
 ## Engine boundary

@@ -14,7 +14,7 @@ listening, injection, and appearance controls.
 
 Requirements include Rust/Cargo, a C/C++ compiler, CMake, pkg-config, Clang for
 bindgen, PipeWire development files, and the Wayland/XKB libraries used by WGPU.
-The Qt frontend additionally requires Qt 6 Core, Gui, Qml, Quick and Test
+The Qt frontend additionally requires Qt 6 Core, Gui, Qml, Quick, Widgets and Test
 libraries and development files. Models and Silero VAD use ONNX Runtime.
 
 ```sh
@@ -31,7 +31,10 @@ cargo build --release
 `--no-inject` starts with typing disabled; the **Injecting** control enables it.
 Demo mode never injects text. Focus the destination application after adjusting
 controls. The Qt window is a normal tool window, not a layer-shell surface.
-Closing it stops the Rust session and microphone capture.
+Closing it hides the window in the tray and keeps dictation running. Click the
+Tux tray icon to restore it, or use its listening and typing toggles. **Quit usit**
+in the tray menu or **Ctrl+Q** stops the engine and microphone. Without a system
+tray, closing the window exits.
 
 For a user-local command and application menu entry, run
 `./scripts/install-local-launcher.sh` after building. The launcher runs the
