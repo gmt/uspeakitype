@@ -9,6 +9,7 @@ use anyhow::Result;
 
 use crate::audio::SileroVad;
 use crate::backend::MoonshineStreamer;
+use crate::config::AsrModelId;
 
 /// Events emitted by streaming transcription
 /// NOTE: This is the CANONICAL StreamEvent. The one in backend/moonshine.rs is unused and will be removed.
@@ -36,6 +37,21 @@ impl Default for StreamingConfig {
     }
 }
 
+impl StreamingConfig {
+    /// Parakeet re-encodes a context window for every live update, so it refreshes
+    /// the preview less often to stay well inside real time on consumer CPUs.
+    pub fn for_model(model: AsrModelId) -> Self {
+        if model.is_moonshine() {
+            Self::default()
+        } else {
+            Self {
+                update_interval_samples: 6400,
+                ..Self::default()
+            }
+        }
+    }
+}
+
 /// Trait for VAD processing (allows mocking in tests)
 pub trait VadProcessor {
     fn process(&mut self, samples: &[f32]) -> Result<()>;
@@ -46,6 +62,11 @@ pub trait VadProcessor {
 /// Trait for transcription (allows mocking in tests)
 pub trait Transcriber {
     fn transcribe_incremental(&mut self, samples: &[f32]) -> Result<String>;
+    /// Text for a finished phrase. Backends whose streaming windows trade
+    /// accuracy for latency may decode the whole phrase again here.
+    fn transcribe_final(&mut self, samples: &[f32]) -> Result<String> {
+        self.transcribe_incremental(samples)
+    }
     fn reset(&mut self);
 }
 
@@ -55,6 +76,10 @@ pub type BoxedTranscriber = Box<dyn Transcriber + Send>;
 impl<T: Transcriber + ?Sized> Transcriber for Box<T> {
     fn transcribe_incremental(&mut self, samples: &[f32]) -> Result<String> {
         (**self).transcribe_incremental(samples)
+    }
+
+    fn transcribe_final(&mut self, samples: &[f32]) -> Result<String> {
+        (**self).transcribe_final(samples)
     }
 
     fn reset(&mut self) {
@@ -140,7 +165,7 @@ impl<V: VadProcessor, T: Transcriber> StreamingTranscriber<V, T> {
     pub fn finish_push_to_talk(&mut self) -> Result<Vec<StreamEvent>> {
         let result = if self.ptt_active && !self.transcription_buffer.is_empty() {
             self.transcriber
-                .transcribe_incremental(&self.transcription_buffer)
+                .transcribe_final(&self.transcription_buffer)
                 .map(|text| vec![StreamEvent::Commit(text)])
         } else {
             Ok(Vec::new())
@@ -191,7 +216,7 @@ impl<V: VadProcessor, T: Transcriber> StreamingTranscriber<V, T> {
         if stopped_speaking {
             let text = self
                 .transcriber
-                .transcribe_incremental(&self.transcription_buffer)?;
+                .transcribe_final(&self.transcription_buffer)?;
             events.push(StreamEvent::Commit(text));
             self.transcription_buffer.clear();
             self.transcriber.reset();
@@ -316,6 +341,55 @@ mod tests {
         assert_eq!(streamer.transcriber.inputs.last().unwrap(), &[5.0]);
         streamer.begin_push_to_talk();
         assert!(streamer.finish_push_to_talk().unwrap().is_empty());
+    }
+
+    #[test]
+    fn phrase_ends_use_the_final_decode_and_partials_do_not() {
+        struct TwoPass;
+        impl Transcriber for TwoPass {
+            fn transcribe_incremental(&mut self, _: &[f32]) -> Result<String> {
+                Ok("streamed".into())
+            }
+            fn transcribe_final(&mut self, _: &[f32]) -> Result<String> {
+                Ok("final".into())
+            }
+            fn reset(&mut self) {}
+        }
+        let config = StreamingConfig {
+            pre_roll_samples: 1,
+            update_interval_samples: 2,
+        };
+        let mut held =
+            StreamingTranscriber::new(MockVad { speaking: false }, TwoPass, config.clone());
+        held.begin_push_to_talk();
+        assert_eq!(
+            held.process_push_to_talk(&[1.0, 2.0]).unwrap(),
+            vec![StreamEvent::Partial("streamed".into())]
+        );
+        assert_eq!(
+            held.finish_push_to_talk().unwrap(),
+            vec![StreamEvent::Commit("final".into())]
+        );
+
+        let mut continuous = StreamingTranscriber::new(MockVad { speaking: true }, TwoPass, config);
+        assert_eq!(
+            continuous.process(&[1.0, 2.0]).unwrap(),
+            vec![StreamEvent::Partial("streamed".into())]
+        );
+        continuous.vad.speaking = false;
+        assert_eq!(
+            continuous.process(&[0.0]).unwrap(),
+            vec![StreamEvent::Commit("final".into())]
+        );
+    }
+
+    #[test]
+    fn parakeet_refreshes_partials_less_often_than_moonshine() {
+        let moonshine = StreamingConfig::for_model(AsrModelId::MoonshineBase);
+        let parakeet = StreamingConfig::for_model(AsrModelId::ParakeetTdt06bV3);
+        assert_eq!(moonshine.update_interval_samples, 3200);
+        assert_eq!(parakeet.update_interval_samples, 6400);
+        assert_eq!(parakeet.pre_roll_samples, moonshine.pre_roll_samples);
     }
 
     #[test]

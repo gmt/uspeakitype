@@ -583,8 +583,8 @@ fn activate_model_with_fallback(model_dir: &Path, preferred_model: AsrModelId) -
         match transcriber_result {
             Ok(transcriber) => {
                 log::info!("Model {} activated successfully", model_id);
-                let streamer =
-                    StreamingTranscriber::new(vad, transcriber, StreamingConfig::default());
+                let config = StreamingConfig::for_model(model_id);
+                let streamer = StreamingTranscriber::new(vad, transcriber, config);
                 return ModelActivation {
                     transcriber: Some(streamer),
                     active_model: Some(model_id),
@@ -657,7 +657,8 @@ fn activate_single_model(model_dir: &Path, model_id: AsrModelId) -> ModelActivat
     match transcriber_result {
         Ok(transcriber) => {
             log::info!("Model {} activated successfully", model_id);
-            let streamer = StreamingTranscriber::new(vad, transcriber, StreamingConfig::default());
+            let config = StreamingConfig::for_model(model_id);
+            let streamer = StreamingTranscriber::new(vad, transcriber, config);
             ModelActivation {
                 transcriber: Some(streamer),
                 active_model: Some(model_id),
@@ -1252,7 +1253,7 @@ fn main() -> anyhow::Result<()> {
                 Ok(transcriber) => Some(StreamingTranscriber::new(
                     vad,
                     transcriber,
-                    StreamingConfig::default(),
+                    StreamingConfig::for_model(model_id),
                 )),
                 Err(e) => {
                     log::error!("Transcriber init failed: {}", e);

@@ -26,7 +26,11 @@ const HOP_LENGTH_SAMPLES: usize = 160; // 10ms at 16kHz (matches NeMo log-mel pr
 // Defaults tuned for interactive use (low latency) while still providing context.
 const DEFAULT_CHUNK_SECS: f32 = 0.8;
 const DEFAULT_LEFT_CONTEXT_SECS: f32 = 4.0;
-const DEFAULT_RIGHT_CONTEXT_SECS: f32 = 0.2;
+// The encoder attends in both directions; chunk edges with little future audio
+// decode poorly, and tokens committed from them are never revisited.
+const DEFAULT_RIGHT_CONTEXT_SECS: f32 = 1.0;
+/// Finished phrases up to this length get one full-context decode.
+const FULL_CONTEXT_MAX_SECS: f32 = 120.0;
 
 /// Result of a single decoder step: (logits, duration, new_state1, new_state2)
 type DecodeStepResult = (Vec<f32>, usize, Array3<f32>, Array3<f32>);
@@ -673,6 +677,21 @@ impl Transcriber for NemoTransducerStreamer {
         let mut all_tokens = self.tokens.clone();
         all_tokens.extend_from_slice(&preview_tokens);
         Ok(self.tokens_to_text(&all_tokens))
+    }
+
+    fn transcribe_final(&mut self, samples: &[f32]) -> Result<String> {
+        if samples.len() > secs_to_samples(FULL_CONTEXT_MAX_SECS) {
+            return self.transcribe_incremental(samples);
+        }
+        self.reset_internal();
+        if samples.is_empty() {
+            return Ok(String::new());
+        }
+        let (encodings, enc_len) = self.prepare_window(samples)?;
+        self.decode_range_commit(&encodings, 0, enc_len)?;
+        let text = self.tokens_to_text(&self.tokens);
+        self.reset_internal();
+        Ok(text)
     }
 
     fn reset(&mut self) {

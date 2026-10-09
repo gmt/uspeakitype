@@ -138,3 +138,45 @@ fn test_moonshine_tiny_transcribes_speech_sample() {
         "expected non-empty transcription"
     );
 }
+
+/// A long hold must keep every phrase. Parakeet's streaming windows once left
+/// committed chunks with 0.2 s of future audio, and later speech was dropped;
+/// release now decodes the whole phrase with full context.
+#[test]
+#[ignore = "requires cached parakeet-tdt-0.6b-v3 and Silero VAD models; run explicitly with --ignored"]
+fn test_parakeet_long_hold_keeps_every_repeat() {
+    use usit::audio::{SileroVad, VadConfig};
+    use usit::backend::NemoTransducerStreamer;
+    use usit::config::AsrModelId;
+    use usit::streaming::{StreamEvent, StreamingConfig, StreamingTranscriber};
+
+    let models = default_model_dir();
+    let wav_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/audio/speech_sample.wav");
+    let clip = read_wav(&wav_path).expect("failed to read WAV");
+    let held: Vec<f32> = clip.iter().copied().cycle().take(clip.len() * 3).collect();
+
+    let vad = SileroVad::new(&models.join("silero_vad.onnx"), VadConfig::default())
+        .expect("load Silero VAD");
+    let transcriber = NemoTransducerStreamer::new(models.join("parakeet-tdt-0.6b-v3"))
+        .expect("load Parakeet model");
+    let config = StreamingConfig::for_model(AsrModelId::ParakeetTdt06bV3);
+    let frame = config.update_interval_samples;
+    let mut streaming = StreamingTranscriber::new(vad, transcriber, config);
+    streaming.begin_push_to_talk();
+    for chunk in held.chunks(frame) {
+        streaming.process_push_to_talk(chunk).unwrap();
+    }
+    let committed: String = streaming
+        .finish_push_to_talk()
+        .unwrap()
+        .into_iter()
+        .filter_map(|event| match event {
+            StreamEvent::Commit(text) => Some(text),
+            StreamEvent::Partial(_) => None,
+        })
+        .collect();
+    println!("Parakeet long hold: {committed}");
+    let lower = committed.to_lowercase();
+    assert_eq!(lower.matches("saying").count(), 3, "{committed}");
+    assert_eq!(lower.matches("hey").count(), 3, "{committed}");
+}
