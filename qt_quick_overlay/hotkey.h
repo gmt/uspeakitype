@@ -3,14 +3,24 @@
 #include <QAction>
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
+#include <QDBusMessage>
 #include <QDBusServiceWatcher>
+#include <QFile>
+#include <QFileInfo>
 #include <QKeySequence>
+#include <QProcess>
+#include <QStandardPaths>
 #include <QTimer>
 #include <KGlobalAccel>
 #include <KGlobalShortcutInfo>
 
 // This object exists only in --hotkey-only mode. Every presentation surface
 // shares this independent listener through the engine, including terminal mode.
+//
+// KDE launcher entries fire only on press, so a hold key cannot travel through
+// one. When the hold key also launches usit, the launcher entry is parked while
+// hold-to-talk is armed: kglobalacceld drops its grab but keeps the configured
+// binding. Disabling, rebinding or exiting wakes it so the key launches again.
 class GlobalHotkey : public QObject {
     Q_OBJECT
 public:
@@ -50,6 +60,11 @@ public:
             if (registered && !serviceAvailable()) serviceLost();
         });
         health.start(2000);
+        // Only the PushToTalk owner parks launchers, so with no owner any parked
+        // usit launcher was left by a helper that died before handing it back.
+        if (serviceAvailable()
+            && !QDBusConnection::sessionBus().interface()->isServiceRegistered("org.uspeakitype.PushToTalk").value())
+            recoverOrphans();
     }
     ~GlobalHotkey() override { shutdown(); }
 
@@ -79,6 +94,52 @@ private:
         return bus.isConnected() && bus.interface()
             && bus.interface()->isServiceRegistered("org.kde.kglobalaccel").value();
     }
+    static QDBusMessage accel(const QString &method, const QVariantList &arguments) {
+        auto call = QDBusMessage::createMethodCall("org.kde.kglobalaccel", "/kglobalaccel",
+                                                   "org.kde.KGlobalAccel", method);
+        call.setArguments(arguments);
+        return QDBusConnection::sessionBus().call(call, QDBus::Block, 1000);
+    }
+    static bool failed(const QDBusMessage &reply) { return reply.type() != QDBusMessage::ReplyMessage; }
+    static bool isUsitLauncher(const QString &component) {
+        if (!component.endsWith(".desktop")) return false;
+        if (component == "usit.desktop") return true;
+        QFile entry(QStandardPaths::locate(QStandardPaths::ApplicationsLocation, component));
+        if (!entry.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
+        bool mainGroup = false;
+        while (!entry.atEnd()) {
+            const QString line = QString::fromUtf8(entry.readLine()).trimmed();
+            if (line.startsWith('[')) {
+                mainGroup = line == "[Desktop Entry]";
+            } else if (mainGroup && line.startsWith("Exec=")) {
+                const QStringList command = QProcess::splitCommand(line.mid(5));
+                return !command.isEmpty() && QFileInfo(command.first()).fileName() == "usit";
+            }
+        }
+        return false;
+    }
+    bool park(const QStringList &launcher) {
+        if (failed(accel("setInactive", {launcher}))) return false;
+        parked << launcher;
+        return true;
+    }
+    static void wake(const QStringList &launcher) {
+        // SetPresent with autoloading re-grabs the configured keys untouched.
+        const auto keys = KGlobalAccel::self()->globalShortcut(launcher[0], launcher[1]);
+        accel("setShortcutKeys", {launcher, QVariant::fromValue(keys), 2u /* SetPresent */});
+    }
+    void recoverOrphans() {
+        accel("unregister", {QString("usit"), QString("hold_to_dictate")});
+        const auto components = accel("allMainComponents", {});
+        if (failed(components) || components.arguments().isEmpty()) return;
+        for (const auto &component : qdbus_cast<QList<QStringList>>(components.arguments().first())) {
+            if (component.isEmpty() || !isUsitLauncher(component.first())) continue;
+            const auto actions = accel("allActionsForComponent", {component});
+            if (failed(actions) || actions.arguments().isEmpty()) continue;
+            for (const auto &launcher : qdbus_cast<QList<QStringList>>(actions.arguments().first()))
+                wake(launcher);
+        }
+    }
     void report(bool available, const QString &error = {}, const QString &actual = {}) {
         bridge.sendObject({{"type", "hotkey_status"}, {"available", available},
                            {"shortcut", actual.isEmpty() ? requested : actual},
@@ -96,6 +157,9 @@ private:
         if (bound && !testing)
             KGlobalAccel::self()->removeAllShortcuts(&action);
         bound = false;
+        // Our grab is already queued for removal on the same ordered bus.
+        for (const auto &launcher : std::as_const(parked)) wake(launcher);
+        parked.clear();
         if (ownsService) {
             QDBusConnection::sessionBus().unregisterService("org.uspeakitype.PushToTalk");
             ownsService = false;
@@ -134,16 +198,32 @@ private:
             return;
         }
         ownsService = true;
+        recoverOrphans();
+        QList<KGlobalShortcutInfo> launchers;
         const auto conflicts = KGlobalAccel::globalShortcutsByKey(desiredKey);
         for (const auto &conflict : conflicts) {
             if (conflict.componentUniqueName() == "usit" && conflict.uniqueName() == "hold_to_dictate") continue;
+            if (isUsitLauncher(conflict.componentUniqueName())) {
+                launchers << conflict;
+                continue;
+            }
             report(false, QString("%1 is already assigned to %2 — %3. Choose another hold key.")
                    .arg(requested, conflict.componentFriendlyName(), conflict.friendlyName()));
             return;
         }
-        if (!KGlobalAccel::isGlobalShortcutAvailable(desiredKey, "usit")) {
+        if (launchers.isEmpty() && !KGlobalAccel::isGlobalShortcutAvailable(desiredKey, "usit")) {
             report(false, requested + " is already assigned in KDE. Choose another hold key.");
             return;
+        }
+        for (const auto &launcher : std::as_const(launchers)) {
+            if (!park({launcher.componentUniqueName(), launcher.uniqueName(),
+                       launcher.componentFriendlyName(), launcher.friendlyName()})) {
+                clearBinding();
+                report(false, "KDE would not lend " + requested + " from the usit launcher. Choose another hold key.");
+                return;
+            }
+            qInfo().noquote() << "usit: holding" << requested << "for hold-to-talk; the"
+                              << launcher.componentFriendlyName() << "launcher resumes when hold-to-talk ends";
         }
         changing = true;
         const bool success = KGlobalAccel::self()->setShortcut(&action, {desiredKey}, KGlobalAccel::NoAutoloading);
@@ -163,6 +243,7 @@ private:
     bool held = false, changing = false, bound = false, ownsService = false;
     QString requested;
     QKeySequence desiredKey;
+    QList<QStringList> parked;
     QAction action;
     QDBusServiceWatcher *watcher = nullptr;
     QTimer health;

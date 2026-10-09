@@ -83,6 +83,16 @@ single Qt portable key sequence, including combinations such as `Ctrl+Alt+Space`
 Existing shortcuts belonging to other applications are not replaced; a conflict
 appears as a setting error. Only one usit session may own push-to-talk at a time.
 
+The hold key may also be usit's own KDE launcher shortcut (System Settings →
+Shortcuts → usit). KDE launchers fire only on press, so they cannot carry
+hold-to-talk themselves. Instead, the first press launches usit, and while
+hold-to-talk is armed usit borrows the key from its launcher. Disabling
+hold-to-talk, choosing another hold key or exiting gives the key back, so it
+launches usit again. The launcher's saved binding is never rewritten. If usit is
+killed before it can give the key back, the next usit session restores the
+launcher. A launcher counts as usit's when its desktop file is `usit.desktop` or
+its `Exec` runs a program named `usit`.
+
 ```sh
 usit --push-to-talk --ptt-shortcut F9
 usit --push-to-talk=false

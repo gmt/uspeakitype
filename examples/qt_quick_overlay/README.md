@@ -77,15 +77,23 @@ accessible in a short window.
 The hold-key listener is independent of the graphical frontend, so the Rust
 engine can use it with terminal and WGPU presentations too. Only one usit
 session may own hold-to-talk on a session bus. An occupied shortcut produces a
-readable error; usit does not take another application's binding. Disabling
-hold-to-talk, disconnecting the engine, or losing KDE's shortcut service
-releases a held key. The helper unregisters its binding on shutdown.
+readable error; usit does not take another application's binding. The exception
+is usit's own launcher (`usit.desktop`, or any desktop entry whose `Exec`
+program is `usit`). KDE launchers fire only on press, so while hold-to-talk is
+armed the helper parks that launcher entry. kglobalacceld drops its grab but
+keeps the configured binding, and the helper binds the key itself. Disabling,
+rebinding or helper exit wakes the launcher. A helper that starts while no
+session owns `org.uspeakitype.PushToTalk` wakes any usit launcher left parked
+by a killed helper and removes its stale hold binding. Disabling hold-to-talk,
+disconnecting the engine, or losing KDE's shortcut service releases a held key.
+The helper unregisters its binding on shutdown.
 
 ## Frontend checks
 
 ```sh
 python3 qt_quick_overlay/tests/smoke.py
 python3 qt_quick_overlay/tests/hotkey.py
+python3 qt_quick_overlay/tests/hotkey_launcher.py
 ```
 
 The smoke test uses Qt's offscreen platform with software rendering. It checks
@@ -101,6 +109,14 @@ suppression and release on disable, service loss and stdin EOF. It also checks
 the production helper's missing-service error with an unreachable session bus.
 It does not register a shortcut on the current desktop. Actual compositor
 focus and global-key delivery require a KDE/Wayland integration check.
+
+The launcher test starts a private session bus and a standalone `kglobalacceld`
+with temporary XDG directories and a usit launcher bound to F9. It checks that
+the launcher is parked while hold-to-talk is armed and wakes on disable,
+rebinding and exit. It also checks that another application's key is refused,
+a killed helper's orphaned loan is recovered, and the saved launcher bindings
+are left unchanged. It prints a skip when `kglobalacceld`, `dbus-daemon`,
+`gdbus` or `kbuildsycoca6` is missing.
 
 ## Engine boundary
 
