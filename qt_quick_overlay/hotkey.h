@@ -104,8 +104,9 @@ private:
     static bool isUsitLauncher(const QString &component) {
         if (!component.endsWith(".desktop")) return false;
         if (component == "usit.desktop") return true;
-        QFile entry(QStandardPaths::locate(QStandardPaths::ApplicationsLocation, component));
-        if (!entry.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
+        const QString path = QStandardPaths::locate(QStandardPaths::ApplicationsLocation, component);
+        QFile entry(path);
+        if (path.isEmpty() || !entry.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
         bool mainGroup = false;
         while (!entry.atEnd()) {
             const QString line = QString::fromUtf8(entry.readLine()).trimmed();
