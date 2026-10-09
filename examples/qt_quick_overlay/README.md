@@ -99,7 +99,8 @@ python3 qt_quick_overlay/tests/hotkey_launcher.py
 The smoke test uses Qt's offscreen platform with software rendering. It checks
 snapshot bindings, nonfocus/transparency flags, separate Settings lifecycle,
 real mouse and keyboard activation, commands, malformed and fragmented input,
-rendering, and exit when the engine pipe closes. To keep the display screenshot,
+rendering, launch activation restoring a hidden transcript, and exit when the
+engine pipe closes. To keep the display screenshot,
 set `USIT_QT_TEST_SCREENSHOT=/tmp/usit-qt.png`. Set
 `USIT_QT_LIVE_TRAY_TEST=1` only when deliberately testing the current desktop's
 tray; the default smoke test stays offscreen.
@@ -125,6 +126,11 @@ object on stdin replaces that state. Controls call
 `usitBridge.send(type, value)`; compact JSON commands go to stdout. Diagnostics
 go to stderr. stdin is nonblocking, and EOF exits the helper. Rust owns model
 activation, capture, gain, persistence, and text injection.
+
+Snapshots carry an `activation` counter. An untagged `usit --qt` holds a lock and
+socket under `$XDG_RUNTIME_DIR/usit/`; a later launch increments the running
+session's counter and exits. The helper shows the hidden transcript when the
+counter rises, without taking focus, like a tray click.
 
 The same executable accepts `--hotkey-only`, which creates neither QML windows
 nor a tray icon. Its input snapshots contain `push_to_talk` and `ptt_shortcut`.

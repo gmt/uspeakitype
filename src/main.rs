@@ -17,7 +17,7 @@ use terminal_size::{terminal_size, Height, Width};
 use usit::audio::capture::{CaptureEvent, CaptureMessage};
 use usit::audio::{self, AudioCapture, CaptureConfig, CaptureControl};
 use usit::config::{AsrModelId, Config};
-use usit::instance::{find_duplicate_tag, find_instances};
+use usit::instance::{claim_session, find_duplicate_tag, find_instances, SessionClaim};
 use usit::model_cache::{self, ActivationResult};
 use usit::spectrum::get_color_scheme;
 use usit::ui;
@@ -870,6 +870,25 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // A second desktop launch shows the running Qt session instead of loading
+    // another engine. Tagged sessions remain deliberately separate.
+    let qt_session = match dirs::runtime_dir() {
+        Some(directory) if args.qt && args.tag.is_none() => {
+            match claim_session(&directory.join("usit"))? {
+                SessionClaim::Primary(session) => Some(session),
+                SessionClaim::Forwarded => {
+                    eprintln!("usit is already running; showing its transcript");
+                    return Ok(());
+                }
+            }
+        }
+        None if args.qt && args.tag.is_none() => {
+            log::warn!("XDG_RUNTIME_DIR is unset; a second launch cannot find this session");
+            None
+        }
+        _ => None,
+    };
+
     // Check for duplicate tag
     if let Some(ref tag) = args.tag {
         if let Some(pid) = find_duplicate_tag(tag) {
@@ -1537,6 +1556,7 @@ fn main() -> anyhow::Result<()> {
                 capture_control.clone(),
                 overlay_options,
                 args.tag.clone(),
+                qt_session.as_ref().map(|session| session.activations()),
             )
         } else {
             ui::run(

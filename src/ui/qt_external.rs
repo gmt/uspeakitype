@@ -6,7 +6,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -83,6 +83,8 @@ struct QtSnapshot {
     error: Option<String>,
     download_progress: Option<f32>,
     spectrum: Vec<f32>,
+    /// Increments when a later launch asks this session to show itself.
+    activation: u64,
 }
 
 /// Run the Qt Quick helper, shutting down the session on closure or failure.
@@ -92,6 +94,7 @@ pub fn run(
     capture_control: Option<Arc<CaptureControl>>,
     options: OverlayRunOptions,
     tag: Option<String>,
+    activations: Option<Arc<AtomicU64>>,
 ) -> Result<()> {
     let result = run_inner(
         &audio_state,
@@ -99,6 +102,7 @@ pub fn run(
         capture_control.as_deref(),
         options,
         tag,
+        activations.as_deref(),
     );
     running.store(false, Ordering::Relaxed);
     if let Some(control) = capture_control {
@@ -113,6 +117,7 @@ fn run_inner(
     capture_control: Option<&CaptureControl>,
     options: OverlayRunOptions,
     tag: Option<String>,
+    activations: Option<&AtomicU64>,
 ) -> Result<()> {
     let executable =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/qt-quick/usit-qt-overlay");
@@ -187,6 +192,7 @@ fn run_inner(
         if save_error.is_some() {
             snapshot.error = save_error.clone();
         }
+        snapshot.activation = activations.map_or(0, |count| count.load(Ordering::Relaxed));
         process.send(&snapshot)?;
         thread::sleep(SNAPSHOT_INTERVAL);
     }
@@ -327,6 +333,7 @@ fn build_snapshot(
         error: state.model_error.clone(),
         download_progress: state.download_progress,
         spectrum: spectrum.data().bands.clone(),
+        activation: 0,
     }
 }
 

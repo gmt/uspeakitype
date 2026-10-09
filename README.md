@@ -39,6 +39,11 @@ Tux tray icon to restore it, or use its listening and typing toggles. **Quit usi
 in the tray menu or **Ctrl+Q** stops the engine and microphone. Without a system
 tray, closing the window exits.
 
+Only one untagged `--qt` session runs at a time. Launching usit again, from the
+application menu or a launcher shortcut, shows the running session's transcript
+and exits without loading another model. Use `--tag NAME` to run a deliberately
+separate session.
+
 For a user-local command and application menu entry, run
 `./scripts/install-local-launcher.sh` after building. The launcher runs the
 release executable with `--qt` and forwards additional arguments. It references

@@ -193,6 +193,21 @@ int main(int argc, char **argv) {
     auto *layer = configureDisplay(display);
     tray.attach(display, settings);
     display->show();
+    // A later launch of usit asks this session to show itself instead of starting.
+    qint64 activation = -1;
+    QObject::connect(&bridge, &Bridge::stateChanged, &app, [&] {
+        const qint64 next = bridge.state().value("activation").toLongLong();
+        if (activation >= 0 && next > activation) tray.showWindow();
+        activation = next;
+    });
+    if (args.contains("--activation-test")) {
+        // The first snapshot hides the display; a later activation must restore it.
+        QObject::connect(&bridge, &Bridge::stateChanged, &app, [&] {
+            if (bridge.state().value("activation").toLongLong() == 0) display->hide();
+            else app.exit(display->isVisible() ? 0 : 2);
+        });
+        QTimer::singleShot(5000, &app, [&] { app.exit(2); });
+    }
     const int tag = args.indexOf("--tag");
     if (tag >= 0 && tag + 1 < args.size()) display->setTitle(QStringLiteral("usit — ") + args[tag + 1]);
     if (args.contains("--self-test")) {

@@ -104,5 +104,23 @@ for flag, environment, expected in checks:
         process.stdin.close()
         process.stdout.close()
         process.stderr.close()
-print("Tray actions and close lifecycle passed" +
+# A later desktop launch raises the activation counter; the hidden display returns.
+process = subprocess.Popen([str(BINARY), "--activation-test"], env=ENV,
+                           stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+try:
+    process.stdin.write(json.dumps(dict(SNAPSHOT, activation=0)).encode() + b"\n")
+    process.stdin.flush()
+    time.sleep(0.3)
+    process.stdin.write(json.dumps(dict(SNAPSHOT, activation=1)).encode() + b"\n")
+    process.stdin.flush()
+    assert process.wait(timeout=8) == 0, process.stderr.read().decode()
+finally:
+    if process.poll() is None:
+        process.kill()
+        process.wait()
+    process.stdin.close()
+    process.stdout.close()
+    process.stderr.close()
+
+print("Tray actions, close lifecycle and launch activation passed" +
       (" (including live desktop tray)" if len(checks) == 2 else " (offscreen)"))
