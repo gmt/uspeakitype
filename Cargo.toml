@@ -54,7 +54,7 @@ futures-util = "0.3"
 dirs = "5.0.1"
 sha2 = "0.10"
 wrtype = "0.1"
-resvg = "0.44"
+resvg = "0.48"
 log = "0.4.29"
 env_logger = "0.11.8"
 
