@@ -107,14 +107,17 @@ usit --push-to-talk --ptt-shortcut F9
 usit --push-to-talk=false
 ```
 
-The corresponding TOML fields are `push_to_talk = true` and `ptt_shortcut = "F9"`.
-New configurations default to continuous listening. While push-to-talk is idle,
-the PipeWire stream remains connected, but its buffers are discarded before
-recognition. Release finalizes the admitted phrase without waiting for silence.
-Boundaries are applied at audio callbacks, not sample-exact timestamps. Manual
-pause or changing modes discards an unfinished phrase. A lost shortcut helper
-closes the held gate and reports an error; restart usit to reconnect a crashed
-helper. The helper attempts to register again when KDE’s shortcut service returns.
+The corresponding TOML fields are `push_to_talk = true` and `ptt_shortcut =
+"F9"`. New configurations default to continuous listening. While push-to-talk is
+idle, the PipeWire stream remains connected, but its buffers are discarded
+before recognition. While the key is held, each pause of about two-thirds of a
+second types the phrase so far, and release types the rest without waiting for
+silence. Speech without pauses is split every 20 seconds at its quietest point,
+so long holds stay fast and accurate. Boundaries are applied at audio callbacks,
+not sample-exact timestamps. Manual pause or changing modes discards an
+unfinished phrase. A lost shortcut helper closes the held gate and reports an
+error; restart usit to reconnect a crashed helper. The helper attempts to
+register again when KDE’s shortcut service returns.
 
 ## Typing through KDE and Fcitx 5
 

@@ -504,9 +504,10 @@ impl MoonshineStreamer {
             }
 
             tokens.push(next_token);
+            let looping = trim_repetition_loop(&mut tokens);
             self.cache_seq_len = tokens.len();
 
-            if next_token == self.tokenizer.eos_token_id {
+            if looping || next_token == self.tokenizer.eos_token_id {
                 break;
             }
         }
@@ -592,6 +593,25 @@ fn find_output_name(outputs: &[ort::value::Outlet], candidates: &[&str]) -> Opti
     None
 }
 
+/// Greedy decoding can loop on ambiguous audio, repeating a phrase until the
+/// token budget runs out. At the third consecutive copy of a phrase of three or
+/// more tokens (the fifth for shorter ones), keep the first copy and stop.
+fn trim_repetition_loop(tokens: &mut Vec<u32>) -> bool {
+    for unit in 1..=16 {
+        let copies = if unit < 3 { 5 } else { 3 };
+        let span = unit * copies;
+        if tokens.len() < span {
+            continue;
+        }
+        let tail = &tokens[tokens.len() - span..];
+        if tail.chunks(unit).all(|copy| copy == &tail[..unit]) {
+            tokens.truncate(tokens.len() - span + unit);
+            return true;
+        }
+    }
+    false
+}
+
 fn estimate_max_tokens(encoder_shape: &[usize]) -> usize {
     let seq_len = encoder_shape.get(1).copied().unwrap_or(100);
     (seq_len / 10).clamp(32, 512)
@@ -647,6 +667,22 @@ mod tests {
 
         let normalized_mean: f32 = input.iter().sum::<f32>() / input.len() as f32;
         assert!(normalized_mean.abs() < 0.001);
+    }
+
+    #[test]
+    fn repetition_loops_keep_one_copy_but_short_emphasis_survives() {
+        let mut looping = vec![1, 5, 6, 7, 8, 9, 10, 8, 9, 10, 8, 9, 10];
+        assert!(trim_repetition_loop(&mut looping));
+        assert_eq!(looping, [1, 5, 6, 7, 8, 9, 10]);
+
+        let mut emphasis = vec![1, 4, 4, 4, 4];
+        assert!(!trim_repetition_loop(&mut emphasis));
+        emphasis.push(4);
+        assert!(trim_repetition_loop(&mut emphasis));
+        assert_eq!(emphasis, [1, 4]);
+
+        let mut twice = vec![1, 8, 9, 10, 8, 9, 10];
+        assert!(!trim_repetition_loop(&mut twice));
     }
 
     #[test]

@@ -26,6 +26,10 @@ pub enum StreamEvent {
 pub struct StreamingConfig {
     pub pre_roll_samples: usize,
     pub update_interval_samples: usize,
+    /// A held segment this long without a pause is split at its quietest point.
+    pub max_segment_samples: usize,
+    /// Audio kept from before the VAD hears a held segment begin.
+    pub hold_pre_roll_samples: usize,
 }
 
 impl Default for StreamingConfig {
@@ -33,8 +37,33 @@ impl Default for StreamingConfig {
         Self {
             pre_roll_samples: 2560,
             update_interval_samples: 3200,
+            max_segment_samples: 16_000 * 20,
+            hold_pre_roll_samples: 8_000,
         }
     }
+}
+
+/// VAD decisions inside a hold are made per Silero frame.
+const VAD_SLICE_SAMPLES: usize = 512;
+/// Forced splits look this far back for a quiet place to cut.
+const SPLIT_SEARCH_SAMPLES: usize = 16_000 * 3;
+const SPLIT_WINDOW_SAMPLES: usize = 1_600;
+
+/// Middle of the quietest window in the last `search` samples, where a long
+/// segment can be cut with the least chance of splitting a word.
+fn quietest_split(samples: &[f32], search: usize, window: usize) -> usize {
+    let window = window.max(1);
+    let start = samples.len().saturating_sub(search);
+    let mut best = (f32::INFINITY, samples.len());
+    let mut at = start;
+    while at + window <= samples.len() {
+        let energy: f32 = samples[at..at + window].iter().map(|s| s * s).sum();
+        if energy < best.0 {
+            best = (energy, at + window / 2);
+        }
+        at += (window / 2).max(1);
+    }
+    best.1
 }
 
 impl StreamingConfig {
@@ -97,6 +126,15 @@ pub struct StreamingTranscriber<V: VadProcessor, T: Transcriber> {
     samples_since_update: usize,
     was_speaking: bool,
     ptt_active: bool,
+    /// The hold has already committed a segment at a pause or split.
+    segmented: bool,
+    /// The VAD heard speech in the current segment.
+    segment_speech: bool,
+    /// Audio waits in pre-roll until the VAD hears a segment begin.
+    awaiting_speech: bool,
+    /// Everything held before the first onset, decoded at release if the VAD
+    /// never hears speech, so soft speech is not lost to a cautious VAD.
+    unheard: Vec<f32>,
 }
 
 impl<V: VadProcessor, T: Transcriber> StreamingTranscriber<V, T> {
@@ -111,6 +149,10 @@ impl<V: VadProcessor, T: Transcriber> StreamingTranscriber<V, T> {
             samples_since_update: 0,
             was_speaking: false,
             ptt_active: false,
+            segmented: false,
+            segment_speech: false,
+            awaiting_speech: false,
+            unheard: Vec::new(),
         }
     }
 
@@ -131,6 +173,10 @@ impl<V: VadProcessor, T: Transcriber> StreamingTranscriber<V, T> {
         self.samples_since_update = 0;
         self.was_speaking = false;
         self.ptt_active = false;
+        self.segmented = false;
+        self.segment_speech = false;
+        self.awaiting_speech = false;
+        self.unheard.clear();
     }
 
     pub fn is_speaking(&self) -> bool {
@@ -141,31 +187,101 @@ impl<V: VadProcessor, T: Transcriber> StreamingTranscriber<V, T> {
     pub fn begin_push_to_talk(&mut self) {
         self.reset();
         self.ptt_active = true;
+        self.awaiting_speech = true;
     }
 
+    /// Long holds are committed in segments: at each pause the VAD hears, and at
+    /// the quietest point of a segment that reaches `max_segment_samples`. Short
+    /// segments keep every decode fast and inside what the models handle well.
     pub fn process_push_to_talk(&mut self, samples: &[f32]) -> Result<Vec<StreamEvent>> {
         if !self.ptt_active {
             return Ok(Vec::new());
         }
-        self.transcription_buffer.extend_from_slice(samples);
-        self.samples_since_update += samples.len();
-        if self.samples_since_update >= self.config.update_interval_samples {
-            let text = self
-                .transcriber
-                .transcribe_incremental(&self.transcription_buffer)?;
-            self.samples_since_update = 0;
-            Ok(vec![StreamEvent::Partial(text)])
-        } else {
-            Ok(Vec::new())
+        let mut events = Vec::new();
+        for slice in samples.chunks(VAD_SLICE_SAMPLES) {
+            self.vad.process(slice)?;
+            let speaking = self.vad.is_speaking();
+            let paused = self.was_speaking && !speaking;
+            self.was_speaking = speaking;
+            if self.awaiting_speech {
+                if !speaking {
+                    self.pre_roll.extend(slice.iter().copied());
+                    while self.pre_roll.len() > self.config.hold_pre_roll_samples {
+                        self.pre_roll.pop_front();
+                    }
+                    if !self.segmented && self.unheard.len() < self.config.max_segment_samples {
+                        self.unheard.extend_from_slice(slice);
+                        self.samples_since_update += slice.len();
+                    }
+                    continue;
+                }
+                self.awaiting_speech = false;
+                self.unheard.clear();
+                self.transcription_buffer.extend(self.pre_roll.drain(..));
+                self.samples_since_update = self.transcription_buffer.len();
+            }
+            self.transcription_buffer.extend_from_slice(slice);
+            self.samples_since_update += slice.len();
+            self.segment_speech |= speaking;
+            if paused && self.segment_speech {
+                events.extend(self.commit_segment(self.transcription_buffer.len())?);
+                self.awaiting_speech = true;
+            } else if self.transcription_buffer.len() >= self.config.max_segment_samples {
+                let cut = quietest_split(
+                    &self.transcription_buffer,
+                    SPLIT_SEARCH_SAMPLES.min(self.config.max_segment_samples / 2),
+                    SPLIT_WINDOW_SAMPLES.min(self.config.max_segment_samples / 8),
+                );
+                events.extend(self.commit_segment(cut)?);
+                self.segment_speech = speaking;
+            }
         }
+        let previewed = if self.transcription_buffer.is_empty() {
+            &self.unheard
+        } else {
+            &self.transcription_buffer
+        };
+        if self.samples_since_update >= self.config.update_interval_samples && !previewed.is_empty()
+        {
+            let text = self.transcriber.transcribe_incremental(previewed)?;
+            self.samples_since_update = 0;
+            events.push(StreamEvent::Partial(text));
+        }
+        Ok(events)
+    }
+
+    /// Commit the first `cut` samples as a finished segment and keep the rest.
+    fn commit_segment(&mut self, cut: usize) -> Result<Vec<StreamEvent>> {
+        let rest = self.transcription_buffer.split_off(cut);
+        let text = self
+            .transcriber
+            .transcribe_final(&self.transcription_buffer)?;
+        self.transcriber.reset();
+        self.transcription_buffer = rest;
+        self.samples_since_update = self.transcription_buffer.len();
+        self.segment_speech = false;
+        self.segmented = true;
+        self.pre_roll.clear();
+        Ok(if text.trim().is_empty() {
+            Vec::new()
+        } else {
+            vec![StreamEvent::Commit(text)]
+        })
     }
 
     /// Decode every admitted sample, including a tail shorter than the update interval.
-    /// Repeated release events are harmless and never commit a second time.
+    /// Repeated release events are harmless and never commit a second time. After a
+    /// segment commit, a tail the VAD never heard speech in is discarded.
     pub fn finish_push_to_talk(&mut self) -> Result<Vec<StreamEvent>> {
-        let result = if self.ptt_active && !self.transcription_buffer.is_empty() {
+        let tail = if !self.transcription_buffer.is_empty() && self.segment_speech {
+            &self.transcription_buffer
+        } else {
+            // Only a hold the VAD never heard falls back to everything it held.
+            &self.unheard
+        };
+        let result = if self.ptt_active && !tail.is_empty() {
             self.transcriber
-                .transcribe_final(&self.transcription_buffer)
+                .transcribe_final(tail)
                 .map(|text| vec![StreamEvent::Commit(text)])
         } else {
             Ok(Vec::new())
@@ -312,6 +428,7 @@ mod tests {
             StreamingConfig {
                 pre_roll_samples: 3,
                 update_interval_samples: 3,
+                ..StreamingConfig::default()
             },
         );
         // Idle audio cannot leak into an explicitly held utterance.
@@ -343,6 +460,153 @@ mod tests {
         assert!(streamer.finish_push_to_talk().unwrap().is_empty());
     }
 
+    /// Treats samples above 0.5 as speech, so tests script the VAD with audio.
+    #[derive(Default)]
+    struct LoudnessVad {
+        speaking: bool,
+    }
+
+    impl VadProcessor for LoudnessVad {
+        fn process(&mut self, samples: &[f32]) -> Result<()> {
+            self.speaking = samples.iter().any(|sample| *sample > 0.5);
+            Ok(())
+        }
+        fn is_speaking(&self) -> bool {
+            self.speaking
+        }
+        fn reset(&mut self) {
+            self.speaking = false;
+        }
+    }
+
+    fn held(
+        vad: LoudnessVad,
+        config: StreamingConfig,
+    ) -> StreamingTranscriber<LoudnessVad, RecordingTranscriber> {
+        let mut streamer = StreamingTranscriber::new(vad, RecordingTranscriber::default(), config);
+        streamer.begin_push_to_talk();
+        streamer
+    }
+
+    fn commits(events: Vec<StreamEvent>) -> Vec<String> {
+        events
+            .into_iter()
+            .filter_map(|event| match event {
+                StreamEvent::Commit(text) => Some(text),
+                StreamEvent::Partial(_) => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn pauses_commit_segments_and_resume_with_pre_roll_on_speech() {
+        let config = StreamingConfig {
+            hold_pre_roll_samples: 256,
+            update_interval_samples: usize::MAX,
+            ..StreamingConfig::default()
+        };
+        let mut streamer = held(LoudnessVad::default(), config);
+        let speech = vec![1.0; VAD_SLICE_SAMPLES];
+        let quiet = vec![0.1; VAD_SLICE_SAMPLES];
+        let mut audio = [speech.clone(), speech.clone(), quiet.clone()].concat();
+        assert_eq!(
+            commits(streamer.process_push_to_talk(&audio).unwrap()),
+            vec![format!("{} samples", 3 * VAD_SLICE_SAMPLES)]
+        );
+        // Silence after the pause waits in pre-roll and never becomes a segment.
+        audio = [quiet.clone(), quiet.clone(), speech.clone()].concat();
+        assert!(commits(streamer.process_push_to_talk(&audio).unwrap()).is_empty());
+        assert_eq!(
+            commits(streamer.finish_push_to_talk().unwrap()),
+            vec![format!("{} samples", 256 + VAD_SLICE_SAMPLES)]
+        );
+        let resumed = streamer.transcriber.inputs.last().unwrap();
+        assert!(resumed[..256].iter().all(|sample| *sample == 0.1));
+        assert!(resumed[256..].iter().all(|sample| *sample == 1.0));
+    }
+
+    #[test]
+    fn a_hold_starts_at_speech_onset_with_pre_roll_not_at_key_down() {
+        let config = StreamingConfig {
+            hold_pre_roll_samples: 100,
+            update_interval_samples: usize::MAX,
+            ..StreamingConfig::default()
+        };
+        let mut streamer = held(LoudnessVad::default(), config);
+        let audio = [
+            vec![0.1; 4 * VAD_SLICE_SAMPLES],
+            vec![1.0; VAD_SLICE_SAMPLES],
+        ]
+        .concat();
+        streamer.process_push_to_talk(&audio).unwrap();
+        assert_eq!(
+            commits(streamer.finish_push_to_talk().unwrap()),
+            vec![format!("{} samples", 100 + VAD_SLICE_SAMPLES)]
+        );
+    }
+
+    #[test]
+    fn release_after_a_committed_pause_types_nothing_more() {
+        let config = StreamingConfig {
+            update_interval_samples: usize::MAX,
+            ..StreamingConfig::default()
+        };
+        let mut streamer = held(LoudnessVad::default(), config);
+        let audio = [
+            vec![1.0; VAD_SLICE_SAMPLES],
+            vec![0.0; 3 * VAD_SLICE_SAMPLES],
+        ]
+        .concat();
+        assert_eq!(
+            commits(streamer.process_push_to_talk(&audio).unwrap()).len(),
+            1
+        );
+        assert!(streamer.finish_push_to_talk().unwrap().is_empty());
+        // A hold the VAD never heard still commits, as before segmentation.
+        let mut quiet = held(LoudnessVad::default(), StreamingConfig::default());
+        quiet.process_push_to_talk(&[0.2; 100]).unwrap();
+        assert_eq!(
+            commits(quiet.finish_push_to_talk().unwrap()),
+            vec!["100 samples"]
+        );
+    }
+
+    #[test]
+    fn unbroken_speech_splits_at_its_quietest_point_and_keeps_the_rest() {
+        let config = StreamingConfig {
+            update_interval_samples: usize::MAX,
+            max_segment_samples: 8 * VAD_SLICE_SAMPLES,
+            ..StreamingConfig::default()
+        };
+        let mut streamer = held(LoudnessVad::default(), config);
+        let mut audio = vec![1.0; 8 * VAD_SLICE_SAMPLES];
+        // A dip the VAD still calls speech: one loud sample keeps each slice "speaking".
+        for sample in &mut audio[6 * VAD_SLICE_SAMPLES..7 * VAD_SLICE_SAMPLES] {
+            *sample = 0.6;
+        }
+        let split = commits(streamer.process_push_to_talk(&audio).unwrap());
+        assert_eq!(split.len(), 1);
+        let cut: usize = split[0].split(' ').next().unwrap().parse().unwrap();
+        assert!(
+            (6 * VAD_SLICE_SAMPLES..7 * VAD_SLICE_SAMPLES).contains(&cut),
+            "{cut}"
+        );
+        assert_eq!(
+            commits(streamer.finish_push_to_talk().unwrap()),
+            vec![format!("{} samples", 8 * VAD_SLICE_SAMPLES - cut)]
+        );
+    }
+
+    #[test]
+    fn quietest_split_finds_the_softest_window_in_the_search_span() {
+        let mut samples = vec![1.0; 1000];
+        samples[700..800].fill(0.0);
+        samples[100..200].fill(0.0); // outside the search span
+        let cut = quietest_split(&samples, 500, 100);
+        assert!((700..800).contains(&cut), "{cut}");
+        assert_eq!(quietest_split(&[], 500, 100), 0);
+    }
+
     #[test]
     fn phrase_ends_use_the_final_decode_and_partials_do_not() {
         struct TwoPass;
@@ -358,6 +622,7 @@ mod tests {
         let config = StreamingConfig {
             pre_roll_samples: 1,
             update_interval_samples: 2,
+            ..StreamingConfig::default()
         };
         let mut held =
             StreamingTranscriber::new(MockVad { speaking: false }, TwoPass, config.clone());
@@ -434,6 +699,7 @@ mod tests {
                 StreamingConfig {
                     pre_roll_samples: 3,
                     update_interval_samples: 1,
+                    ..StreamingConfig::default()
                 },
             );
             assert!(streamer.process(&[0.0, 1.0, 2.0, 3.0]).unwrap().is_empty());

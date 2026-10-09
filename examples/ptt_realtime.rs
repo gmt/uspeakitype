@@ -21,7 +21,7 @@ use usit::streaming::{BoxedTranscriber, StreamEvent, StreamingConfig, StreamingT
 
 const FRAME: usize = 341;
 
-/// Samples decoded, (hold position, cost) per preview, last preview, final text.
+/// Samples decoded, (hold position, cost) per preview, last preview, typed text.
 type Replay = (usize, Vec<(f64, Duration)>, String, String);
 
 fn main() -> Result<()> {
@@ -63,6 +63,7 @@ fn main() -> Result<()> {
     let worker = thread::spawn(move || -> Result<Replay> {
         let mut decoded = 0;
         let mut last_preview = String::new();
+        let mut committed: Vec<String> = Vec::new();
         let mut previews = Vec::new();
         let mut next = None;
         loop {
@@ -82,20 +83,23 @@ fn main() -> Result<()> {
                         previews.push((decoded as f64 / 16_000.0, started.elapsed()));
                     }
                     for event in events {
-                        if let StreamEvent::Partial(text) = event {
-                            last_preview = text;
+                        match event {
+                            StreamEvent::Partial(text) => last_preview = text,
+                            StreamEvent::Commit(text) => {
+                                println!("segment at {:5.1}s: {text}", decoded as f64 / 16_000.0);
+                                committed.push(text);
+                            }
                         }
                     }
                 }
                 CaptureEvent::Finish => {
-                    let text = streaming
-                        .finish_push_to_talk()?
-                        .into_iter()
-                        .filter_map(|event| match event {
-                            StreamEvent::Commit(text) => Some(text),
-                            StreamEvent::Partial(_) => None,
-                        })
-                        .collect();
+                    for event in streaming.finish_push_to_talk()? {
+                        if let StreamEvent::Commit(text) = event {
+                            println!("segment at release: {text}");
+                            committed.push(text);
+                        }
+                    }
+                    let text = committed.join(" ");
                     return Ok((decoded, previews, last_preview, text));
                 }
             }

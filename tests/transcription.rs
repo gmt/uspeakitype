@@ -141,7 +141,7 @@ fn test_moonshine_tiny_transcribes_speech_sample() {
 
 /// A long hold must keep every phrase. Parakeet's streaming windows once left
 /// committed chunks with 0.2 s of future audio, and later speech was dropped;
-/// release now decodes the whole phrase with full context.
+/// each paused segment now gets a full-context decode.
 #[test]
 #[ignore = "requires cached parakeet-tdt-0.6b-v3 and Silero VAD models; run explicitly with --ignored"]
 fn test_parakeet_long_hold_keeps_every_repeat() {
@@ -163,18 +163,20 @@ fn test_parakeet_long_hold_keeps_every_repeat() {
     let frame = config.update_interval_samples;
     let mut streaming = StreamingTranscriber::new(vad, transcriber, config);
     streaming.begin_push_to_talk();
+    let mut events = Vec::new();
     for chunk in held.chunks(frame) {
-        streaming.process_push_to_talk(chunk).unwrap();
+        events.extend(streaming.process_push_to_talk(chunk).unwrap());
     }
-    let committed: String = streaming
-        .finish_push_to_talk()
-        .unwrap()
+    events.extend(streaming.finish_push_to_talk().unwrap());
+    // Pauses commit segments during the hold; release commits the rest.
+    let committed = events
         .into_iter()
         .filter_map(|event| match event {
             StreamEvent::Commit(text) => Some(text),
             StreamEvent::Partial(_) => None,
         })
-        .collect();
+        .collect::<Vec<_>>()
+        .join(" ");
     println!("Parakeet long hold: {committed}");
     let lower = committed.to_lowercase();
     assert_eq!(lower.matches("saying").count(), 3, "{committed}");
