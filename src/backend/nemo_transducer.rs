@@ -29,8 +29,9 @@ const DEFAULT_LEFT_CONTEXT_SECS: f32 = 4.0;
 // The encoder attends in both directions; chunk edges with little future audio
 // decode poorly, and tokens committed from them are never revisited.
 const DEFAULT_RIGHT_CONTEXT_SECS: f32 = 1.0;
-/// Finished phrases up to this length get one full-context decode.
-const FULL_CONTEXT_MAX_SECS: f32 = 120.0;
+/// Finished phrases up to this length get one full-context decode. A looped
+/// speech sample decodes completely through 42 s and loses repeats by 48 s.
+const FULL_CONTEXT_MAX_SECS: f32 = 40.0;
 
 /// Result of a single decoder step: (logits, duration, new_state1, new_state2)
 type DecodeStepResult = (Vec<f32>, usize, Array3<f32>, Array3<f32>);

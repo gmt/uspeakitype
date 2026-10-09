@@ -3,7 +3,7 @@
 use std::convert::TryInto;
 use std::mem;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
@@ -78,18 +78,63 @@ pub struct CaptureMessage {
     pub event: CaptureEvent,
 }
 
+/// Queued audio is bounded by duration so a stalled recognizer cannot grow memory
+/// without limit; a minute is far more backlog than a working recognizer leaves.
+const MAX_QUEUED_SAMPLES: usize = 16_000 * 60;
+
 /// A bounded audio frame; control events never compete with audio for queue capacity.
 #[derive(Debug)]
 pub struct QueuedAudio {
     pub samples: Vec<f32>,
     pub push_to_talk: bool,
+    /// Samples this frame holds against the shared queue budget.
+    queued: usize,
     pending: Arc<AtomicUsize>,
+}
+
+impl QueuedAudio {
+    /// Append a later frame, taking over its share of the queue budget.
+    fn absorb(&mut self, mut later: QueuedAudio) {
+        self.samples.extend_from_slice(&later.samples);
+        self.queued += std::mem::take(&mut later.queued);
+    }
 }
 
 impl Drop for QueuedAudio {
     fn drop(&mut self) {
-        self.pending.fetch_sub(1, Ordering::Relaxed);
+        self.pending.fetch_sub(self.queued, Ordering::Relaxed);
     }
+}
+
+/// Merge push-to-talk audio queued behind `first` into it, so a recognizer that
+/// falls behind skips preview updates instead of letting held speech pile up.
+/// Returns the first message that cannot be merged; it must be handled next.
+pub fn merge_queued_audio(
+    first: &mut CaptureMessage,
+    receiver: &Receiver<CaptureMessage>,
+) -> Option<CaptureMessage> {
+    let CaptureEvent::Audio(audio) = &mut first.event else {
+        return None;
+    };
+    if !audio.push_to_talk {
+        return None;
+    }
+    while let Ok(next) = receiver.try_recv() {
+        match next.event {
+            CaptureEvent::Audio(later)
+                if later.push_to_talk && next.generation == first.generation =>
+            {
+                audio.absorb(later)
+            }
+            event => {
+                return Some(CaptureMessage {
+                    generation: next.generation,
+                    event,
+                })
+            }
+        }
+    }
+    None
 }
 
 #[derive(Debug, Default)]
@@ -117,11 +162,14 @@ impl CaptureGate {
     }
 
     fn audio(&self, samples: &[f32]) {
-        if self.sender.is_some() && self.pending.load(Ordering::Relaxed) < 100 {
-            self.pending.fetch_add(1, Ordering::Relaxed);
+        if self.sender.is_some()
+            && self.pending.load(Ordering::Relaxed) + samples.len() <= MAX_QUEUED_SAMPLES
+        {
+            self.pending.fetch_add(samples.len(), Ordering::Relaxed);
             self.send(CaptureEvent::Audio(QueuedAudio {
                 samples: samples.to_vec(),
                 push_to_talk: self.push_to_talk,
+                queued: samples.len(),
                 pending: self.pending.clone(),
             }));
         }
@@ -196,6 +244,14 @@ impl CaptureControl {
             gate.generation = gate.generation.wrapping_add(1);
             gate.held = false;
             gate.send(CaptureEvent::Reset);
+        }
+    }
+
+    /// Feed samples from a source other than PipeWire through the admission gate.
+    pub fn admit_samples(&self, samples: &[f32]) {
+        let gate = self.gate.lock();
+        if gate.admits_audio() {
+            gate.audio(samples);
         }
     }
 
@@ -1137,8 +1193,9 @@ mod tests {
         control.set_event_sender(tx);
         control.set_push_to_talk(true);
         control.set_ptt_held(true);
-        for _ in 0..110 {
-            feed_gate(&control, &[1.0]);
+        let second = vec![1.0; 16_000];
+        for _ in 0..61 {
+            feed_gate(&control, &second);
         }
         control.set_ptt_held(false);
         let events: Vec<_> = rx.try_iter().map(|message| message.event).collect();
@@ -1147,7 +1204,7 @@ mod tests {
                 .iter()
                 .filter(|e| matches!(e, CaptureEvent::Audio(_)))
                 .count(),
-            100
+            60
         );
         assert!(matches!(events.last(), Some(CaptureEvent::Finish)));
         drop(events);
@@ -1161,6 +1218,44 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert!(matches!(events[0], CaptureEvent::Begin));
         assert!(matches!(events[1], CaptureEvent::Reset));
+    }
+
+    #[test]
+    fn backlogged_ptt_audio_merges_without_crossing_key_edges_or_leaking_budget() {
+        let control = CaptureControl::new();
+        let (tx, rx) = std::sync::mpsc::channel();
+        control.set_event_sender(tx);
+        control.set_push_to_talk(true);
+        control.set_ptt_held(true);
+        feed_gate(&control, &[1.0, 2.0]);
+        feed_gate(&control, &[3.0]);
+        feed_gate(&control, &[4.0]);
+        control.set_ptt_held(false);
+        control.set_ptt_held(true);
+        feed_gate(&control, &[5.0]);
+
+        assert!(matches!(rx.recv().unwrap().event, CaptureEvent::Reset));
+        assert!(matches!(rx.recv().unwrap().event, CaptureEvent::Begin));
+        let mut first = rx.recv().unwrap();
+        let next = merge_queued_audio(&mut first, &rx).expect("release stops the merge");
+        let CaptureEvent::Audio(audio) = &first.event else {
+            panic!("first message must be audio");
+        };
+        assert_eq!(audio.samples, [1.0, 2.0, 3.0, 4.0]);
+        assert!(matches!(next.event, CaptureEvent::Finish));
+        assert_eq!(control.gate.lock().pending.load(Ordering::Relaxed), 5);
+        drop(first);
+        assert_eq!(control.gate.lock().pending.load(Ordering::Relaxed), 1);
+
+        let mut begin = rx.recv().unwrap();
+        assert!(
+            merge_queued_audio(&mut begin, &rx).is_none(),
+            "control events never merge"
+        );
+        let mut later = rx.recv().unwrap();
+        assert!(merge_queued_audio(&mut later, &rx).is_none());
+        drop(later);
+        assert_eq!(control.gate.lock().pending.load(Ordering::Relaxed), 0);
     }
 
     #[test]

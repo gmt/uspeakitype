@@ -14,7 +14,7 @@ use crossterm::terminal;
 use supports_unicode::Stream;
 use terminal_size::{terminal_size, Height, Width};
 
-use usit::audio::capture::{CaptureEvent, CaptureMessage};
+use usit::audio::capture::{merge_queued_audio, CaptureEvent, CaptureMessage};
 use usit::audio::{self, AudioCapture, CaptureConfig, CaptureControl};
 use usit::config::{AsrModelId, Config};
 use usit::instance::{claim_session, find_duplicate_tag, find_instances, SessionClaim};
@@ -1270,13 +1270,23 @@ fn main() -> anyhow::Result<()> {
         std::thread::spawn(move || {
             // Start with optional transcriber
             let mut streamer = streaming_transcriber;
+            let mut next_message: Option<CaptureMessage> = None;
 
             while worker_running.load(Ordering::Relaxed) {
-                let input = match audio_rx.recv_timeout(Duration::from_millis(50)) {
-                    Ok(event) => Some(event),
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                let input = match next_message.take() {
+                    Some(message) => Some(message),
+                    None => match audio_rx.recv_timeout(Duration::from_millis(50)) {
+                        Ok(event) => Some(event),
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    },
                 };
+                // Decode everything held so far in one pass: when recognition falls
+                // behind, live previews refresh less often but no speech is lost.
+                let input = input.map(|mut message| {
+                    next_message = merge_queued_audio(&mut message, &audio_rx);
+                    message
+                });
                 // Check for model swap requests from TUI (non-blocking)
                 if let Ok(new_variant) = model_swap_rx.try_recv() {
                     // Update requested model in shared state
