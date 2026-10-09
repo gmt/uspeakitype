@@ -122,5 +122,23 @@ finally:
     process.stdout.close()
     process.stderr.close()
 
-print("Tray actions, close lifecycle and launch activation passed" +
+# Hold-to-talk shows the hidden transcript on key-down and hides it after typing.
+process = subprocess.Popen([str(BINARY), "--auto-hide-test"], env=ENV,
+                           stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+try:
+    for held, injected in ((False, 0), (True, 0), (False, 0), (False, 1)):
+        snapshot = dict(SNAPSHOT, push_to_talk=True, ptt_held=held, injected=injected)
+        process.stdin.write(json.dumps(snapshot).encode() + b"\n")
+        process.stdin.flush()
+        time.sleep(0.15)
+    assert process.wait(timeout=8) == 0, (process.returncode, process.stderr.read().decode())
+finally:
+    if process.poll() is None:
+        process.kill()
+        process.wait()
+    process.stdin.close()
+    process.stdout.close()
+    process.stderr.close()
+
+print("Tray actions, close lifecycle, launch activation and dictation auto-hide passed" +
       (" (including live desktop tray)" if len(checks) == 2 else " (offscreen)"))

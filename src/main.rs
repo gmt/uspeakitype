@@ -1155,8 +1155,12 @@ fn main() -> anyhow::Result<()> {
                 continue;
             }
             if let Some(ref mut selected) = injector {
-                if let Err(error) = selected.inject(&request.text) {
-                    log::error!("Injection error: {error}");
+                match selected.inject(&request.text) {
+                    Ok(()) => {
+                        let mut state = injection_state.write();
+                        state.injected_phrases = state.injected_phrases.wrapping_add(1);
+                    }
+                    Err(error) => log::error!("Injection error: {error}"),
                 }
             }
         }

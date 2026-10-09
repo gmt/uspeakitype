@@ -19,6 +19,7 @@
 #include <QTest>
 #include <LayerShellQt/Window>
 #include <csignal>
+#include <functional>
 
 // The tray is a second view of engine state; actions use the same commands as QML.
 class Tray : public QObject {
@@ -138,6 +139,44 @@ private:
     QAction *showAction, *listenAction, *holdAction, *typeAction, *quitAction;
 };
 
+// In hold-to-talk mode the transcript follows dictation: it appears when the key
+// goes down and leaves shortly after the phrase has been typed. Untyped text stays
+// visible so it can still be read.
+class DictationVisibility : public QObject {
+public:
+    DictationVisibility(Bridge &bridge, std::function<void()> show, std::function<void()> hide,
+                        int delayMs = 1500)
+        : bridge(bridge), show(std::move(show)), hide(std::move(hide)) {
+        timer.setSingleShot(true);
+        timer.setInterval(delayMs);
+        connect(&timer, &QTimer::timeout, this, [this] {
+            const auto state = this->bridge.state();
+            if (state.value("push_to_talk").toBool() && !state.value("ptt_held").toBool()) this->hide();
+        });
+        connect(&bridge, &Bridge::stateChanged, this, &DictationVisibility::update);
+    }
+private:
+    void update() {
+        const auto state = bridge.state();
+        const bool ptt = state.value("push_to_talk").toBool();
+        const bool held = ptt && state.value("ptt_held").toBool();
+        const qint64 typed = state.value("injected").toLongLong();
+        if (held && !wasHeld) {
+            timer.stop();
+            show();
+        } else if (ptt && !held && injected >= 0 && typed > injected) {
+            timer.start();
+        }
+        wasHeld = held;
+        injected = typed;
+    }
+    Bridge &bridge;
+    std::function<void()> show, hide;
+    QTimer timer;
+    bool wasHeld = false;
+    qint64 injected = -1;
+};
+
 static LayerShellQt::Window *configureDisplay(QQuickWindow *window) {
     // Attach before the first show() so Qt never maps this as a focusable xdg window.
     if (QGuiApplication::platformName().startsWith("wayland")) {
@@ -200,6 +239,24 @@ int main(int argc, char **argv) {
         if (activation >= 0 && next > activation) tray.showWindow();
         activation = next;
     });
+    const bool autoHideTest = args.contains("--auto-hide-test");
+    // Without a tray the hidden transcript would strand the Controls button.
+    DictationVisibility dictation(bridge, [&] { tray.showWindow(); },
+        [&] { if (autoHideTest) display->hide(); else tray.hideToTray(); },
+        autoHideTest ? 100 : 1500);
+    if (autoHideTest) {
+        // Snapshots: idle, held (shows a hidden display), released and typed (hides it).
+        display->hide();
+        QObject::connect(&bridge, &Bridge::stateChanged, &app, [&] {
+            const auto state = bridge.state();
+            if (state.value("injected").toLongLong() == 0) return;
+            QTimer::singleShot(400, &app, [&] { app.exit(display->isVisible() ? 2 : 0); });
+        });
+        QObject::connect(&bridge, &Bridge::stateChanged, &app, [&] {
+            if (bridge.state().value("ptt_held").toBool() && !display->isVisible()) app.exit(3);
+        });
+        QTimer::singleShot(5000, &app, [&] { app.exit(4); });
+    }
     if (args.contains("--activation-test")) {
         // The first snapshot hides the display; a later activation must restore it.
         QObject::connect(&bridge, &Bridge::stateChanged, &app, [&] {

@@ -85,6 +85,8 @@ struct QtSnapshot {
     spectrum: Vec<f32>,
     /// Increments when a later launch asks this session to show itself.
     activation: u64,
+    /// Increments when a committed phrase has been typed into its target.
+    injected: u64,
 }
 
 /// Run the Qt Quick helper, shutting down the session on closure or failure.
@@ -334,6 +336,7 @@ fn build_snapshot(
         download_progress: state.download_progress,
         spectrum: spectrum.data().bands.clone(),
         activation: 0,
+        injected: state.injected_phrases,
     }
 }
 

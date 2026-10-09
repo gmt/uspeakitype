@@ -39,6 +39,10 @@ Tux tray icon to restore it, or use its listening and typing toggles. **Quit usi
 in the tray menu or **Ctrl+Q** stops the engine and microphone. Without a system
 tray, closing the window exits.
 
+In hold-to-talk mode the transcript follows dictation: pressing the hold key
+shows it, and it hides into the tray 1.5 seconds after the phrase is typed.
+Text that was not typed, for example with typing off, stays visible.
+
 Only one untagged `--qt` session runs at a time. Launching usit again, from the
 application menu or a launcher shortcut, shows the running session's transcript
 and exits without loading another model. Use `--tag NAME` to run a deliberately

@@ -99,8 +99,8 @@ python3 qt_quick_overlay/tests/hotkey_launcher.py
 The smoke test uses Qt's offscreen platform with software rendering. It checks
 snapshot bindings, nonfocus/transparency flags, separate Settings lifecycle,
 real mouse and keyboard activation, commands, malformed and fragmented input,
-rendering, launch activation restoring a hidden transcript, and exit when the
-engine pipe closes. To keep the display screenshot,
+rendering, launch activation restoring a hidden transcript, hold-to-talk
+auto-hide after typing, and exit when the engine pipe closes. To keep the display screenshot,
 set `USIT_QT_TEST_SCREENSHOT=/tmp/usit-qt.png`. Set
 `USIT_QT_LIVE_TRAY_TEST=1` only when deliberately testing the current desktop's
 tray; the default smoke test stays offscreen.
@@ -131,6 +131,10 @@ Snapshots carry an `activation` counter. An untagged `usit --qt` holds a lock an
 socket under `$XDG_RUNTIME_DIR/usit/`; a later launch increments the running
 session's counter and exits. The helper shows the hidden transcript when the
 counter rises, without taking focus, like a tray click.
+
+Snapshots also carry an `injected` counter of phrases typed into their
+targets. In hold-to-talk mode the helper shows the transcript on key-down and
+hides it into the tray shortly after `injected` rises; without a tray it stays.
 
 The same executable accepts `--hotkey-only`, which creates neither QML windows
 nor a tray icon. Its input snapshots contain `push_to_talk` and `ptt_shortcut`.

@@ -62,6 +62,8 @@ pub struct AudioState {
     pub session_source_name: Option<String>,
     pub source_change_pending_restart: bool,
     pub injection_enabled: bool,
+    /// Counts phrases a backend has typed, so frontends can react to delivery.
+    pub injected_phrases: u64,
     /// Download progress: None when not downloading, Some(0.0..1.0) during download
     pub download_progress: Option<f32>,
     /// Model/cache error message to display prominently
@@ -98,6 +100,7 @@ impl Default for AudioState {
             session_source_name: None,
             source_change_pending_restart: false,
             injection_enabled: true,
+            injected_phrases: 0,
             download_progress: None,
             model_error: None,
             transcription_available: false,
