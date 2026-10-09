@@ -126,7 +126,7 @@ finally:
 process = subprocess.Popen([str(BINARY), "--auto-hide-test"], env=ENV,
                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 try:
-    for held, injected in ((False, 0), (True, 0), (False, 0), (False, 1)):
+    for held, injected in ((False, 0), (True, 0), (True, 1), (False, 1)):
         snapshot = dict(SNAPSHOT, push_to_talk=True, ptt_held=held, injected=injected)
         process.stdin.write(json.dumps(snapshot).encode() + b"\n")
         process.stdin.flush()

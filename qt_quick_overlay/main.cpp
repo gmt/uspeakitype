@@ -140,8 +140,8 @@ private:
 };
 
 // In hold-to-talk mode the transcript follows dictation: it appears when the key
-// goes down and leaves shortly after the phrase has been typed. Untyped text stays
-// visible so it can still be read.
+// goes down and leaves shortly after release once the hold has typed something,
+// including segments typed at pauses. Untyped text stays visible to be read.
 class DictationVisibility : public QObject {
 public:
     DictationVisibility(Bridge &bridge, std::function<void()> show, std::function<void()> hide,
@@ -161,10 +161,14 @@ private:
         const bool ptt = state.value("push_to_talk").toBool();
         const bool held = ptt && state.value("ptt_held").toBool();
         const qint64 typed = state.value("injected").toLongLong();
+        const bool typedNow = injected >= 0 && typed > injected;
         if (held && !wasHeld) {
             timer.stop();
+            typedThisHold = false;
             show();
-        } else if (ptt && !held && injected >= 0 && typed > injected) {
+        } else if (held && typedNow) {
+            typedThisHold = true;
+        } else if (ptt && !held && (typedNow || (wasHeld && typedThisHold))) {
             timer.start();
         }
         wasHeld = held;
@@ -173,7 +177,7 @@ private:
     Bridge &bridge;
     std::function<void()> show, hide;
     QTimer timer;
-    bool wasHeld = false;
+    bool wasHeld = false, typedThisHold = false;
     qint64 injected = -1;
 };
 
@@ -245,11 +249,12 @@ int main(int argc, char **argv) {
         [&] { if (autoHideTest) display->hide(); else tray.hideToTray(); },
         autoHideTest ? 100 : 1500);
     if (autoHideTest) {
-        // Snapshots: idle, held (shows a hidden display), released and typed (hides it).
+        // Snapshots: idle, held (shows a hidden display), a segment typed while
+        // held, then release with nothing more to type (hides it).
         display->hide();
         QObject::connect(&bridge, &Bridge::stateChanged, &app, [&] {
             const auto state = bridge.state();
-            if (state.value("injected").toLongLong() == 0) return;
+            if (state.value("injected").toLongLong() == 0 || state.value("ptt_held").toBool()) return;
             QTimer::singleShot(400, &app, [&] { app.exit(display->isVisible() ? 2 : 0); });
         });
         QObject::connect(&bridge, &Bridge::stateChanged, &app, [&] {

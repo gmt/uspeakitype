@@ -134,7 +134,8 @@ counter rises, without taking focus, like a tray click.
 
 Snapshots also carry an `injected` counter of phrases typed into their
 targets. In hold-to-talk mode the helper shows the transcript on key-down and
-hides it into the tray shortly after `injected` rises; without a tray it stays.
+hides it into the tray shortly after release once `injected` has risen during
+or after the hold; without a tray it stays.
 
 The same executable accepts `--hotkey-only`, which creates neither QML windows
 nor a tray icon. Its input snapshots contain `push_to_talk` and `ptt_shortcut`.
